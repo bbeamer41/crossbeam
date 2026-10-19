@@ -22,9 +22,13 @@ APRS stays in Graywolf and is outside Crossbeam.
 
 ## Shape
 
-The program is Go. One binary. SQLite will hold articles and node state when the service exists. The browser and the `crossbeam` command will change the same settings through one API. Admin access will be HTTPS on the LAN, with a login and no default password.
+The program is Go. One binary. SQLite holds articles, settings, and the sysop session. The browser and the `crossbeam` command change the same settings. Admin access is HTTPS on the LAN, with one login and no default password. The local command can also use a Unix socket.
 
 The article is the center. The canonical fields and the two renderings are specified in `docs/article.md` and implemented in `internal/article`.
+
+## Status
+
+Goals 1 and 2 are in this tree. Goal 3 has not been started.
 
 ## Goals
 

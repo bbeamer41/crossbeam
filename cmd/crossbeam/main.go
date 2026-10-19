@@ -4,32 +4,78 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+
+	versionpkg "github.com/bbeamer41/crossbeam/internal/version"
 )
 
-const version = "0.1.0"
+const version = versionpkg.String
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	os.Exit(run(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
-func run(args []string, stdout, stderr io.Writer) int {
+func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if len(args) == 0 || (len(args) == 1 && isHelp(args[0])) {
-		fmt.Fprintf(stdout, "crossbeam %s\n", version)
-		fmt.Fprintln(stdout, "Article formats only in this build. See docs/article.md.")
+		printHelp(stdout)
 		return 0
 	}
-	if len(args) == 1 && (args[0] == "version" || args[0] == "--version") {
+	switch args[0] {
+	case "version", "--version":
+		if len(args) != 1 {
+			return unknown(args, stderr)
+		}
 		fmt.Fprintln(stdout, "crossbeam", version)
 		return 0
+	case "help", "--help", "-h":
+		return unknown(args, stderr)
+	case "serve":
+		return cmdServe(ctx, args[1:], stdout, stderr)
+	case "sysop":
+		return cmdSysop(ctx, args[1:], stdin, stdout, stderr)
+	case "settings":
+		return cmdSettings(ctx, args[1:], stdout, stderr)
+	case "status":
+		return cmdStatus(ctx, args[1:], stdout, stderr)
+	case "article":
+		return cmdArticle(ctx, args[1:], stdout, stderr)
+	default:
+		return unknown(args, stderr)
 	}
-	fmt.Fprintf(stderr, "crossbeam: unknown command %q\n", strings.Join(args, " "))
-	return 2
+}
+
+func printHelp(stdout io.Writer) {
+	fmt.Fprintf(stdout, "crossbeam %s\n", version)
+	fmt.Fprintln(stdout, "Admin panel, article store, and article formats. See docs/article.md and docs/settings.md.")
+	fmt.Fprintln(stdout)
+	fmt.Fprintln(stdout, "  crossbeam serve [--state DIR] [--listen HOST:PORT] [--socket PATH] [--socket-mode 0600|0660]")
+	fmt.Fprintln(stdout, "  crossbeam sysop password [--state DIR]")
+	fmt.Fprintln(stdout, "  crossbeam settings [--state DIR | --socket PATH]")
+	fmt.Fprintln(stdout, "  crossbeam settings get KEY [--state DIR | --socket PATH]")
+	fmt.Fprintln(stdout, "  crossbeam settings set KEY VALUE [--state DIR | --socket PATH]")
+	fmt.Fprintln(stdout, "  crossbeam status [--state DIR | --socket PATH]")
+	fmt.Fprintln(stdout, "  crossbeam article preview --title TITLE [--author CALL] [--id ID] [--created TIME] [--body TEXT | --body-file PATH]")
+	fmt.Fprintln(stdout, "  crossbeam article save --title TITLE [--author CALL] [--id ID] [--created TIME] [--body TEXT | --body-file PATH] [--state DIR | --socket PATH]")
+	fmt.Fprintln(stdout, "  crossbeam article list [--state DIR | --socket PATH]")
+	fmt.Fprintln(stdout, "  crossbeam version")
 }
 
 func isHelp(arg string) bool {
 	return arg == "help" || arg == "--help" || arg == "-h"
+}
+
+func unknown(args []string, stderr io.Writer) int {
+	fmt.Fprintf(stderr, "crossbeam: unknown command %q\n", strings.Join(args, " "))
+	return 2
 }

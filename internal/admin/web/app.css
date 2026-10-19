@@ -1,0 +1,142 @@
+/* Copyright (C) 2026 K5LEB */
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+
+:root {
+  color-scheme: light;
+  --paper: #f3efe6;
+  --ink: #1a1916;
+  --green: #1e4d3a;
+  --line: #1a1916;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Segoe UI", "Liberation Sans", sans-serif;
+  line-height: 1.45;
+}
+
+header, main, footer {
+  max-width: 64rem;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.brand {
+  margin: 0;
+  font-weight: 700;
+}
+
+nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+nav a {
+  color: var(--green);
+  font-weight: 600;
+}
+
+nav form { margin: 0; }
+
+h1 { font-size: 1.4rem; margin: 0 0 1rem; }
+h2 { font-size: 1rem; margin: 0 0 0.4rem; }
+
+label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.2rem;
+}
+
+.help, footer p {
+  margin: 0.2rem 0 0.4rem;
+  font-size: 0.95rem;
+}
+
+.field { margin: 0 0 1rem; }
+
+input[type="text"], input[type="password"], textarea {
+  width: 100%;
+  max-width: 40rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+}
+
+textarea {
+  max-width: none;
+  font-family: ui-monospace, "Liberation Mono", monospace;
+}
+
+button {
+  background: var(--green);
+  color: var(--paper);
+  border: 1px solid var(--line);
+  padding: 0.4rem 0.8rem;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button + button { margin-left: 0.5rem; }
+
+a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.error { font-weight: 700; }
+
+.previews {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+pre {
+  margin: 0;
+  min-height: 8rem;
+  padding: 0.75rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  font-family: ui-monospace, "Liberation Mono", monospace;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th, td {
+  text-align: left;
+  padding: 0.4rem;
+  border-bottom: 1px solid var(--line);
+}
+
+footer {
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 800px) {
+  .previews { grid-template-columns: 1fr; }
+}

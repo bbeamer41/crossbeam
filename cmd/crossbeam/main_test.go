@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 )
@@ -43,7 +44,11 @@ func TestRun(t *testing.T) {
 }
 
 func capture(args []string) (string, string, int) {
+	return captureIn(context.Background(), args, strings.NewReader(""))
+}
+
+func captureIn(ctx context.Context, args []string, stdin *strings.Reader) (string, string, int) {
 	var stdout, stderr bytes.Buffer
-	code := run(args, &stdout, &stderr)
+	code := run(ctx, args, stdin, &stdout, &stderr)
 	return stdout.String(), stderr.String(), code
 }

@@ -8,7 +8,9 @@ The repository is GPL-3.0-or-later. See `LICENSE`.
 
 ## This build
 
-Version 0.1.0 is the article format only. It does not open a radio, speak AX.25, serve a web page, or start NomadNet. Those come in later goals. The format is `docs/article.md`. The tests are in `internal/article`.
+Version 0.2.0 is the admin panel and the article store. It serves HTTPS on a LAN address, with one sysop login and no default password. The same settings can be changed in the browser and with the `crossbeam` command. Compose shows a packet bulletin and a Micron page for one article.
+
+It does not open a radio, speak AX.25, or start NomadNet. The article format is `docs/article.md`. Install steps are `docs/install.md`. Settings are `docs/settings.md`.
 
 ```bash
 go test ./...
@@ -21,4 +23,4 @@ The radio modem is [Graywolf](https://github.com/chrissnell/graywolf), on 1200 b
 
 ## Status
 
-The plan is `docs/PLAN.md`. The first slice, the article format, is the code in `internal/article`.
+The plan is `docs/PLAN.md`. The article format is `internal/article`. The admin program is `internal/admin`, with settings in `internal/settings` and state in `internal/store`. The service file is `deploy/crossbeam.service`. It is not installed by cloning the repository.

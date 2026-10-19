@@ -1,0 +1,166 @@
+// Copyright (C) 2026 K5LEB
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package main
+
+import (
+	"bytes"
+	"context"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/bbeamer41/crossbeam/internal/store"
+)
+
+func TestArticleCommands(t *testing.T) {
+	stdout, stderr, code := capture([]string{"article", "preview", "--title", "Hello", "--author", "K5LEB", "--created", "2026-10-18T15:04:05Z", "--body", "The net meets."})
+	if code != 0 || stderr != "" || !strings.Contains(stdout, "--- packet ---") || !strings.Contains(stdout, "--- micron ---") || !strings.Contains(stdout, "Title: Hello") || !strings.Contains(stdout, "----") {
+		t.Fatalf("preview code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	stdout, stderr, code = capture([]string{"article", "preview", "--title", "Hello"})
+	if code != 1 || stdout != "" || !strings.Contains(stderr, "author is empty") {
+		t.Fatalf("invalid preview code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	_, stderr, code = capture([]string{"article", "preview", "--title", "Hello", "--author", "K5LEB", "--body", "x", "--body-file", "also.txt"})
+	if code != 2 || !strings.Contains(stderr, "--body") {
+		t.Fatalf("both bodies code=%d stderr=%q", code, stderr)
+	}
+
+	dir := filepath.Join(t.TempDir(), "state")
+	body := filepath.Join(t.TempDir(), "body.txt")
+	if err := os.WriteFile(body, []byte("The net meets Thursday."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, code = capture([]string{"article", "save", "--state", dir, "--title", "Hello", "--author", "K5LEB", "--created", "2026-10-18T15:04:05Z", "--body-file", body})
+	if code != 0 || stderr != "" || !strings.Contains(stdout, "saved 1") {
+		t.Fatalf("save code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	stdout, stderr, code = capture([]string{"article", "list", "--state", dir})
+	if code != 0 || !strings.Contains(stdout, "Hello") || !strings.Contains(stdout, "K5LEB") {
+		t.Fatalf("list code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+}
+
+func TestSysopPassword(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "state")
+	stdout, stderr, code := captureIn(context.Background(), []string{"sysop", "password", "--state", dir}, strings.NewReader(strings.Repeat("a", 11)+"\n"))
+	if code != 1 || !strings.Contains(stderr, "12") {
+		t.Fatalf("short code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	stdout, stderr, code = captureIn(context.Background(), []string{"sysop", "password", "--state", dir}, strings.NewReader("  test-password-1  \r\n"))
+	if code != 0 || !strings.Contains(stdout, "saved") {
+		t.Fatalf("set code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ok, err := st.CheckPassword(context.Background(), "  test-password-1  ")
+	if err != nil || !ok {
+		t.Fatalf("spaces were trimmed: %v %v", ok, err)
+	}
+	stdout, stderr, code = capture([]string{"sysop"})
+	if code != 2 || !strings.Contains(stderr, "sysop password") {
+		t.Fatalf("usage code=%d stderr=%q", code, stderr)
+	}
+	stdout, stderr, code = capture([]string{"serve", "--state", filepath.Join(t.TempDir(), "empty"), "--listen", "127.0.0.1:0"})
+	if code != 78 || !strings.Contains(stderr, "sysop password --state") {
+		t.Fatalf("no password code=%d stderr=%q", code, stderr)
+	}
+	_, stderr, code = capture([]string{"serve", "--socket-mode", "0666"})
+	if code != 2 || !strings.Contains(stderr, "0600 or 0660") {
+		t.Fatalf("mode code=%d stderr=%q", code, stderr)
+	}
+}
+
+func TestSocketSettings(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "state")
+	stdout, stderr, code := captureIn(context.Background(), []string{"sysop", "password", "--state", dir}, strings.NewReader("test-password-1\n"))
+	if code != 0 {
+		t.Fatalf("password %d %s %s", code, stdout, stderr)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var out lockedBuffer
+	var errb lockedBuffer
+	done := make(chan int, 1)
+	go func() {
+		done <- run(ctx, []string{"serve", "--state", dir, "--listen", "127.0.0.1:0"}, strings.NewReader(""), &out, &errb)
+	}()
+	sock := filepath.Join(dir, "crossbeam.sock")
+	deadline := time.Now().Add(8 * time.Second)
+	for {
+		if strings.Contains(out.String(), "certificate sha256 ") && dialUnix(sock) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("serve did not start: %s %s", out.String(), errb.String())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !strings.Contains(out.String(), "https://127.0.0.1:") || !strings.Contains(out.String(), "unix socket "+sock) {
+		t.Fatalf("banner %s", out.String())
+	}
+	stdout, stderr, code = capture([]string{"settings", "set", "--socket", sock, "station.name", "Socket home"})
+	if code != 0 {
+		t.Fatalf("set %d %s %s", code, stdout, stderr)
+	}
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Settings(context.Background())
+	st.Close()
+	if err != nil || got["station.name"] != "Socket home" {
+		t.Fatalf("stored %v %v", got, err)
+	}
+	_, stderr, code = capture([]string{"settings", "set", "--socket", sock, "admin.public", "yes"})
+	if code != 1 || !strings.Contains(stderr, "true or false") {
+		t.Fatalf("reject %d %s", code, stderr)
+	}
+	stdout, stderr, code = capture([]string{"status", "--socket", sock})
+	if code != 0 || !strings.Contains(stdout, "crossbeam "+version) || !strings.Contains(stdout, "certificate sha256: ") {
+		t.Fatalf("status %d %s %s", code, stdout, stderr)
+	}
+	cancel()
+	select {
+	case code = <-done:
+		if code != 0 {
+			t.Fatalf("serve exit %d %s", code, errb.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("serve did not stop")
+	}
+}
+
+func dialUnix(path string) bool {
+	conn, err := net.DialTimeout("unix", path, 100*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}

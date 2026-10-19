@@ -1,0 +1,121 @@
+<!-- Copyright (C) 2026 K5LEB -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+{{define "page"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} — {{.Station}}</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header>
+<p class="brand">{{.Station}}</p>
+{{if .Authed}}
+<nav>
+<a href="/settings">Settings</a>
+<a href="/compose">Compose</a>
+<a href="/articles">Articles</a>
+<form method="post" action="/logout">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<button type="submit">Log out</button>
+</form>
+</nav>
+{{end}}
+</header>
+<main>
+{{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
+{{if eq .Kind "login"}}
+<h1>Sign in</h1>
+<form method="post" action="/login">
+<label for="password">Sysop password</label>
+<input id="password" name="password" type="password" autocomplete="current-password" required>
+<button type="submit">Sign in</button>
+</form>
+{{end}}
+{{if eq .Kind "settings"}}
+<h1>Settings</h1>
+<form method="post" action="/settings">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+{{range .Fields}}
+<div class="field">
+<label for="field-{{.Key}}">{{.Key}}</label>
+<p class="help">{{.Help}}</p>
+{{if eq .Kind "bool"}}
+<input type="hidden" name="{{.Key}}" value="false">
+<input id="field-{{.Key}}" name="{{.Key}}" type="checkbox" value="true"{{if eq .Value "true"}} checked{{end}}>
+{{else}}
+<input id="field-{{.Key}}" name="{{.Key}}" type="text" value="{{.Value}}" autocomplete="off">
+{{end}}
+</div>
+{{end}}
+<button type="submit">Save settings</button>
+</form>
+{{end}}
+{{if eq .Kind "compose"}}
+<h1>Compose</h1>
+<form id="compose" method="post" action="/compose" accept-charset="utf-8">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<input type="hidden" name="row_id" value="{{.RowID}}">
+<div class="field">
+<label for="title">Title</label>
+<input id="title" name="title" type="text" value="{{.ArtTitle}}" required maxlength="200" autocomplete="off">
+</div>
+<div class="field">
+<label for="author">Author</label>
+<p class="help">Leave this empty to use the station callsign.</p>
+<input id="author" name="author" type="text" value="{{.Author}}" maxlength="64" autocomplete="off">
+</div>
+<div class="field">
+<label for="bulletin-id">ID</label>
+<input id="bulletin-id" name="id" type="text" value="{{.ArtID}}" maxlength="80" autocomplete="off">
+</div>
+<div class="field">
+<label for="created">Created</label>
+<p class="help">RFC3339, such as 2026-10-18T15:04:05Z. Leave this empty to use the current time.</p>
+<input id="created" name="created" type="text" value="{{.Created}}" autocomplete="off">
+</div>
+<div class="field">
+<label for="body">Body</label>
+<textarea id="body" name="body" rows="12">{{.Body}}</textarea>
+</div>
+<button type="submit" name="action" value="preview">Preview</button>
+<button type="submit" name="action" value="save">Save</button>
+</form>
+<p id="preview-status" class="error" role="status"></p>
+<div class="previews">
+<section>
+<h2>Packet</h2>
+<pre id="packet">{{.Packet}}</pre>
+</section>
+<section>
+<h2>Micron</h2>
+<pre id="micron">{{.Micron}}</pre>
+</section>
+</div>
+<script src="/app.js"></script>
+{{end}}
+{{if eq .Kind "articles"}}
+<h1>Articles</h1>
+<p><a href="/compose">New article</a></p>
+<table>
+<thead><tr><th>Title</th><th>Author</th><th>Created</th></tr></thead>
+<tbody>
+{{range .Articles}}
+<tr>
+<td><a href="/articles/{{.RowID}}">{{.Title}}</a></td>
+<td>{{.Author}}</td>
+<td>{{.Created}}</td>
+</tr>
+{{else}}
+<tr><td colspan="3">No articles yet.</td></tr>
+{{end}}
+</tbody>
+</table>
+{{end}}
+</main>
+<footer><p>Crossbeam {{.Version}}</p></footer>
+</body>
+</html>
+{{end}}
