@@ -156,6 +156,7 @@ func TestListenClassification(t *testing.T) {
 		"0.0.0.0:8443",
 		"[::]:8443",
 		"1.2.3.4:8443",
+		"[::ffff:1.2.3.4]:8443",
 		"8.8.8.8:53",
 		"127.0.0.1:0",
 		"192.168.1.20:8443%eth0",
@@ -185,17 +186,20 @@ func TestListenClassification(t *testing.T) {
 }
 
 func TestResolve(t *testing.T) {
-	got, err := Resolve("", false, nil)
+	plan, err := Resolve("", false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	host, port, err := net.SplitHostPort(got)
+	if plan.Name != "" || len(plan.Addrs) != 1 {
+		t.Fatalf("auto plan %+v", plan)
+	}
+	host, port, err := net.SplitHostPort(plan.Addrs[0])
 	if err != nil || port != "8443" {
-		t.Fatalf("auto %q", got)
+		t.Fatalf("auto %q", plan.Addrs[0])
 	}
 	ip := net.ParseIP(host)
 	if ip == nil || (!ip.IsLoopback() && !ip.IsPrivate()) {
-		t.Fatalf("auto address %q is not private", got)
+		t.Fatalf("auto address %q is not private", plan.Addrs[0])
 	}
 
 	_, err = Resolve("panel.example:8443", false, func(context.Context, string) ([]net.IP, error) {
@@ -204,11 +208,29 @@ func TestResolve(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "public address") {
 		t.Fatalf("public name: %v", err)
 	}
-	got, err = Resolve("panel.example:8443", false, func(context.Context, string) ([]net.IP, error) {
-		return []net.IP{net.ParseIP("192.168.1.20")}, nil
+	_, err = Resolve("panel.example:8443", false, func(context.Context, string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("192.168.1.20"), net.ParseIP("8.8.8.8")}, nil
 	})
-	if err != nil || got != "panel.example:8443" {
-		t.Fatalf("private name %q %v", got, err)
+	if err == nil || !strings.Contains(err.Error(), "public address") {
+		t.Fatalf("mixed name: %v", err)
+	}
+	plan, err = Resolve("panel.example:8443", false, func(context.Context, string) ([]net.IP, error) {
+		return []net.IP{
+			net.ParseIP("192.168.1.20"),
+			net.ParseIP("10.0.0.5"),
+			net.ParseIP("::ffff:192.168.1.20"),
+		}, nil
+	})
+	if err != nil || plan.Name != "panel.example" || len(plan.Addrs) != 2 || plan.Addrs[0] != "192.168.1.20:8443" || plan.Addrs[1] != "10.0.0.5:8443" {
+		t.Fatalf("private name %+v %v", plan, err)
+	}
+	plan, err = ResolveBind("[::ffff:192.168.1.20]:0", false, nil)
+	if err != nil || plan.Name != "" || len(plan.Addrs) != 1 || plan.Addrs[0] != "192.168.1.20:0" {
+		t.Fatalf("mapped %+v %v", plan, err)
+	}
+	_, err = Resolve("[::ffff:1.2.3.4]:8443", false, nil)
+	if err == nil || !strings.Contains(err.Error(), "public address") {
+		t.Fatalf("mapped public: %v", err)
 	}
 	_, err = Resolve("missing.example:8443", false, func(context.Context, string) ([]net.IP, error) {
 		return nil, &net.DNSError{Err: "no such host", Name: "missing.example", IsNotFound: true}

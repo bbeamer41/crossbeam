@@ -216,6 +216,8 @@ func ValidatePassword(password string) error {
 	return nil
 }
 
+const unsetPasswordMaterial = "crossbeam-unset-password"
+
 var (
 	dummyOnce sync.Once
 	dummyHash []byte
@@ -224,24 +226,33 @@ var (
 
 func dummyBcrypt() ([]byte, error) {
 	dummyOnce.Do(func() {
-		dummyHash, dummyErr = bcrypt.GenerateFromPassword([]byte("crossbeam-unset-password"), bcryptCost)
+		dummyHash, dummyErr = bcrypt.GenerateFromPassword([]byte(unsetPasswordMaterial), bcryptCost)
 	})
 	return dummyHash, dummyErr
 }
 
 // CheckPassword reports whether password matches the stored hash.
 // A missing hash is still checked with bcrypt so the two cases take
-// the same amount of time. The answer is false for both.
+// the same amount of time. The answer is false when no password is set,
+// including when the guess is the internal padding string.
 func (s *Store) CheckPassword(ctx context.Context, password string) (bool, error) {
-	var hash string
-	err := s.db.QueryRowContext(ctx, `SELECT password_hash FROM sysop WHERE id = 1`).Scan(&hash)
-	if errors.Is(err, sql.ErrNoRows) {
-		hash = ""
-		err = nil
-	}
+	hash, err := s.passwordHash(ctx)
 	if err != nil {
 		return false, err
 	}
+	return comparePassword(hash, password)
+}
+
+func (s *Store) passwordHash(ctx context.Context) (string, error) {
+	var hash string
+	err := s.db.QueryRowContext(ctx, `SELECT password_hash FROM sysop WHERE id = 1`).Scan(&hash)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return hash, err
+}
+
+func comparePassword(hash, password string) (bool, error) {
 	compare := password
 	if ValidatePassword(password) != nil {
 		compare = "invalid-password-pad"
@@ -251,10 +262,54 @@ func (s *Store) CheckPassword(ctx context.Context, password string) (bool, error
 		if err != nil {
 			return false, err
 		}
-		hash = string(dummy)
+		_ = bcrypt.CompareHashAndPassword(dummy, []byte(compare))
+		return false, nil
 	}
-	match := bcrypt.CompareHashAndPassword([]byte(hash), []byte(compare)) == nil
-	return match, nil
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(compare)) == nil, nil
+}
+
+// testHookBeforeLoginTx runs after a password matches and before the
+// session row is written. Tests use it to change the password in that window.
+var testHookBeforeLoginTx func()
+
+// Login checks the password and stores a new session. The hash is read
+// again inside the write transaction, so a password change in between
+// does not leave a session for the old password. No session is created
+// when the password is unset.
+func (s *Store) Login(ctx context.Context, password string) (Session, bool, error) {
+	hash, err := s.passwordHash(ctx)
+	if err != nil {
+		return Session{}, false, err
+	}
+	ok, err := comparePassword(hash, password)
+	if err != nil || !ok {
+		return Session{}, false, err
+	}
+	if testHookBeforeLoginTx != nil {
+		testHookBeforeLoginTx()
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Session{}, false, err
+	}
+	defer tx.Rollback()
+	var current string
+	err = tx.QueryRowContext(ctx, `SELECT password_hash FROM sysop WHERE id = 1`).Scan(&current)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && current != hash) {
+		return Session{}, false, nil
+	}
+	if err != nil {
+		return Session{}, false, err
+	}
+	session, err := insertSession(ctx, tx)
+	if err != nil {
+		return Session{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Session{}, false, err
+	}
+	s.tighten()
+	return session, true, nil
 }
 
 // Settings returns every schema value, including defaults for keys that
@@ -351,8 +406,26 @@ type Session struct {
 	Expires time.Time
 }
 
-// CreateSession stores only the SHA-256 of the token.
+// CreateSession stores only the SHA-256 of the token. Login is the
+// path that checks a password first.
 func (s *Store) CreateSession(ctx context.Context) (Session, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Session{}, err
+	}
+	defer tx.Rollback()
+	session, err := insertSession(ctx, tx)
+	if err != nil {
+		return Session{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Session{}, err
+	}
+	s.tighten()
+	return session, nil
+}
+
+func insertSession(ctx context.Context, tx *sql.Tx) (Session, error) {
 	raw := make([]byte, 32)
 	csrfRaw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
@@ -365,19 +438,21 @@ func (s *Store) CreateSession(ctx context.Context) (Session, error) {
 	csrf := hex.EncodeToString(csrfRaw)
 	sum := sha256.Sum256([]byte(token))
 	expires := time.Now().UTC().Add(sessionHours * time.Hour)
-	_, err := s.db.ExecContext(ctx, `
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE expires <= ?`, time.Now().Unix()); err != nil {
+		return Session{}, err
+	}
+	_, err := tx.ExecContext(ctx, `
 INSERT INTO sessions (token_hash, csrf, expires) VALUES (?, ?, ?)
 `, hex.EncodeToString(sum[:]), csrf, expires.Unix())
 	if err != nil {
 		return Session{}, err
 	}
-	s.tighten()
 	return Session{Token: token, CSRF: csrf, Expires: expires}, nil
 }
 
 // LookupSession returns the CSRF token for a live session cookie.
 func (s *Store) LookupSession(ctx context.Context, token string) (string, error) {
-	if token == "" {
+	if len(token) != 64 {
 		return "", ErrNoSession
 	}
 	sum := sha256.Sum256([]byte(token))
@@ -536,11 +611,11 @@ FROM articles WHERE row_id = ?
 	return saved, nil
 }
 
-// ListArticles returns rows newest first. Bodies are included so a
-// reopen can fill the compose form.
+// ListArticles returns rows newest first, without bodies. Reopen one
+// row with Article.
 func (s *Store) ListArticles(ctx context.Context) ([]SavedArticle, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT row_id, bulletin_id, title, author, created, body
+SELECT row_id, bulletin_id, title, author, created
 FROM articles
 ORDER BY created DESC, row_id DESC
 `)
@@ -552,7 +627,7 @@ ORDER BY created DESC, row_id DESC
 	for rows.Next() {
 		var saved SavedArticle
 		var created string
-		if err := rows.Scan(&saved.RowID, &saved.Article.ID, &saved.Article.Title, &saved.Article.Author, &created, &saved.Article.Body); err != nil {
+		if err := rows.Scan(&saved.RowID, &saved.Article.ID, &saved.Article.Title, &saved.Article.Author, &created); err != nil {
 			return nil, err
 		}
 		parsed, err := time.Parse(time.RFC3339, created)

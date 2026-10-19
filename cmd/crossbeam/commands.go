@@ -69,6 +69,10 @@ func cmdServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		SocketPath: *socket,
 		SocketMode: mode,
 	})
+	if errors.Is(err, store.ErrNoPassword) {
+		fmt.Fprintf(stderr, "crossbeam: no sysop password is set. Run: crossbeam sysop password --state %s\n", *state)
+		return 78
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "crossbeam: %s\n", err)
 		return 1
@@ -411,6 +415,10 @@ func cmdSave(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		}
 		return 2
 	}
+	if flags.fs.NArg() != 0 {
+		fmt.Fprintln(stderr, "crossbeam: article save does not take arguments")
+		return 2
+	}
 	body, code := flags.text(stderr)
 	if code != 0 {
 		return code
@@ -442,6 +450,10 @@ func cmdList(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
+		return 2
+	}
+	if fs.NArg() != 0 {
+		fmt.Fprintln(stderr, "crossbeam: article list does not take arguments")
 		return 2
 	}
 	back, code := openBackend(fs, *state, *socket, stderr)

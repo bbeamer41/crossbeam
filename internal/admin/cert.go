@@ -23,11 +23,14 @@ import (
 
 const certLifetime = 397 * 24 * time.Hour
 
-// EnsureCert returns a certificate for host, creating or replacing the
+// EnsureCert returns a certificate for hosts, creating or replacing the
 // files under dir/tls. An existing certificate is kept when it is more
-// than seven days from expiry and its names include host. The port is
-// not part of that check. The key file is mode 0600.
-func EnsureCert(dir, host string) (tls.Certificate, string, error) {
+// than seven days from expiry and its names include every host. The
+// port is not part of that check. The key file is mode 0600.
+func EnsureCert(dir string, hosts ...string) (tls.Certificate, string, error) {
+	if len(hosts) == 0 {
+		return tls.Certificate{}, "", fmt.Errorf("certificate needs a name")
+	}
 	tlsDir := filepath.Join(dir, "tls")
 	if err := os.MkdirAll(tlsDir, 0o700); err != nil {
 		return tls.Certificate{}, "", err
@@ -42,10 +45,10 @@ func EnsureCert(dir, host string) (tls.Certificate, string, error) {
 			return tls.Certificate{}, "", err
 		}
 	}
-	if pair, leaf, err := loadCert(certPath, keyPath); err == nil && certReusable(leaf, host, time.Now()) {
+	if pair, leaf, err := loadCert(certPath, keyPath); err == nil && certCovers(leaf, time.Now(), hosts...) {
 		return pair, fingerprint(leaf.Raw), nil
 	}
-	return writeCert(certPath, keyPath, host)
+	return writeCert(certPath, keyPath, hosts)
 }
 
 // Fingerprint reads the saved certificate and returns the SHA-256 of
@@ -67,13 +70,22 @@ func Fingerprint(dir string) (string, error) {
 }
 
 func certReusable(leaf *x509.Certificate, host string, now time.Time) bool {
-	if leaf == nil {
+	return certCovers(leaf, now, host)
+}
+
+func certCovers(leaf *x509.Certificate, now time.Time, hosts ...string) bool {
+	if leaf == nil || len(hosts) == 0 {
 		return false
 	}
 	if !leaf.NotAfter.After(now.Add(7 * 24 * time.Hour)) {
 		return false
 	}
-	return sanMatches(leaf, host)
+	for _, host := range hosts {
+		if !sanMatches(leaf, host) {
+			return false
+		}
+	}
+	return true
 }
 
 func sanMatches(leaf *x509.Certificate, host string) bool {
@@ -93,6 +105,68 @@ func sanMatches(leaf *x509.Certificate, host string) bool {
 	return false
 }
 
+func certSANs(hosts []string) ([]string, []net.IP) {
+	var dns []string
+	var ips []net.IP
+	seenDNS := map[string]struct{}{}
+	seenIP := map[string]struct{}{}
+	addDNS := func(name string) {
+		key := strings.ToLower(name)
+		if _, ok := seenDNS[key]; ok {
+			return
+		}
+		seenDNS[key] = struct{}{}
+		dns = append(dns, name)
+	}
+	addIP := func(ip net.IP) {
+		if ip == nil {
+			return
+		}
+		if v4 := ip.To4(); v4 != nil {
+			ip = v4
+		}
+		if _, ok := seenIP[ip.String()]; ok {
+			return
+		}
+		seenIP[ip.String()] = struct{}{}
+		ips = append(ips, ip)
+	}
+	for _, host := range hosts {
+		if ip := net.ParseIP(host); ip != nil {
+			addIP(ip)
+			if ip.IsLoopback() {
+				addDNS("localhost")
+			}
+			continue
+		}
+		if host == "" {
+			continue
+		}
+		addDNS(host)
+		if strings.EqualFold(host, "localhost") {
+			addIP(net.ParseIP("127.0.0.1"))
+			addIP(net.ParseIP("::1"))
+		}
+	}
+	return dns, ips
+}
+
+// certCN picks a common name that fits the 64-octet limit. A longer
+// hostname stays in the SAN only. Browsers match the SAN.
+func certCN(dns []string, ips []net.IP) string {
+	for _, name := range dns {
+		if len(name) <= 64 {
+			return name
+		}
+	}
+	for _, ip := range ips {
+		if text := ip.String(); len(text) <= 64 {
+			return text
+		}
+	}
+	return ""
+}
+
 func loadCert(certPath, keyPath string) (tls.Certificate, *x509.Certificate, error) {
 	pair, err := tls.LoadX509KeyPair(certPath, keyPath)
 	if err != nil {
@@ -109,7 +183,7 @@ func loadCert(certPath, keyPath string) (tls.Certificate, *x509.Certificate, err
 	return pair, leaf, nil
 }
 
-func writeCert(certPath, keyPath, host string) (tls.Certificate, string, error) {
+func writeCert(certPath, keyPath string, hosts []string) (tls.Certificate, string, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return tls.Certificate{}, "", err
@@ -121,26 +195,21 @@ func writeCert(certPath, keyPath, host string) (tls.Certificate, string, error) 
 	if serial.Sign() == 0 {
 		serial = big.NewInt(1)
 	}
+	dnsNames, ips := certSANs(hosts)
+	if len(dnsNames) == 0 && len(ips) == 0 {
+		return tls.Certificate{}, "", fmt.Errorf("certificate needs a name")
+	}
 	now := time.Now()
 	template := &x509.Certificate{
 		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: host},
+		Subject:               pkix.Name{CommonName: certCN(dnsNames, ips)},
 		NotBefore:             now.Add(-time.Minute),
 		NotAfter:              now.Add(certLifetime),
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
-	}
-	if ip := net.ParseIP(host); ip != nil {
-		template.IPAddresses = []net.IP{ip}
-		if ip.IsLoopback() {
-			template.DNSNames = []string{"localhost"}
-		}
-	} else {
-		template.DNSNames = []string{host}
-		if strings.EqualFold(host, "localhost") {
-			template.IPAddresses = []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")}
-		}
+		DNSNames:              dnsNames,
+		IPAddresses:           ips,
 	}
 	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
 	if err != nil {

@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,10 +33,12 @@ const maxBody = 1 << 20
 // Config chooses how this process listens. Listen overrides the saved
 // admin.listen for this start only. SocketPath overrides the socket under
 // the state directory. SocketMode is 0600 or 0660; zero means 0600.
+// Lookup resolves a hostname once at start. Nil uses the system resolver.
 type Config struct {
 	Listen     string
 	SocketPath string
 	SocketMode os.FileMode
+	Lookup     settings.LookupIP
 }
 
 // Running is a live admin panel.
@@ -68,11 +71,11 @@ func Start(ctx context.Context, st *store.Store, cfg Config) (*Running, error) {
 		return nil, err
 	}
 	public := current[settings.KeyPublic] == "true"
-	var addr string
+	var plan settings.Plan
 	if cfg.Listen != "" {
-		addr, err = settings.ResolveBind(cfg.Listen, public, nil)
+		plan, err = settings.ResolveBind(cfg.Listen, public, cfg.Lookup)
 	} else {
-		addr, err = settings.Resolve(current[settings.KeyListen], public, nil)
+		plan, err = settings.Resolve(current[settings.KeyListen], public, cfg.Lookup)
 	}
 	if err != nil {
 		return nil, err
@@ -84,29 +87,32 @@ func Start(ctx context.Context, st *store.Store, cfg Config) (*Running, error) {
 	if !has {
 		return nil, store.ErrNoPassword
 	}
-	host, _, err := net.SplitHostPort(addr)
+	pair, sha, err := EnsureCert(st.Dir(), certHosts(plan)...)
 	if err != nil {
 		return nil, err
 	}
-	pair, sha, err := EnsureCert(st.Dir(), host)
-	if err != nil {
-		return nil, err
+	tlsCfg := &tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		Certificates: []tls.Certificate{pair},
 	}
-	tcpLn, err := net.Listen("tcp", addr)
-	if err != nil {
-		return nil, err
-	}
+	var tlsLns []net.Listener
+	var bound []string
 	ok := false
 	defer func() {
 		if !ok {
-			tcpLn.Close()
+			for _, ln := range tlsLns {
+				_ = ln.Close()
+			}
 		}
 	}()
-	bound := tcpLn.Addr().String()
-	tlsLn := tls.NewListener(tcpLn, &tls.Config{
-		MinVersion:   tls.VersionTLS12,
-		Certificates: []tls.Certificate{pair},
-	})
+	for _, addr := range plan.Addrs {
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			return nil, err
+		}
+		bound = append(bound, ln.Addr().String())
+		tlsLns = append(tlsLns, tls.NewListener(ln, tlsCfg))
+	}
 	sock := cfg.SocketPath
 	if sock == "" {
 		sock = filepath.Join(st.Dir(), "crossbeam.sock")
@@ -115,13 +121,20 @@ func Start(ctx context.Context, st *store.Store, cfg Config) (*Running, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if !ok {
+			_ = unixLn.Close()
+			_ = os.Remove(sock)
+		}
+	}()
+	listenText := strings.Join(bound, ", ")
 	app := &app{
 		st:      st,
-		listen:  bound,
-		url:     "https://" + bound,
+		listen:  listenText,
+		url:     panelURL(plan.Name, bound),
 		sha:     sha,
 		version: version.String,
-		hosts:   allowedHosts(bound),
+		hosts:   accessHosts(plan.Name, bound),
 		lim:     newLimiter(),
 		tmpl:    pageTmpl,
 	}
@@ -129,16 +142,85 @@ func Start(ctx context.Context, st *store.Store, cfg Config) (*Running, error) {
 	plainSrv := newServer(app.handler(true))
 	running := &Running{
 		URL:        app.url,
-		Listen:     bound,
+		Listen:     listenText,
 		SocketPath: sock,
 		CertSHA256: sha,
 		https:      httpsSrv,
 		plain:      plainSrv,
 		done:       make(chan error, 1),
 	}
-	go running.serve(tlsLn, unixLn)
+	go running.serve(httpsSrv, tlsLns, plainSrv, unixLn)
 	ok = true
 	return running, nil
+}
+
+func certHosts(plan settings.Plan) []string {
+	var hosts []string
+	if plan.Name != "" {
+		hosts = append(hosts, plan.Name)
+	}
+	unspecified := false
+	for _, addr := range plan.Addrs {
+		host, _, err := net.SplitHostPort(addr)
+		if err != nil || host == "" {
+			continue
+		}
+		if ip := net.ParseIP(host); ip != nil && ip.IsUnspecified() {
+			unspecified = true
+			continue
+		}
+		hosts = append(hosts, host)
+	}
+	if unspecified {
+		hosts = append(hosts, concreteIPs()...)
+	}
+	if len(hosts) == 0 {
+		hosts = []string{"localhost"}
+	}
+	return hosts
+}
+
+func concreteIPs() []string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			ipnet, ok := addr.(*net.IPNet)
+			if !ok || ipnet.IP == nil || ipnet.IP.IsUnspecified() {
+				continue
+			}
+			ip := ipnet.IP
+			if v4 := ip.To4(); v4 != nil {
+				ip = v4
+			}
+			out = append(out, ip.String())
+		}
+	}
+	return out
+}
+
+func panelURL(name string, bound []string) string {
+	if len(bound) == 0 {
+		return ""
+	}
+	if name == "" {
+		return "https://" + bound[0]
+	}
+	_, port, err := net.SplitHostPort(bound[0])
+	if err != nil {
+		return "https://" + bound[0]
+	}
+	return "https://" + net.JoinHostPort(name, port)
 }
 
 func newServer(handler http.Handler) *http.Server {
@@ -151,12 +233,23 @@ func newServer(handler http.Handler) *http.Server {
 	}
 }
 
-func (r *Running) serve(tlsLn, unixLn net.Listener) {
-	errCh := make(chan error, 2)
-	go func() { errCh <- r.https.Serve(tlsLn) }()
-	go func() { errCh <- r.plain.Serve(unixLn) }()
+func (r *Running) serve(httpsSrv *http.Server, tlsLns []net.Listener, plainSrv *http.Server, unixLn net.Listener) {
+	type accept struct {
+		srv *http.Server
+		ln  net.Listener
+	}
+	items := make([]accept, 0, len(tlsLns)+1)
+	for _, ln := range tlsLns {
+		items = append(items, accept{srv: httpsSrv, ln: ln})
+	}
+	items = append(items, accept{srv: plainSrv, ln: unixLn})
+	errCh := make(chan error, len(items))
+	for _, item := range items {
+		item := item
+		go func() { errCh <- item.srv.Serve(item.ln) }()
+	}
 	var first error
-	for i := 0; i < 2; i++ {
+	for range items {
 		err := <-errCh
 		if err != nil && !errors.Is(err, http.ErrServerClosed) && first == nil {
 			first = err
@@ -228,6 +321,7 @@ func listenUnix(path string, mode os.FileMode) (net.Listener, error) {
 	got, err := os.Stat(path)
 	if err != nil {
 		ln.Close()
+		_ = os.Remove(path)
 		return nil, err
 	}
 	if got.Mode().Perm() != mode {

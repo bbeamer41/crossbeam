@@ -44,6 +44,14 @@ func TestArticleCommands(t *testing.T) {
 	if code != 0 || !strings.Contains(stdout, "Hello") || !strings.Contains(stdout, "K5LEB") {
 		t.Fatalf("list code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
+	_, stderr, code = capture([]string{"article", "save", "--title", "Hello", "extra"})
+	if code != 2 || !strings.Contains(stderr, "does not take arguments") {
+		t.Fatalf("save extra code=%d stderr=%q", code, stderr)
+	}
+	_, stderr, code = capture([]string{"article", "list", "extra"})
+	if code != 2 || !strings.Contains(stderr, "does not take arguments") {
+		t.Fatalf("list extra code=%d stderr=%q", code, stderr)
+	}
 }
 
 func TestSysopPassword(t *testing.T) {

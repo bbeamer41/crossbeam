@@ -36,38 +36,48 @@ func BindAllowed(listen string, public bool) error {
 	return checkListen(listen, public, true)
 }
 
-// Resolve turns a saved listen value into the address Start should bind.
-// An empty value becomes a private LAN address on port 8443, or
+// Plan is the concrete bind for one start. Addrs are passed to
+// net.Listen. A hostname is resolved once and every returned address is
+// listed, so a later lookup cannot move the socket. Name is that
+// hostname; it is empty when the operator set an IP or left the
+// address to be chosen.
+type Plan struct {
+	Addrs []string
+	Name  string
+}
+
+// Resolve turns a saved listen value into the addresses Start should
+// bind. An empty value becomes a private LAN address on port 8443, or
 // 127.0.0.1:8443 when the host has none. A hostname is resolved now.
-// Every result must be a private address unless public is set. A DNS
+// Every result must be a local address unless public is set. A DNS
 // failure stops the start. Port 0 is rejected.
-func Resolve(listen string, public bool, lookup LookupIP) (string, error) {
+func Resolve(listen string, public bool, lookup LookupIP) (Plan, error) {
 	return resolve(listen, public, lookup, false)
 }
 
 // ResolveBind is Resolve for an address this process is about to bind.
 // Port 0 is allowed so a test can ask the kernel for a free port.
-func ResolveBind(listen string, public bool, lookup LookupIP) (string, error) {
+func ResolveBind(listen string, public bool, lookup LookupIP) (Plan, error) {
 	return resolve(listen, public, lookup, true)
 }
 
-func resolve(listen string, public bool, lookup LookupIP, allowZero bool) (string, error) {
+func resolve(listen string, public bool, lookup LookupIP, allowZero bool) (Plan, error) {
 	listen = strings.TrimSpace(listen)
 	if listen == "" {
 		listen = autoListen()
 	}
 	host, port, err := splitListen(listen)
 	if err != nil {
-		return "", err
+		return Plan{}, err
 	}
 	if err := checkPort(port, allowZero); err != nil {
-		return "", err
+		return Plan{}, err
 	}
 	if ip := net.ParseIP(host); ip != nil {
 		if err := classify(ip, public); err != nil {
-			return "", err
+			return Plan{}, err
 		}
-		return net.JoinHostPort(host, port), nil
+		return Plan{Addrs: []string{net.JoinHostPort(canonicalIP(ip).String(), port)}}, nil
 	}
 	if lookup == nil {
 		lookup = defaultLookup
@@ -76,17 +86,25 @@ func resolve(listen string, public bool, lookup LookupIP, allowZero bool) (strin
 	defer cancel()
 	ips, err := lookup(ctx, host)
 	if err != nil {
-		return "", fmt.Errorf("cannot resolve %s: %w", host, err)
+		return Plan{}, fmt.Errorf("cannot resolve %s: %w", host, err)
 	}
 	if len(ips) == 0 {
-		return "", fmt.Errorf("cannot resolve %s", host)
+		return Plan{}, fmt.Errorf("cannot resolve %s", host)
 	}
+	seen := map[string]struct{}{}
+	addrs := make([]string, 0, len(ips))
 	for _, ip := range ips {
 		if err := classify(ip, public); err != nil {
-			return "", fmt.Errorf("cannot use %s: it resolved to a public address", host)
+			return Plan{}, fmt.Errorf("cannot use %s: it resolved to a public address", host)
 		}
+		dial := net.JoinHostPort(canonicalIP(ip).String(), port)
+		if _, ok := seen[dial]; ok {
+			continue
+		}
+		seen[dial] = struct{}{}
+		addrs = append(addrs, dial)
 	}
-	return net.JoinHostPort(host, port), nil
+	return Plan{Addrs: addrs, Name: host}, nil
 }
 
 func defaultLookup(ctx context.Context, host string) ([]net.IP, error) {

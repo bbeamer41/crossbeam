@@ -25,7 +25,7 @@ type app struct {
 	url     string
 	sha     string
 	version string
-	hosts   map[string]struct{}
+	hosts   hostSet
 	lim     *limiter
 	tmpl    *template.Template
 }
@@ -76,7 +76,9 @@ func (a *app) serve(w http.ResponseWriter, r *http.Request, local bool) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("X-Frame-Options", "DENY")
-	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+	w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
 	r.URL.Path = path.Clean(r.URL.Path)
 	if r.URL.Path == "." {
 		r.URL.Path = "/"
@@ -261,7 +263,7 @@ func (a *app) login(w http.ResponseWriter, r *http.Request, local, api bool) {
 		a.loginPage(w, r, false, "The sign-in request could not be read.")
 		return
 	}
-	ok, err := a.st.CheckPassword(r.Context(), password)
+	session, ok, err := a.st.Login(r.Context(), password)
 	if err != nil {
 		http.Error(w, "Sign-in is unavailable.", http.StatusInternalServerError)
 		return
@@ -279,11 +281,6 @@ func (a *app) login(w http.ResponseWriter, r *http.Request, local, api bool) {
 		return
 	}
 	a.lim.success(ip)
-	session, err := a.st.CreateSession(r.Context())
-	if err != nil {
-		http.Error(w, "Sign-in is unavailable.", http.StatusInternalServerError)
-		return
-	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,
 		Value:    session.Token,
@@ -621,24 +618,25 @@ func (a *app) articlesGet(w http.ResponseWriter, r *http.Request, local bool) {
 }
 
 func (a *app) articleOne(w http.ResponseWriter, r *http.Request, local bool) {
+	if r.Method == http.MethodPut {
+		if _, ok := a.requireChange(w, r, local, true); !ok {
+			return
+		}
+	} else if _, ok := a.requireSession(w, r, local); !ok {
+		return
+	}
 	rowID, err := rowFromPath(r.URL.Path, "/api/articles/")
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "article not found"})
 		return
 	}
 	if r.Method == http.MethodPut {
-		if _, ok := a.requireChange(w, r, local, true); !ok {
-			return
-		}
 		in, err := a.articleIn(r, rowID)
 		if err != nil {
 			writeJSON(w, statusOf(err), map[string]string{"error": "The article could not be read."})
 			return
 		}
 		a.writeSaved(w, r, in)
-		return
-	}
-	if _, ok := a.requireSession(w, r, local); !ok {
 		return
 	}
 	saved, err := a.st.Article(r.Context(), rowID)
@@ -844,10 +842,23 @@ func cleanErr(err error) string {
 		return ""
 	}
 	text := err.Error()
-	if len(text) > 300 || strings.Contains(text, "\n") {
+	if !safeClientErr(text) {
 		return "The change was rejected."
 	}
 	return text
+}
+
+func safeClientErr(text string) bool {
+	if text == "" || len(text) > 300 || strings.ContainsAny(text, "\r\n") {
+		return false
+	}
+	lower := strings.ToLower(text)
+	for _, bad := range []string{"sqlite", "password_hash", ".db", "token_hash", "/home/", "/var/"} {
+		if strings.Contains(lower, bad) {
+			return false
+		}
+	}
+	return true
 }
 
 func tooLarge(err error) bool {

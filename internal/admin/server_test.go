@@ -8,10 +8,13 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
+	"errors"
 	"io"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -313,7 +316,180 @@ func TestPublicBindRejected(t *testing.T) {
 			t.Fatalf("%s was bound", listen)
 		}
 	}
+	st := openState(t)
+	_, err := Start(context.Background(), st, Config{
+		Listen: "panel.test:9",
+		Lookup: func(context.Context, string) ([]net.IP, error) {
+			return []net.IP{net.ParseIP("8.8.8.8")}, nil
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "public address") {
+		t.Fatalf("public name: %v", err)
+	}
 }
+
+func TestHostnameBind(t *testing.T) {
+	st := openState(t)
+	if err := st.SetPassword(context.Background(), "test-password-1"); err != nil {
+		t.Fatal(err)
+	}
+	var calls int
+	running, err := Start(context.Background(), st, Config{
+		Listen: "panel.test:0",
+		Lookup: func(context.Context, string) ([]net.IP, error) {
+			calls++
+			return []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("127.0.0.2")}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		running.Close()
+		running.Wait()
+	})
+	if calls != 1 {
+		t.Fatalf("lookups %d", calls)
+	}
+	if !strings.HasPrefix(running.URL, "https://panel.test:") {
+		t.Fatalf("url %s", running.URL)
+	}
+	bounds := strings.Split(running.Listen, ", ")
+	if len(bounds) != 2 {
+		t.Fatalf("listen %s", running.Listen)
+	}
+	pemBytes, err := os.ReadFile(filepath.Join(st.Dir(), "tls", "cert.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, _ := pem.Decode(pemBytes)
+	if block == nil {
+		t.Fatal("certificate pem")
+	}
+	leaf, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"panel.test", "127.0.0.1", "127.0.0.2"} {
+		if !sanMatches(leaf, name) {
+			t.Fatalf("certificate missing %s", name)
+		}
+	}
+	client := trustClient(t, filepath.Join(st.Dir(), "tls", "cert.pem"))
+	baseTransport := client.Transport.(*http.Transport)
+	baseTransport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		_, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, err
+		}
+		var d net.Dialer
+		return d.DialContext(ctx, network, net.JoinHostPort("127.0.0.1", port))
+	}
+	res, err := client.Get(running.URL + "/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	readAll(t, res)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("hostname %d", res.StatusCode)
+	}
+	req, err := http.NewRequest(http.MethodGet, running.URL+"/login", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Host = "evil.example"
+	res, err = client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readAll(t, res)
+	if res.StatusCode != http.StatusForbidden {
+		t.Fatalf("evil host %d", res.StatusCode)
+	}
+	_, port, err := net.SplitHostPort(bounds[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := trustClient(t, filepath.Join(st.Dir(), "tls", "cert.pem"))
+	second.Transport.(*http.Transport).DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		var d net.Dialer
+		return d.DialContext(ctx, network, bounds[1])
+	}
+	res, err = second.Get("https://panel.test:" + port + "/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	readAll(t, res)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("second address %d", res.StatusCode)
+	}
+}
+
+func TestHostRules(t *testing.T) {
+	hosts := accessHosts("", []string{"192.0.2.10:443"})
+	req := httptest.NewRequest(http.MethodPost, "https://192.0.2.10/login", strings.NewReader("password=x"))
+	req.Host = "192.0.2.10"
+	req.Header.Set("Origin", "https://192.0.2.10")
+	if !hostAllowed(req, hosts) {
+		t.Fatal("bare 443 host was rejected")
+	}
+	req.Host = "192.0.2.10:443"
+	req.Header.Set("Origin", "https://192.0.2.10:443")
+	if !hostAllowed(req, hosts) {
+		t.Fatal("explicit 443 host was rejected")
+	}
+	req.Header.Set("Origin", "https://evil.example")
+	if hostAllowed(req, hosts) {
+		t.Fatal("evil origin was accepted")
+	}
+
+	v6 := accessHosts("", []string{"[::1]:443"})
+	req.Host = "[::1]"
+	req.Header.Set("Origin", "https://[::1]")
+	if !hostAllowed(req, v6) {
+		t.Fatal("ipv6 port 443 host was rejected")
+	}
+
+	wild := accessHosts("", []string{"0.0.0.0:8443"})
+	req = httptest.NewRequest(http.MethodGet, "https://192.0.2.10:8443/login", nil)
+	req.Host = "192.0.2.10:8443"
+	req = req.WithContext(context.WithValue(req.Context(), http.LocalAddrContextKey, fakeAddr("192.0.2.10:8443")))
+	if !hostAllowed(req, wild) {
+		t.Fatal("unspecified bind rejected its own address")
+	}
+	mapped := req.WithContext(context.WithValue(req.Context(), http.LocalAddrContextKey, fakeAddr("[::ffff:192.0.2.10]:8443")))
+	if !hostAllowed(mapped, wild) {
+		t.Fatal("mapped local address was rejected")
+	}
+	other := req.Clone(req.Context())
+	other.Host = "198.51.100.2:8443"
+	if hostAllowed(other, wild) {
+		t.Fatal("unspecified bind accepted a different host")
+	}
+
+	named := accessHosts("panel.test", []string{"192.0.2.10:8443"})
+	req = httptest.NewRequest(http.MethodPost, "https://panel.test:8443/login", nil)
+	req.Host = "panel.test:8443"
+	req.Header.Set("Origin", "https://panel.test:8443")
+	if !hostAllowed(req, named) {
+		t.Fatal("hostname was rejected")
+	}
+	req.Host = "192.0.2.10:8443"
+	req.Header.Set("Origin", "https://192.0.2.10:8443")
+	if !hostAllowed(req, named) {
+		t.Fatal("bound address was rejected")
+	}
+	req.Host = "panel.test"
+	req.Header.Del("Origin")
+	if hostAllowed(req, named) {
+		t.Fatal("hostname without its port was accepted")
+	}
+}
+
+type fakeAddr string
+
+func (fakeAddr) Network() string  { return "tcp" }
+func (a fakeAddr) String() string { return string(a) }
 
 func TestRateLimit(t *testing.T) {
 	running, _, client := startPanel(t)
@@ -427,6 +603,14 @@ func TestCertificate(t *testing.T) {
 	if certReusable(short, "127.0.0.1", time.Now()) {
 		t.Fatal("expiring cert reused")
 	}
+	long := strings.Repeat("a", 50) + "." + strings.Repeat("b", 20)
+	longPair, _, err := EnsureCert(t.TempDir(), long)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sanMatches(longPair.Leaf, long) || len(longPair.Leaf.Subject.CommonName) > 64 {
+		t.Fatalf("long name cn %q", longPair.Leaf.Subject.CommonName)
+	}
 }
 
 func TestWebAssets(t *testing.T) {
@@ -452,6 +636,132 @@ func TestWebAssets(t *testing.T) {
 	}
 	if _, err := ParseSocketMode("0600"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestLimiterKeepsLock(t *testing.T) {
+	l := newLimiter()
+	for i := 0; i < maxFailures; i++ {
+		l.fail("victim")
+	}
+	if !l.locked("victim") {
+		t.Fatal("victim was not locked")
+	}
+	id := make([]byte, 4)
+	for i := 0; i < maxClients; i++ {
+		id[0] = byte(i)
+		id[1] = byte(i >> 8)
+		l.fail(string(id))
+	}
+	if !l.locked("victim") {
+		t.Fatal("a full table cleared the lock")
+	}
+}
+
+func TestRemoteIPIgnoresForwardedHeader(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/login", nil)
+	req.RemoteAddr = "192.0.2.10:40000"
+	req.Header.Set("X-Forwarded-For", "198.51.100.2")
+	req.Header.Set("X-Real-IP", "203.0.113.5")
+	if remoteIP(req) != "192.0.2.10" {
+		t.Fatalf("remote %s", remoteIP(req))
+	}
+}
+
+func TestCleanErrHidesInternals(t *testing.T) {
+	if cleanErr(errors.New("title is empty")) != "title is empty" {
+		t.Fatal("validation error was hidden")
+	}
+	for _, text := range []string{"sqlite: no such table", "open /var/lib/crossbeam/crossbeam.db", "bad\nline"} {
+		if cleanErr(errors.New(text)) != "The change was rejected." {
+			t.Fatalf("echoed %q", text)
+		}
+	}
+}
+
+func TestUntrustedRequestEdges(t *testing.T) {
+	running, st, client := startPanel(t)
+	anon := trustClient(t, filepath.Join(st.Dir(), "tls", "cert.pem"))
+	anon.Jar = nil
+	for _, path := range []string{"/api/articles/1", "/api/articles/nope", "/articles/1", "/articles/no"} {
+		res, err := anon.Get(running.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		readAll(t, res)
+		if res.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("%s %d", path, res.StatusCode)
+		}
+	}
+	req, err := http.NewRequest(http.MethodPut, running.URL+"/api/articles/nope", strings.NewReader(`{"title":"x"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Forwarded-For", "198.51.100.9")
+	res, err := anon.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readAll(t, res)
+	if res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("put %d", res.StatusCode)
+	}
+	req, err = http.NewRequest(http.MethodPost, running.URL+"/login?password=test-password-1", strings.NewReader(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	res, err = anon.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := readAll(t, res)
+	if res.StatusCode != http.StatusUnauthorized || !strings.Contains(body, "The password is not right.") {
+		t.Fatalf("query password %d %s", res.StatusCode, body)
+	}
+
+	res, err = client.PostForm(running.URL+"/login", url.Values{"password": {"test-password-1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	readAll(t, res)
+	res, err = client.Get(running.URL + "/settings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := csrfFrom(t, readAll(t, res))
+	res, err = client.PostForm(running.URL+"/settings?csrf="+url.QueryEscape(token)+"&station.name=Evil", url.Values{
+		"station.name": {"Kept"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	readAll(t, res)
+	if res.StatusCode != http.StatusForbidden {
+		t.Fatalf("query csrf %d", res.StatusCode)
+	}
+	got, err := st.Settings(context.Background())
+	if err != nil || got[settings.KeyName] == "Evil" || got[settings.KeyName] == "Kept" {
+		t.Fatalf("query settings applied: %v %v", got, err)
+	}
+	res, err = client.PostForm(running.URL+"/settings?station.name=Evil", url.Values{
+		"csrf":         {token},
+		"station.name": {"Kept"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	readAll(t, res)
+	if res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("body save %d", res.StatusCode)
+	}
+	got, err = st.Settings(context.Background())
+	if err != nil || got[settings.KeyName] != "Kept" {
+		t.Fatalf("stored %v %v", got, err)
+	}
+	if res.Header.Get("Cache-Control") != "no-store" {
+		t.Fatalf("cache %s", res.Header.Get("Cache-Control"))
 	}
 }
 

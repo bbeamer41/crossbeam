@@ -56,7 +56,7 @@ func (l *limiter) fail(ip string) {
 	item := l.failures[ip]
 	if item == nil {
 		if len(l.failures) >= maxClients {
-			l.failures = map[string]*attempt{}
+			l.evictOne()
 		}
 		item = &attempt{}
 		l.failures[ip] = item
@@ -64,6 +64,24 @@ func (l *limiter) fail(ip string) {
 	item.fails++
 	if item.fails >= maxFailures {
 		item.until = time.Now().Add(lockout)
+	}
+}
+
+// evictOne drops one client to stay under the cap. An entry that is not
+// locked is dropped before a locked one, and the lock that ends soonest
+// is dropped before a longer one.
+func (l *limiter) evictOne() {
+	var oldestIP string
+	var oldest time.Time
+	for ip, item := range l.failures {
+		stamp := item.until
+		if oldestIP == "" || stamp.Before(oldest) {
+			oldestIP = ip
+			oldest = stamp
+		}
+	}
+	if oldestIP != "" {
+		delete(l.failures, oldestIP)
 	}
 }
 
@@ -88,30 +106,65 @@ func csrfOK(got, want string) bool {
 	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
 }
 
-func allowedHosts(listen string) map[string]struct{} {
-	set := map[string]struct{}{strings.ToLower(listen): {}}
-	host, port, err := net.SplitHostPort(listen)
-	if err != nil {
-		return set
+// hostSet is the Host values this process accepts. Unspecified is set
+// when the socket is 0.0.0.0 or ::; the request is then matched against
+// the connection's own local address.
+type hostSet struct {
+	names       map[string]struct{}
+	unspecified bool
+}
+
+func accessHosts(name string, bound []string) hostSet {
+	set := hostSet{names: map[string]struct{}{}}
+	var ports []string
+	loopback := strings.EqualFold(name, "localhost")
+	for _, addr := range bound {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			continue
+		}
+		ports = append(ports, port)
+		if ip := net.ParseIP(host); ip != nil && ip.IsUnspecified() {
+			set.unspecified = true
+			continue
+		}
+		addHostPort(&set, host, port)
+		if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+			loopback = true
+		}
 	}
-	add := func(name string) {
-		set[strings.ToLower(net.JoinHostPort(name, port))] = struct{}{}
+	if name != "" {
+		for _, port := range ports {
+			addHostPort(&set, name, port)
+		}
 	}
-	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
-		add("localhost")
-		add("127.0.0.1")
-		add("::1")
-	}
-	if strings.EqualFold(host, "localhost") {
-		add("localhost")
-		add("127.0.0.1")
-		add("::1")
+	if loopback {
+		for _, port := range ports {
+			addHostPort(&set, "localhost", port)
+			addHostPort(&set, "127.0.0.1", port)
+			addHostPort(&set, "::1", port)
+		}
 	}
 	return set
 }
 
-func hostAllowed(r *http.Request, hosts map[string]struct{}) bool {
-	if _, ok := hosts[strings.ToLower(r.Host)]; !ok {
+func addHostPort(set *hostSet, host, port string) {
+	set.names[strings.ToLower(net.JoinHostPort(host, port))] = struct{}{}
+	if port == "443" {
+		set.names[strings.ToLower(browserHost(host))] = struct{}{}
+	}
+}
+
+func browserHost(host string) string {
+	if ip := net.ParseIP(host); ip != nil && ip.To4() == nil {
+		return "[" + ip.String() + "]"
+	}
+	return host
+}
+
+func hostAllowed(r *http.Request, hosts hostSet) bool {
+	matched, ok := requestHostMatch(r, hosts)
+	if !ok {
 		return false
 	}
 	if r.Method == http.MethodGet || r.Method == http.MethodHead {
@@ -121,10 +174,69 @@ func hostAllowed(r *http.Request, hosts map[string]struct{}) bool {
 	if origin == "" {
 		return true
 	}
-	for host := range hosts {
-		if strings.EqualFold(origin, "https://"+host) {
-			return true
-		}
+	return originMatches(origin, matched)
+}
+
+func requestHostMatch(r *http.Request, hosts hostSet) (string, bool) {
+	key := strings.ToLower(r.Host)
+	if _, ok := hosts.names[key]; ok {
+		return key, true
 	}
-	return false
+	if !hosts.unspecified {
+		return "", false
+	}
+	addr, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
+	if !ok || !endpointsEqual(r.Host, addr.String()) {
+		return "", false
+	}
+	_, port, err := net.SplitHostPort(addr.String())
+	if err != nil {
+		return "", false
+	}
+	host, _, err := net.SplitHostPort(r.Host)
+	if err != nil {
+		host = strings.Trim(r.Host, "[]")
+	}
+	return strings.ToLower(net.JoinHostPort(host, port)), true
+}
+
+func originMatches(origin, hostport string) bool {
+	if strings.EqualFold(origin, "https://"+hostport) {
+		return true
+	}
+	host, port, err := net.SplitHostPort(hostport)
+	if err != nil {
+		return strings.EqualFold(origin, "https://"+hostport+":443")
+	}
+	return port == "443" && strings.EqualFold(origin, "https://"+browserHost(host))
+}
+
+func endpointsEqual(header, local string) bool {
+	localHost, localPort, err := net.SplitHostPort(local)
+	if err != nil {
+		return false
+	}
+	headerHost, headerPort, err := net.SplitHostPort(header)
+	if err != nil {
+		if localPort != "443" {
+			return false
+		}
+		headerHost = strings.Trim(header, "[]")
+		headerPort = "443"
+	}
+	if headerPort != localPort {
+		return false
+	}
+	a := net.ParseIP(headerHost)
+	b := net.ParseIP(localHost)
+	if a == nil || b == nil {
+		return strings.EqualFold(headerHost, localHost)
+	}
+	if v4 := a.To4(); v4 != nil {
+		a = v4
+	}
+	if v4 := b.To4(); v4 != nil {
+		b = v4
+	}
+	return a.Equal(b)
 }

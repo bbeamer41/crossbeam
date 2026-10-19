@@ -178,16 +178,16 @@ func TestArticles(t *testing.T) {
 		t.Fatalf("update clash: %v", err)
 	}
 	loaded, err := s.Article(ctx, first.RowID)
-	if err != nil || loaded.Article.Title != "Net night notes" {
+	if err != nil || loaded.Article.Title != "Net night notes" || loaded.Article.Body != "The net meets Thursday." {
 		t.Fatalf("%v %+v", err, loaded)
 	}
 	list, err := s.ListArticles(ctx)
 	if err != nil || len(list) != 3 {
 		t.Fatalf("%v %d", err, len(list))
 	}
-	_, err = s.SaveArticle(ctx, ArticleIn{Title: "No author", Now: now})
-	if err == nil {
-		// callsign is set, so author is filled
+	filled, err := s.SaveArticle(ctx, ArticleIn{Title: "No author", Now: now})
+	if err != nil || filled.Article.Author != "K5LEB" {
+		t.Fatalf("callsign author: %v %+v", err, filled.Article)
 	}
 	if _, err := s.db.ExecContext(ctx, `UPDATE articles SET created = 'nope' WHERE row_id = ?`, first.RowID); err != nil {
 		t.Fatal(err)
@@ -197,6 +197,48 @@ func TestArticles(t *testing.T) {
 	}
 	if _, err := s.Prepare(ctx, ArticleIn{Title: "Bad", Author: "K5LEB", Created: "yesterday"}); err == nil {
 		t.Fatal("corrupt created was prepared")
+	}
+}
+
+func TestLoginRejectsUnsetAndStalePassword(t *testing.T) {
+	s := openStore(t, filepath.Join(t.TempDir(), "state"))
+	ctx := context.Background()
+	ok, err := s.CheckPassword(ctx, unsetPasswordMaterial)
+	if err != nil || ok {
+		t.Fatalf("dummy check %v %v", ok, err)
+	}
+	if _, ok, err := s.Login(ctx, unsetPasswordMaterial); err != nil || ok {
+		t.Fatalf("dummy login %v %v", ok, err)
+	}
+	if err := s.SetPassword(ctx, "test-password-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO sessions (token_hash, csrf, expires) VALUES ('expired', ?, ?)`, strings.Repeat("ab", 32), time.Now().Add(-time.Hour).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	session, ok, err := s.Login(ctx, "test-password-1")
+	if err != nil || !ok || len(session.Token) != 64 {
+		t.Fatalf("login %v %v %+v", ok, err, session)
+	}
+	if _, err := s.LookupSession(ctx, "short"); !errors.Is(err, ErrNoSession) {
+		t.Fatalf("short token: %v", err)
+	}
+	var left int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sessions WHERE token_hash = 'expired'`).Scan(&left); err != nil || left != 0 {
+		t.Fatalf("expired sessions %d %v", left, err)
+	}
+	t.Cleanup(func() { testHookBeforeLoginTx = nil })
+	testHookBeforeLoginTx = func() {
+		if err := s.SetPassword(ctx, "replacement-1"); err != nil {
+			t.Errorf("replace password: %v", err)
+		}
+	}
+	if _, ok, err := s.Login(ctx, "test-password-1"); err != nil || ok {
+		t.Fatalf("stale login %v %v", ok, err)
+	}
+	testHookBeforeLoginTx = nil
+	if _, ok, err := s.Login(ctx, "replacement-1"); err != nil || !ok {
+		t.Fatalf("new password %v %v", ok, err)
 	}
 }
 

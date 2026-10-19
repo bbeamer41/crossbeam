@@ -40,7 +40,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now crossbeam
 ```
 
-The service listens on the saved address, or on a private LAN address at port 8443 when `admin.listen` is empty. The Unix socket is `/run/crossbeam/crossbeam.sock`, mode `0660`, so a user in the `crossbeam` group can use the command without reading the database.
+The service listens on the saved address, or on a private LAN address at port 8443 when `admin.listen` is empty. It keeps the state directory at mode `0700` and creates files with umask `0077`. The Unix socket is `/run/crossbeam/crossbeam.sock`, mode `0660`, so a user in the `crossbeam` group can use the command without reading the database.
 
 ```bash
 sudo usermod -aG crossbeam "$USER"
@@ -69,7 +69,7 @@ Use an address of this machine. A public address is rejected until you set `admi
 
 ## Offline
 
-The article store, the settings, and the admin panel on the LAN do not need a default route. A hostname in `admin.listen` is resolved when the service starts. If that lookup fails, the service does not start. Use an IP address when the machine must boot with no DNS.
+The article store, the settings, and the admin panel on the LAN do not need a default route. A hostname in `admin.listen` is resolved once when the service starts, and the panel binds those addresses. If that lookup fails, the service does not start. Use an IP address when the machine must boot with no DNS.
 
 ## Files
 
