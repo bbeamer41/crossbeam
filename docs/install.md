@@ -81,6 +81,16 @@ crossbeam connect W1AW-1 --socket /run/crossbeam/terminal.sock
 
 `?` lists the commands. `BYE` disconnects. The terminal socket is mode `0660`, next to the admin socket, so a user in the `crossbeam` group can connect without reading the state directory.
 
+## Bulletins
+
+With the link up, forward every stored article to a listed station and take the bulletins that station offers back:
+
+```bash
+crossbeam bulletin send W1AW-1 --socket /run/crossbeam/terminal.sock
+```
+
+The exchange is ASCII FBB. Details, including the bulletin id and the checksum, are in `docs/bulletin.md`.
+
 ## Offline
 
 The article store, the settings, and the admin panel on the LAN do not need a default route. A hostname in `admin.listen` is resolved once when the service starts, and the panel binds those addresses. If that lookup fails, the service does not start. Use an IP address when the machine must boot with no DNS.

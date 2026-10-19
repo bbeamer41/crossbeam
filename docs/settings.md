@@ -56,6 +56,18 @@ Each callsign is stored in uppercase. SSID 0 is stored without a suffix. At most
 
 `--peers` on `crossbeam serve` uses another list for this start and does not change the saved setting.
 
+## bulletin.to
+
+The category used when this station forwards a bulletin, such as ALL. Letters and digits, at most 12. An empty value uses ALL.
+
+This is the `TO` field of an FBB bulletin. `ALL` is the usual category. The value is stored in uppercase. The next forward uses a saved change. Restarting is not required.
+
+## bulletin.at
+
+The distribution used when this station forwards a bulletin, such as WW. Letters, digits, dots, hashes, and hyphens, at most 40. An empty value uses WW.
+
+This is the `@` field. `WW` reaches the widest set of bulletin areas. A hierarchical address such as `K5LEB.#DFW.TX` is also valid. The value is stored in uppercase. The next forward uses a saved change.
+
 ## Command
 
 Flags come before the key.

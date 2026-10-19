@@ -6,4 +6,4 @@
 package version
 
 // String is the version of this build.
-const String = "0.3.0"
+const String = "0.4.0"

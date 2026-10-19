@@ -640,6 +640,47 @@ ORDER BY created DESC, row_id DESC
 	return out, rows.Err()
 }
 
+// HasBulletinID reports whether a non-empty bulletin id is already stored.
+func (s *Store) HasBulletinID(ctx context.Context, id string) (bool, error) {
+	if strings.TrimSpace(id) == "" {
+		return false, nil
+	}
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM articles WHERE bulletin_id = ?`, id).Scan(&n)
+	return n > 0, err
+}
+
+// AllArticles returns every row oldest first, including bodies.
+func (s *Store) AllArticles(ctx context.Context) ([]SavedArticle, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT row_id, bulletin_id, title, author, created, body
+FROM articles
+ORDER BY row_id ASC
+`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SavedArticle
+	for rows.Next() {
+		var saved SavedArticle
+		var created string
+		if err := rows.Scan(&saved.RowID, &saved.Article.ID, &saved.Article.Title, &saved.Article.Author, &created, &saved.Article.Body); err != nil {
+			return nil, err
+		}
+		parsed, err := time.Parse(time.RFC3339, created)
+		if err != nil {
+			return nil, fmt.Errorf("created time is not RFC3339")
+		}
+		saved.Article.Created = parsed
+		if _, err := saved.Article.Canonical(); err != nil {
+			return nil, err
+		}
+		out = append(out, saved)
+	}
+	return out, rows.Err()
+}
+
 func isUnique(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
 }

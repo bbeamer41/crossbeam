@@ -253,7 +253,7 @@ func TestSettingsDocument(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc := string(text)
-	if len(Schema) != 6 {
+	if len(Schema) != 8 {
 		t.Fatalf("schema has %d keys", len(Schema))
 	}
 	for _, field := range Schema {
@@ -322,5 +322,32 @@ func TestLinkSettings(t *testing.T) {
 	}, false)
 	if err == nil || !strings.Contains(err.Error(), "more than one") {
 		t.Fatalf("multi %v", err)
+	}
+}
+
+func TestBulletinSettings(t *testing.T) {
+	got, err := Validate(map[string]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[KeyBulletinTo] != "ALL" || got[KeyBulletinAt] != "WW" {
+		t.Fatalf("defaults %q %q", got[KeyBulletinTo], got[KeyBulletinAt])
+	}
+	got, err = Validate(map[string]string{KeyBulletinTo: "  texas ", KeyBulletinAt: "k5leb.#dfw.tx"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[KeyBulletinTo] != "TEXAS" || got[KeyBulletinAt] != "K5LEB.#DFW.TX" {
+		t.Fatalf("canonical %q %q", got[KeyBulletinTo], got[KeyBulletinAt])
+	}
+	got, err = Validate(map[string]string{KeyBulletinTo: "", KeyBulletinAt: ""})
+	if err != nil || got[KeyBulletinTo] != "ALL" || got[KeyBulletinAt] != "WW" {
+		t.Fatalf("empty %v %v", got, err)
+	}
+	if _, err := Validate(map[string]string{KeyBulletinTo: "ALL US"}); err == nil {
+		t.Fatal("space in category was accepted")
+	}
+	if _, err := Validate(map[string]string{KeyBulletinAt: "WW/USA"}); err == nil {
+		t.Fatal("slash in distribution was accepted")
 	}
 }

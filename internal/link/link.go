@@ -51,6 +51,9 @@ type Config struct {
 	N2           int
 	Lookup       settings.LookupIP
 	Handler      func(ax25.Address, *ax25.Stream)
+	// Forward runs one FBB exchange on a dialed session. The string is
+	// the OK detail. Nil refuses the FORWARD terminal command.
+	Forward func(context.Context, *ax25.Stream) (string, error)
 }
 
 // Node is a running AX/UDP station.
@@ -73,6 +76,7 @@ type Node struct {
 	guests   map[string]*guestRoute
 	drop     func(ax25.Frame) bool
 	terms    int
+	forward  func(context.Context, *ax25.Stream) (string, error)
 }
 
 // Listen binds the UDP port and, when TerminalPath is set, the local
@@ -119,6 +123,7 @@ func Listen(cfg Config) (*Node, error) {
 		peers:    map[string]*net.UDPAddr{},
 		peerPort: map[string]int{},
 		guests:   map[string]*guestRoute{},
+		forward:  cfg.Forward,
 	}
 	if err := n.SetPeers(cfg.Peers); err != nil {
 		pc.Close()
@@ -456,14 +461,14 @@ func (n *Node) serveTerm(conn net.Conn) {
 	}
 	// The dial can take much longer than the line that asked for it.
 	_ = conn.SetDeadline(time.Time{})
-	const prefix = "CONNECT "
-	if !strings.HasPrefix(line, prefix) {
+	kind, call := terminalCommand(line)
+	if kind == "" || call == "" || strings.ContainsAny(call, " \t") {
 		fmt.Fprintf(conn, "ERR usage\n")
 		return
 	}
-	call := strings.TrimSpace(line[len(prefix):])
-	if call == "" || strings.ContainsAny(call, " \t") {
-		fmt.Fprintf(conn, "ERR usage\n")
+	if kind == "forward" && n.forward == nil {
+		_ = conn.SetDeadline(time.Now().Add(wait))
+		fmt.Fprintf(conn, "ERR forwarding is not available\n")
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), n.dialFor)
@@ -475,6 +480,20 @@ func (n *Node) serveTerm(conn net.Conn) {
 		return
 	}
 	defer stream.Close()
+	if kind == "forward" {
+		_ = conn.SetDeadline(time.Time{})
+		detail, err := n.forward(context.Background(), stream)
+		_ = conn.SetDeadline(time.Now().Add(wait))
+		if err != nil {
+			fmt.Fprintf(conn, "ERR %s\n", termErr(err))
+			return
+		}
+		if detail == "" || len(detail) > 80 || strings.ContainsAny(detail, "\r\n") {
+			detail = "forward complete"
+		}
+		fmt.Fprintf(conn, "OK %s\n", detail)
+		return
+	}
 	if _, err := fmt.Fprintf(conn, "OK\n"); err != nil {
 		return
 	}
@@ -488,6 +507,17 @@ func (n *Node) serveTerm(conn net.Conn) {
 	_, _ = io.Copy(conn, stream)
 	_ = conn.Close()
 	<-done
+}
+
+func terminalCommand(line string) (string, string) {
+	switch {
+	case strings.HasPrefix(line, "CONNECT "):
+		return "connect", strings.TrimSpace(line[len("CONNECT "):])
+	case strings.HasPrefix(line, "FORWARD "):
+		return "forward", strings.TrimSpace(line[len("FORWARD "):])
+	default:
+		return "", ""
+	}
 }
 
 func termErr(err error) string {

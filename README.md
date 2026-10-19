@@ -8,9 +8,9 @@ The repository is GPL-3.0-or-later. See `LICENSE`.
 
 ## This build
 
-Version 0.3.0 is the admin panel, the article store, and an AX/UDP link. It serves HTTPS on a LAN address, with one sysop login and no default password. The same settings can be changed in the browser and with the `crossbeam` command. Compose shows a packet bulletin and a Micron page for one article. When the link is configured, `crossbeam connect` reaches another node's prompt over UDP port 10093.
+Version 0.4.0 is the admin panel, the article store, an AX/UDP link, and ASCII FBB bulletins. It serves HTTPS on a LAN address, with one sysop login and no default password. The same settings can be changed in the browser and with the `crossbeam` command. Compose shows a packet bulletin and a Micron page for one article. When the link is configured, `crossbeam connect` reaches another node's prompt over UDP port 10093, and `crossbeam bulletin send` publishes stored articles and ingests the peer's bulletins.
 
-It does not open a radio or start NomadNet. The article format is `docs/article.md`. The link is `docs/link.md`. Install steps are `docs/install.md`. Settings are `docs/settings.md`.
+It does not open a radio or start NomadNet. The article format is `docs/article.md`. The link is `docs/link.md`. Bulletins are `docs/bulletin.md`. Install steps are `docs/install.md`. Settings are `docs/settings.md`.
 
 ```bash
 go test ./...

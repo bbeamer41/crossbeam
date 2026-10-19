@@ -618,6 +618,23 @@ func answerSABM(pc *net.UDPConn, local, remote ax25.Address, info []byte) error 
 	return err
 }
 
+func TestForwardWithoutExchange(t *testing.T) {
+	node := startNode(t, "K5LEB", true)
+	conn, err := net.Dial("unix", node.Terminal())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+	if _, err := fmt.Fprintf(conn, "FORWARD W1AW-1\n"); err != nil {
+		t.Fatal(err)
+	}
+	reply, err := bufio.NewReader(conn).ReadString('\n')
+	if err != nil || reply != "ERR forwarding is not available\n" {
+		t.Fatalf("reply %q %v", reply, err)
+	}
+}
+
 func readFrames(pc *net.UDPConn, want int, d time.Duration) []ax25.Frame {
 	pc.SetReadDeadline(time.Now().Add(d))
 	var out []ax25.Frame

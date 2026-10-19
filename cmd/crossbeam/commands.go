@@ -21,6 +21,7 @@ import (
 	"github.com/bbeamer41/crossbeam/internal/admin"
 	"github.com/bbeamer41/crossbeam/internal/article"
 	"github.com/bbeamer41/crossbeam/internal/ax25"
+	"github.com/bbeamer41/crossbeam/internal/bulletin"
 	"github.com/bbeamer41/crossbeam/internal/link"
 	"github.com/bbeamer41/crossbeam/internal/settings"
 	"github.com/bbeamer41/crossbeam/internal/store"
@@ -136,6 +137,14 @@ func startLink(ctx context.Context, st *store.Store, socketPath string, mode os.
 		Peers:        peersText,
 		TerminalPath: filepath.Join(filepath.Dir(socketPath), "terminal.sock"),
 		TerminalMode: mode,
+		Handler:      bulletin.Answer(st, call),
+		Forward: func(ctx context.Context, stream *ax25.Stream) (string, error) {
+			res, err := bulletin.Forward(ctx, st, call, stream)
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("sent %d received %d", res.Sent, res.Received), nil
+		},
 	})
 }
 
@@ -204,6 +213,73 @@ func cmdConnect(ctx context.Context, args []string, stdin io.Reader, stdout, std
 		fmt.Fprintf(stderr, "crossbeam: %s\n", err)
 		return 1
 	}
+	return 0
+}
+
+func cmdBulletin(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 || args[0] != "send" {
+		fmt.Fprintln(stderr, "crossbeam: usage: crossbeam bulletin send CALL [--state DIR | --socket PATH]")
+		if len(args) == 1 && isHelp(args[0]) {
+			return 0
+		}
+		return 2
+	}
+	fs := flag.NewFlagSet("bulletin", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	state := fs.String("state", defaultState, "state directory")
+	socket := fs.String("socket", "", "terminal socket path")
+	if err := fs.Parse(args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if fs.NArg() != 1 {
+		fmt.Fprintln(stderr, "crossbeam: usage: crossbeam bulletin send CALL [--state DIR | --socket PATH]")
+		return 2
+	}
+	if _, err := ax25.Parse(fs.Arg(0)); err != nil {
+		fmt.Fprintf(stderr, "crossbeam: %s\n", err)
+		return 2
+	}
+	path := *socket
+	if path == "" {
+		path = filepath.Join(*state, "terminal.sock")
+	}
+	conn, err := net.DialTimeout("unix", path, time.Second)
+	if err != nil {
+		fmt.Fprintln(stderr, "crossbeam: the AX/UDP link is not running")
+		return 1
+	}
+	defer conn.Close()
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		select {
+		case <-ctx.Done():
+			conn.Close()
+		case <-stop:
+		}
+	}()
+	if _, err := fmt.Fprintf(conn, "FORWARD %s\n", fs.Arg(0)); err != nil {
+		fmt.Fprintf(stderr, "crossbeam: %s\n", err)
+		return 1
+	}
+	_ = conn.SetDeadline(time.Now().Add(120 * time.Second))
+	reply, err := readConnLine(conn)
+	if err != nil {
+		fmt.Fprintln(stderr, "crossbeam: the AX/UDP link is not running")
+		return 1
+	}
+	if strings.HasPrefix(reply, "ERR ") {
+		fmt.Fprintf(stderr, "crossbeam: %s\n", reply[4:])
+		return 1
+	}
+	if !strings.HasPrefix(reply, "OK ") {
+		fmt.Fprintln(stderr, "crossbeam: the link did not accept the forward")
+		return 1
+	}
+	fmt.Fprintln(stdout, reply[3:])
 	return 0
 }
 

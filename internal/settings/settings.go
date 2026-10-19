@@ -35,6 +35,8 @@ const (
 	KeyPublic     = "admin.public"
 	KeyLinkListen = "link.listen"
 	KeyLinkPeers  = "link.peers"
+	KeyBulletinTo = "bulletin.to"
+	KeyBulletinAt = "bulletin.at"
 )
 
 // Field is one setting.
@@ -83,6 +85,20 @@ var Schema = []Field{
 		Help:     "Stations this node can call. Separate entries with spaces or commas. Each entry is CALL@host:port, such as W1AW-1@192.168.1.20:10093. A change takes effect on the next start.",
 		Kind:     KindLine,
 		MaxRunes: 2048,
+	},
+	{
+		Key:      KeyBulletinTo,
+		Help:     "The category used when this station forwards a bulletin, such as ALL. Letters and digits, at most 12. An empty value uses ALL.",
+		Kind:     KindLine,
+		Default:  "ALL",
+		MaxRunes: 12,
+	},
+	{
+		Key:      KeyBulletinAt,
+		Help:     "The distribution used when this station forwards a bulletin, such as WW. Letters, digits, dots, hashes, and hyphens, at most 40. An empty value uses WW.",
+		Kind:     KindLine,
+		Default:  "WW",
+		MaxRunes: 40,
 	},
 }
 
@@ -133,7 +149,66 @@ func Validate(values map[string]string) (map[string]string, error) {
 	if err := validateLink(out); err != nil {
 		return nil, err
 	}
+	if err := validateBulletin(out); err != nil {
+		return nil, err
+	}
 	return out, nil
+}
+
+func validateBulletin(out map[string]string) error {
+	to, err := canonicalBulletinTo(out[KeyBulletinTo])
+	if err != nil {
+		return err
+	}
+	at, err := canonicalBulletinAt(out[KeyBulletinAt])
+	if err != nil {
+		return err
+	}
+	out[KeyBulletinTo] = to
+	out[KeyBulletinAt] = at
+	return nil
+}
+
+func canonicalBulletinTo(value string) (string, error) {
+	value = strings.ToUpper(strings.TrimSpace(value))
+	if value == "" {
+		return "ALL", nil
+	}
+	if len(value) > 12 || !lettersDigits(value) {
+		return "", fmt.Errorf("bulletin.to must be letters and digits, at most 12")
+	}
+	return value, nil
+}
+
+func canonicalBulletinAt(value string) (string, error) {
+	value = strings.ToUpper(strings.TrimSpace(value))
+	if value == "" {
+		return "WW", nil
+	}
+	if len(value) > 40 || !distribution(value) {
+		return "", fmt.Errorf("bulletin.at must be letters, digits, dots, hashes, and hyphens, at most 40")
+	}
+	return value, nil
+}
+
+func lettersDigits(value string) bool {
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		if (c < 'A' || c > 'Z') && (c < '0' || c > '9') {
+			return false
+		}
+	}
+	return true
+}
+
+func distribution(value string) bool {
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		if (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '.' && c != '#' && c != '-' {
+			return false
+		}
+	}
+	return true
 }
 
 func validateLink(out map[string]string) error {

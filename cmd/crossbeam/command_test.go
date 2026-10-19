@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/bbeamer41/crossbeam/internal/ax25"
+	"github.com/bbeamer41/crossbeam/internal/bulletin"
 	"github.com/bbeamer41/crossbeam/internal/link"
 	"github.com/bbeamer41/crossbeam/internal/store"
 )
@@ -218,6 +219,143 @@ func TestSocketSettings(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("serve did not stop")
 	}
+}
+
+func TestBulletinCommand(t *testing.T) {
+	_, stderr, code := capture([]string{"bulletin"})
+	if code != 2 || !strings.Contains(stderr, "usage") {
+		t.Fatalf("usage %d %s", code, stderr)
+	}
+	_, stderr, code = capture([]string{"bulletin", "send", "--socket", filepath.Join(t.TempDir(), "missing.sock"), "W1AW-1"})
+	if code != 1 || !strings.Contains(stderr, "not running") {
+		t.Fatalf("down %d %s", code, stderr)
+	}
+
+	slaveStore, err := store.Open(filepath.Join(t.TempDir(), "slave"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer slaveStore.Close()
+	if _, err := slaveStore.SaveArticle(context.Background(), store.ArticleIn{
+		ID: "DAY", Title: "Day note", Author: "W1AW-1", Body: "From the far node.",
+		Created: "2019-05-01T00:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	call, err := ax25.Parse("W1AW-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	remote, err := link.Listen(link.Config{
+		Bind: "127.0.0.1:0", Local: call, T1: 200 * time.Millisecond, N2: 5, Paclen: 128,
+		Handler: bulletin.Answer(slaveStore, call),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer remote.Close()
+
+	dir := filepath.Join(t.TempDir(), "state")
+	stdout, stderr, code := captureIn(context.Background(), []string{"sysop", "password", "--state", dir}, strings.NewReader("test-password-1\n"))
+	if code != 0 {
+		t.Fatalf("password %d %s %s", code, stdout, stderr)
+	}
+	body := strings.Repeat("A", 500)
+	if _, stderr, code = capture([]string{"settings", "set", "--state", dir, "station.callsign", "K5LEB"}); code != 0 {
+		t.Fatal(stderr)
+	}
+	if _, stderr, code = capture([]string{"settings", "set", "--state", dir, "link.peers", "W1AW-1@" + remote.LocalAddr().String()}); code != 0 {
+		t.Fatal(stderr)
+	}
+	if _, stderr, code = capture([]string{"article", "save", "--state", dir, "--title", "Net tonight", "--author", "K5LEB", "--id", "NIGHT", "--created", "2020-01-02T03:04:05Z", "--body", body}); code != 0 {
+		t.Fatal(stderr)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var out lockedBuffer
+	var errb lockedBuffer
+	done := make(chan int, 1)
+	go func() {
+		done <- run(ctx, []string{"serve", "--state", dir, "--listen", "127.0.0.1:0", "--link", "127.0.0.1:0"}, strings.NewReader(""), &out, &errb)
+	}()
+	term := filepath.Join(dir, "terminal.sock")
+	deadline := time.Now().Add(8 * time.Second)
+	for {
+		if strings.Contains(out.String(), "ax/udp 127.0.0.1:") && dialUnix(term) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("serve did not start the link: %s %s", out.String(), errb.String())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	sendCtx, sendCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer sendCancel()
+	stdout, stderr, code = captureIn(sendCtx, []string{"bulletin", "send", "--socket", term, "W1AW-1"}, strings.NewReader(""))
+	if code != 0 || stdout != "sent 1 received 1\n" {
+		t.Fatalf("send %d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	got := mustTitle(t, slaveStore, "Net tonight")
+	if got.ID != "NIGHT" || got.Author != "K5LEB" || got.Body != body || got.Created.Format(time.RFC3339) == "2020-01-02T03:04:05Z" {
+		t.Fatalf("ingested %+v", got)
+	}
+	master, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	back := mustTitle(t, master, "Day note")
+	master.Close()
+	if back.ID != "DAY" || back.Author != "W1AW-1" || back.Body != "From the far node." || back.Created.Format(time.RFC3339) == "2019-05-01T00:00:00Z" {
+		t.Fatalf("reverse %+v", back)
+	}
+	stdout, stderr, code = captureIn(sendCtx, []string{"bulletin", "send", "--socket", term, "W1AW-1"}, strings.NewReader(""))
+	if code != 0 || stdout != "sent 0 received 0\n" {
+		t.Fatalf("second %d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	if n := countTitles(t, slaveStore); n != 2 {
+		t.Fatalf("slave has %d", n)
+	}
+	cancel()
+	select {
+	case code = <-done:
+		if code != 0 {
+			t.Fatalf("serve exit %d %s", code, errb.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("serve did not stop")
+	}
+}
+
+func mustTitle(t *testing.T, st *store.Store, title string) storeArticle {
+	t.Helper()
+	rows, err := st.AllArticles(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.Article.Title == title {
+			return storeArticle{ID: row.Article.ID, Title: row.Article.Title, Author: row.Article.Author, Body: row.Article.Body, Created: row.Article.Created}
+		}
+	}
+	t.Fatalf("missing %s", title)
+	return storeArticle{}
+}
+
+func countTitles(t *testing.T, st *store.Store) int {
+	t.Helper()
+	rows, err := st.AllArticles(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(rows)
+}
+
+type storeArticle struct {
+	ID      string
+	Title   string
+	Author  string
+	Body    string
+	Created time.Time
 }
 
 func dialUnix(path string) bool {
