@@ -91,6 +91,18 @@ crossbeam bulletin send W1AW-1 --socket /run/crossbeam/terminal.sock
 
 The exchange is ASCII FBB. Details, including the bulletin id and the checksum, are in `docs/bulletin.md`.
 
+## Pages
+
+NomadNet keeps its own pages directory. Point `nomad.pages` at that directory when it exists. An empty value leaves articles in the store. Crossbeam writes one normal `.mu` file per article and reads pages back. The service umask is `0077`. A page written by Crossbeam is still mode `0644`, so NomadNet can read it.
+
+```bash
+sudo -u crossbeam crossbeam settings set --state /var/lib/crossbeam nomad.pages /var/lib/nomadnetwork/storage/pages
+sudo -u crossbeam crossbeam page publish --state /var/lib/crossbeam
+sudo -u crossbeam crossbeam page ingest --state /var/lib/crossbeam
+```
+
+Details are in `docs/pages.md`.
+
 ## Offline
 
 The article store, the settings, and the admin panel on the LAN do not need a default route. A hostname in `admin.listen` is resolved once when the service starts, and the panel binds those addresses. If that lookup fails, the service does not start. Use an IP address when the machine must boot with no DNS.

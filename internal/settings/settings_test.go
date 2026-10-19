@@ -253,7 +253,7 @@ func TestSettingsDocument(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc := string(text)
-	if len(Schema) != 8 {
+	if len(Schema) != 9 {
 		t.Fatalf("schema has %d keys", len(Schema))
 	}
 	for _, field := range Schema {
@@ -349,5 +349,39 @@ func TestBulletinSettings(t *testing.T) {
 	}
 	if _, err := Validate(map[string]string{KeyBulletinAt: "WW/USA"}); err == nil {
 		t.Fatal("slash in distribution was accepted")
+	}
+}
+
+func TestPagesSetting(t *testing.T) {
+	got, err := Validate(map[string]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[KeyPages] != "" {
+		t.Fatalf("default %q", got[KeyPages])
+	}
+	got, err = Validate(map[string]string{KeyPages: "  /var/lib/nomadnetwork/storage/pages/  "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[KeyPages] != "/var/lib/nomadnetwork/storage/pages" {
+		t.Fatalf("cleaned %q", got[KeyPages])
+	}
+	got, err = Validate(map[string]string{KeyPages: "/var/lib/foo..bar"})
+	if err != nil || got[KeyPages] != "/var/lib/foo..bar" {
+		t.Fatalf("dotted name %q %v", got[KeyPages], err)
+	}
+	got, err = Validate(map[string]string{KeyPages: "/tmp/./pages"})
+	if err != nil || got[KeyPages] != "/tmp/pages" {
+		t.Fatalf("dot segment %q %v", got[KeyPages], err)
+	}
+	if _, err := Validate(map[string]string{KeyPages: "var/pages"}); err == nil || !strings.Contains(err.Error(), "absolute path") {
+		t.Fatalf("relative: %v", err)
+	}
+	if _, err := Validate(map[string]string{KeyPages: "/var/lib/../etc"}); err == nil || !strings.Contains(err.Error(), "clean absolute path") {
+		t.Fatalf("parent: %v", err)
+	}
+	if _, err := Validate(map[string]string{KeyPages: "   "}); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -68,6 +68,12 @@ The distribution used when this station forwards a bulletin, such as WW. Letters
 
 This is the `@` field. `WW` reaches the widest set of bulletin areas. A hierarchical address such as `K5LEB.#DFW.TX` is also valid. The value is stored in uppercase. The next forward uses a saved change.
 
+## nomad.pages
+
+The directory for NomadNet pages, such as /var/lib/nomadnetwork/storage/pages. Leave this empty to keep pages in the article store only. A page is a normal .mu file. Publishing uses the saved value immediately.
+
+The directory must already exist. An empty value leaves every article in the store. A relative path is rejected. A path with a `..` segment is rejected. The saved path is cleaned, so a trailing slash is removed. `crossbeam page publish` and `crossbeam page ingest` read this value each time they run. The commands are described in `docs/pages.md`.
+
 ## Command
 
 Flags come before the key.

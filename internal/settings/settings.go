@@ -7,6 +7,8 @@ package settings
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -37,6 +39,7 @@ const (
 	KeyLinkPeers  = "link.peers"
 	KeyBulletinTo = "bulletin.to"
 	KeyBulletinAt = "bulletin.at"
+	KeyPages      = "nomad.pages"
 )
 
 // Field is one setting.
@@ -100,6 +103,12 @@ var Schema = []Field{
 		Default:  "WW",
 		MaxRunes: 40,
 	},
+	{
+		Key:      KeyPages,
+		Help:     "The directory for NomadNet pages, such as /var/lib/nomadnetwork/storage/pages. Leave this empty to keep pages in the article store only. A page is a normal .mu file. Publishing uses the saved value immediately.",
+		Kind:     KindLine,
+		MaxRunes: 256,
+	},
 }
 
 // Defaults returns a copy of the default value for every key.
@@ -152,6 +161,11 @@ func Validate(values map[string]string) (map[string]string, error) {
 	if err := validateBulletin(out); err != nil {
 		return nil, err
 	}
+	pages, err := canonicalPages(out[KeyPages])
+	if err != nil {
+		return nil, err
+	}
+	out[KeyPages] = pages
 	return out, nil
 }
 
@@ -189,6 +203,23 @@ func canonicalBulletinAt(value string) (string, error) {
 		return "", fmt.Errorf("bulletin.at must be letters, digits, dots, hashes, and hyphens, at most 40")
 	}
 	return value, nil
+}
+
+func canonicalPages(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", nil
+	}
+	for _, part := range strings.Split(value, string(os.PathSeparator)) {
+		if part == ".." {
+			return "", fmt.Errorf("nomad.pages must be a clean absolute path")
+		}
+	}
+	cleaned := filepath.Clean(value)
+	if !filepath.IsAbs(cleaned) {
+		return "", fmt.Errorf("nomad.pages must be an absolute path")
+	}
+	return cleaned, nil
 }
 
 func lettersDigits(value string) bool {

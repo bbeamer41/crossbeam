@@ -57,4 +57,6 @@ ID: k5leb-001
 - `Article.RenderPacket` and `ParsePacket` are the bulletin.
 - `Article.RenderMicron` and `ParseMicron` are the page.
 
+`internal/page` writes that Micron rendering into a directory and reads it back. See `docs/pages.md`.
+
 `go test ./...` checks that both renderings of one article import back to that article, including backticks, backslashes, and lines that look like Micron markup.

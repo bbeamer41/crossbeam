@@ -24,6 +24,7 @@ import (
 	"github.com/bbeamer41/crossbeam/internal/ax25"
 	"github.com/bbeamer41/crossbeam/internal/bulletin"
 	"github.com/bbeamer41/crossbeam/internal/link"
+	"github.com/bbeamer41/crossbeam/internal/page"
 	"github.com/bbeamer41/crossbeam/internal/settings"
 	"github.com/bbeamer41/crossbeam/internal/store"
 	"golang.org/x/term"
@@ -644,6 +645,96 @@ func cmdDelete(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 	fmt.Fprintf(stdout, "deleted %d\n", row)
 	return 0
+}
+
+func cmdPage(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "crossbeam: usage: crossbeam page publish|ingest")
+		return 2
+	}
+	switch args[0] {
+	case "publish":
+		return cmdPageRun(ctx, args[1:], stdout, stderr, true)
+	case "ingest":
+		return cmdPageRun(ctx, args[1:], stdout, stderr, false)
+	default:
+		return unknown(append([]string{"page"}, args...), stderr)
+	}
+}
+
+func cmdPageRun(ctx context.Context, args []string, stdout, stderr io.Writer, publish bool) int {
+	name := "ingest"
+	verb := "imported"
+	if publish {
+		name = "publish"
+		verb = "published"
+	}
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	state := fs.String("state", defaultState, "state directory")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if fs.NArg() != 0 {
+		fmt.Fprintf(stderr, "crossbeam: usage: crossbeam page %s [--state DIR]\n", name)
+		return 2
+	}
+	st, err := store.Open(*state)
+	if err != nil {
+		fmt.Fprintf(stderr, "crossbeam: the pages could not be %s\n", verb)
+		return 1
+	}
+	defer st.Close()
+	current, err := st.Settings(ctx)
+	if err != nil {
+		fmt.Fprintf(stderr, "crossbeam: the pages could not be %s\n", verb)
+		return 1
+	}
+	var n, failed int
+	if publish {
+		n, failed, err = page.Publish(ctx, st, current[settings.KeyPages])
+	} else {
+		n, failed, err = page.Ingest(ctx, st, current[settings.KeyPages])
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "crossbeam: %s\n", pageMessage(err, verb))
+		return 1
+	}
+	if publish {
+		fmt.Fprintf(stdout, "wrote %d\n", n)
+	} else {
+		fmt.Fprintf(stdout, "read %d\n", n)
+	}
+	if failed > 0 {
+		action := "imported"
+		if publish {
+			action = "written"
+		}
+		fmt.Fprintf(stderr, "crossbeam: %d pages could not be %s\n", failed, action)
+		return 1
+	}
+	return 0
+}
+
+func pageMessage(err error, verb string) string {
+	if errors.Is(err, page.ErrPagesOff) || errors.Is(err, page.ErrPagesUnavailable) {
+		return err.Error()
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err.Error()
+	}
+	msg := err.Error()
+	if msg == "" || len(msg) > 120 || strings.ContainsAny(msg, "\r\n/\\") {
+		return "the pages could not be " + verb
+	}
+	lower := strings.ToLower(msg)
+	if strings.Contains(lower, "sqlite") || strings.Contains(lower, ".db") {
+		return "the pages could not be " + verb
+	}
+	return msg
 }
 
 type articleFlags struct {

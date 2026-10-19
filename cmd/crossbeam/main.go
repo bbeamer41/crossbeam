@@ -54,6 +54,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return cmdConnect(ctx, args[1:], stdin, stdout, stderr)
 	case "bulletin":
 		return cmdBulletin(ctx, args[1:], stdout, stderr)
+	case "page":
+		return cmdPage(ctx, args[1:], stdout, stderr)
 	default:
 		return unknown(args, stderr)
 	}
@@ -61,7 +63,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 
 func printHelp(stdout io.Writer) {
 	fmt.Fprintf(stdout, "crossbeam %s\n", version)
-	fmt.Fprintln(stdout, "Admin panel, article store, AX/UDP link, FBB bulletins, and article formats. See docs/article.md, docs/link.md, docs/bulletin.md, and docs/settings.md.")
+	fmt.Fprintln(stdout, "Admin panel, article store, AX/UDP link, FBB bulletins, NomadNet pages, and article formats. See docs/article.md, docs/link.md, docs/bulletin.md, docs/pages.md, and docs/settings.md.")
 	fmt.Fprintln(stdout)
 	fmt.Fprintln(stdout, "  crossbeam serve [--state DIR] [--listen HOST:PORT] [--link HOST:PORT] [--peers LIST] [--socket PATH] [--socket-mode 0600|0660]")
 	fmt.Fprintln(stdout, "  crossbeam connect CALL [--state DIR | --socket PATH]")
@@ -75,6 +77,8 @@ func printHelp(stdout io.Writer) {
 	fmt.Fprintln(stdout, "  crossbeam article save --title TITLE [--author CALL] [--id ID] [--created TIME] [--body TEXT | --body-file PATH] [--state DIR | --socket PATH]")
 	fmt.Fprintln(stdout, "  crossbeam article list [--state DIR | --socket PATH]")
 	fmt.Fprintln(stdout, "  crossbeam article delete ROW [--state DIR]")
+	fmt.Fprintln(stdout, "  crossbeam page publish [--state DIR]")
+	fmt.Fprintln(stdout, "  crossbeam page ingest [--state DIR]")
 	fmt.Fprintln(stdout, "  crossbeam version")
 }
 
