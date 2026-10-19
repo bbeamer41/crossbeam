@@ -132,9 +132,8 @@ func Forward(ctx context.Context, st *store.Store, local ax25.Address, rw io.Rea
 func serveForward(ctx context.Context, st *store.Store, local ax25.Address, w io.Writer, rd *reader, first string) error {
 	queue, err := prepare(ctx, st, local)
 	if err != nil {
-		// The caller is still sending its offer. Wait until that offer
-		// has been read, then report the problem. Writing it now can
-		// block both sides: each is waiting for the other to read.
+		// Read the caller's offer before deciding we have nothing to send.
+		// FF on our turn lets the caller's forward finish.
 		queue = nil
 	}
 	sess := newSession(ctx, st, w, rd, queue)

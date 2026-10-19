@@ -51,7 +51,7 @@ A line that starts with `;` is a comment and is ignored.
 | Body | Message text. A carriage return, or a carriage return and line feed, becomes one newline, then the article rules in `docs/article.md` apply. Routing lines that begin with `R:` stay in the body. |
 | Created | Not sent. The receiver stores the time it accepted the bulletin. |
 
-The receiver stores the bulletin id as the article id and the sender as the author. A title, author, id, and body therefore come back in that form. Created becomes the receive time. A title longer than 80 characters stops the forward with an error instead of being cut short.
+The receiver stores the bulletin id as the article id and the sender as the author. A title, author, id, and body therefore come back in that form. Created becomes the receive time. A title longer than 80 characters is not offered. The other station's bulletins are still accepted, and this station sends `FF`.
 
 ## Checksum
 
@@ -59,7 +59,7 @@ The receiver stores the bulletin id as the article id and the sender as the auth
 
 ## Limits
 
-One framed message, including the subject, the carriage returns, the body, and the final `0x1A`, may be at most 256 KiB. An article whose framed message is larger stops the forward and names that article. A session accepts at most 100 new bulletins and 2 MiB of message text. A larger offer ends the session before the `FS` line, so the peer retries it later. Bulletins already stored stay stored.
+One framed message, including the subject, the carriage returns, the body, and the final `0x1A`, may be at most 256 KiB. An article whose framed message is larger stops `crossbeam bulletin send` before it dials and names that article. The other station's bulletins are still accepted, and this station sends `FF`. A session accepts at most 100 new bulletins and 2 MiB of message text. A larger offer ends the session before the `FS` line, so the peer retries it later. Bulletins already stored stay stored.
 
 A peer bulletin is deferred with `=` when the store already holds 2000 articles or 32 MiB of body text. It is offered again on a later forward. The admin panel can still save an article. `crossbeam article delete ROW --state DIR` removes one article and frees that room. Shortening a body in the admin panel frees bytes as well.
 

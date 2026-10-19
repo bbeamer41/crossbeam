@@ -171,14 +171,17 @@ func (s *session) run(offerFirst bool) error {
 			return err
 		}
 		if expectOffer {
-			// A local problem is reported on our turn. The caller has
-			// finished writing its offer and is waiting to read.
+			// Our own articles cannot be offered. The caller has finished
+			// its offer and is waiting, so send FF and let that forward finish.
 			if s.localErr != nil {
-				return s.fail(s.localErr)
+				s.queue = nil
 			}
 			if len(s.queue) == 0 {
 				if peerSaidFF {
-					return s.write("FQ\r")
+					if err := s.write("FQ\r"); err != nil {
+						return err
+					}
+					return s.localErr
 				}
 				if err := s.write("FF\r"); err != nil {
 					return err

@@ -703,12 +703,68 @@ func TestRemoteTitleErrorIsReturned(t *testing.T) {
 		b.Close()
 		t.Fatal("timed out")
 	}
-	if err == nil || !strings.Contains(err.Error(), "bulletin limit") {
+	if err != nil {
 		t.Fatalf("master %v", err)
 	}
 	a.Close()
 	if serveErr := <-errc; serveErr == nil || !strings.Contains(serveErr.Error(), "bulletin limit") {
 		t.Fatalf("answer %v", serveErr)
+	}
+	if countArt(t, stA) != 0 || countArt(t, stB) != 1 {
+		t.Fatalf("stored A %d B %d", countArt(t, stA), countArt(t, stB))
+	}
+}
+
+func TestCallerBulletinAcceptedWhenAnswerCannotOffer(t *testing.T) {
+	stA := openStore(t)
+	stB := openStore(t)
+	saveArt(t, stA, "NIGHT", "Net tonight", "K5LEB", "Meet at 7.", time.Now().UTC())
+	saveArt(t, stB, "LONG", strings.Repeat("T", fbb.MaxSubjectRunes+1), "W1AW", "x", time.Now().UTC())
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	errc := make(chan error, 1)
+	go func() {
+		errc <- Serve(context.Background(), stB, mustCall(t, "W1AW"), b)
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	type got struct {
+		res Result
+		err error
+	}
+	ch := make(chan got, 1)
+	go func() {
+		res, err := Forward(ctx, stA, mustCall(t, "K5LEB"), a)
+		ch <- got{res, err}
+	}()
+	var res Result
+	select {
+	case item := <-ch:
+		if item.err != nil {
+			a.Close()
+			b.Close()
+			t.Fatal(item.err)
+		}
+		res = item.res
+	case <-ctx.Done():
+		a.Close()
+		b.Close()
+		t.Fatal("timed out")
+	}
+	a.Close()
+	if serveErr := <-errc; serveErr == nil || !strings.Contains(serveErr.Error(), "bulletin limit") {
+		t.Fatalf("answer %v", serveErr)
+	}
+	if res.Sent != 1 || res.Received != 0 {
+		t.Fatalf("%+v", res)
+	}
+	gotArt := findArt(t, stB, "Net tonight")
+	if gotArt.Article.Body != "Meet at 7." || gotArt.Article.ID != "NIGHT" {
+		t.Fatalf("%+v", gotArt.Article)
+	}
+	if countArt(t, stA) != 1 || countArt(t, stB) != 2 {
+		t.Fatalf("stored A %d B %d", countArt(t, stA), countArt(t, stB))
 	}
 }
 
