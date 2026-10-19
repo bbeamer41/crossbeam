@@ -2,7 +2,7 @@
 
 Crossbeam speaks AX.25 connected mode over UDP so a terminal can reach another node's prompt. The usual port is 10093. This is the encapsulation in RFC 1226, carried in UDP instead of IP protocol 93: one AX.25 frame per datagram, without HDLC flags or bit stuffing, with the 16-bit frame check sequence. The frame is readable text. It is not encrypted.
 
-The link is off until `link.listen` is set. Each node lists the stations it will call in `link.peers`. A node answers a station that calls it, and sends the reply to the address that packet came from. An answer does not require the caller to be listed.
+The link is off until `link.listen` is set. Each node lists the stations it will call in `link.peers`. A node answers a station that calls it. A listed station is accepted only from the IP address in that list, and the reply uses the UDP port the packet came from. Any other caller is answered at the address it used. An answer does not require the caller to be listed.
 
 ## Settings
 
@@ -35,4 +35,4 @@ Lines on the air end with a carriage return.
 
 ## Limits
 
-The link is modulo 8. A modulo-128 request is refused. Frames with digipeaters are ignored. One session is open to a given callsign at a time. NET/ROM, bulletins, and the radio port are later goals.
+The link is modulo 8. A modulo-128 request is refused. Frames with digipeaters are ignored. One session is open to a given callsign at a time. A session with nothing passing disconnects after 15 minutes. One IP address can hold four sessions from callsigns that are not listed. NET/ROM, bulletins, and the radio port are later goals.

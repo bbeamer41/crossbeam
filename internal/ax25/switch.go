@@ -16,7 +16,8 @@ const (
 	DefaultWindow = 4
 	DefaultN2     = 10
 	DefaultT1     = 5 * time.Second
-	maxSessions   = 32
+	DefaultIdle   = 15 * time.Minute
+	MaxSessions   = 32
 	maxRead       = 64 * 1024
 	maxWrite      = 64 * 1024
 )
@@ -28,19 +29,22 @@ var ErrClosed = errors.New("link is closed")
 // as soon as a frame is accepted. T1 stays at several seconds so a peer that
 // delays its own acknowledgement, the way BPQ's RESPTIME does, still fits.
 type Switch struct {
-	local  Address
-	paclen int
-	window int
-	n2     int
-	t1     time.Duration
-	send   func(Address, Frame)
-	accept func(Address, *Stream)
-	events chan event
-	quit   chan struct{}
-	done   chan struct{}
-	once   sync.Once
-	conns  map[string]*conn
-	now    func() time.Time
+	local   Address
+	paclen  int
+	window  int
+	n2      int
+	t1      time.Duration
+	send    func(Address, Frame)
+	accept  func(Address, *Stream)
+	onBegin func(Address)
+	onEnd   func(Address)
+	idle    time.Duration
+	events  chan event
+	quit    chan struct{}
+	done    chan struct{}
+	once    sync.Once
+	conns   map[string]*conn
+	now     func() time.Time
 }
 
 // Config is the station and the timers for a switch.
@@ -52,6 +56,11 @@ type Config struct {
 	T1     time.Duration
 	Send   func(Address, Frame)
 	Accept func(Address, *Stream)
+	// Begin and End run on the engine goroutine and must not call the switch.
+	Begin func(Address)
+	End   func(Address)
+	// Idle is how long a quiet session stays up. Zero uses DefaultIdle.
+	Idle time.Duration
 }
 
 type phase int
@@ -74,6 +83,7 @@ type event struct {
 	result chan dialResult
 	stream *Stream
 	done   chan struct{}
+	err    error
 }
 
 const (
@@ -99,6 +109,8 @@ type conn struct {
 	localBusy bool
 	rejecting bool
 	needAck   bool
+	closing   bool
+	touched   time.Time
 	stream    *Stream
 	waiter    chan dialResult
 	done      chan struct{}
@@ -131,19 +143,25 @@ func NewSwitch(cfg Config) *Switch {
 	if cfg.T1 <= 0 {
 		cfg.T1 = DefaultT1
 	}
+	if cfg.Idle <= 0 {
+		cfg.Idle = DefaultIdle
+	}
 	s := &Switch{
-		local:  cfg.Local,
-		paclen: cfg.Paclen,
-		window: cfg.Window,
-		n2:     cfg.N2,
-		t1:     cfg.T1,
-		send:   cfg.Send,
-		accept: cfg.Accept,
-		events: make(chan event, 64),
-		quit:   make(chan struct{}),
-		done:   make(chan struct{}),
-		conns:  map[string]*conn{},
-		now:    time.Now,
+		local:   cfg.Local,
+		paclen:  cfg.Paclen,
+		window:  cfg.Window,
+		n2:      cfg.N2,
+		t1:      cfg.T1,
+		idle:    cfg.Idle,
+		send:    cfg.Send,
+		accept:  cfg.Accept,
+		onBegin: cfg.Begin,
+		onEnd:   cfg.End,
+		events:  make(chan event, 64),
+		quit:    make(chan struct{}),
+		done:    make(chan struct{}),
+		conns:   map[string]*conn{},
+		now:     time.Now,
 	}
 	go s.loop()
 	return s
@@ -180,16 +198,31 @@ func (s *Switch) Dial(ctx context.Context, remote Address) (*Stream, error) {
 	case got := <-res:
 		return got.stream, got.err
 	case <-ctx.Done():
-		select {
-		case got := <-res:
-			return got.stream, got.err
-		default:
-		}
-		select {
-		case s.events <- event{kind: evAbort, remote: remote}:
-		case <-s.quit:
-		}
-		return nil, ctx.Err()
+		return s.cancelDial(remote, res, ctx.Err())
+	case <-s.quit:
+		return nil, ErrClosed
+	}
+}
+
+// cancelDial drops a setup that is still in progress. A connection that
+// completed in the same moment is returned instead of being left open
+// with nobody reading it.
+func (s *Switch) cancelDial(remote Address, res chan dialResult, err error) (*Stream, error) {
+	select {
+	case got := <-res:
+		return got.stream, got.err
+	default:
+	}
+	select {
+	case s.events <- event{kind: evAbort, remote: remote, err: err}:
+	case got := <-res:
+		return got.stream, got.err
+	case <-s.quit:
+		return nil, ErrClosed
+	}
+	select {
+	case got := <-res:
+		return got.stream, got.err
 	case <-s.quit:
 		return nil, ErrClosed
 	}
@@ -202,21 +235,21 @@ func (st *Stream) Read(p []byte) (int, error) {
 		return 0, nil
 	}
 	st.mu.Lock()
-	defer st.mu.Unlock()
 	for len(st.rbuf) == 0 && st.err == nil {
 		st.cond.Wait()
 	}
 	if len(st.rbuf) == 0 {
-		return 0, st.err
+		err := st.err
+		st.mu.Unlock()
+		return 0, err
 	}
+	before := len(st.rbuf)
 	n := copy(p, st.rbuf)
 	st.rbuf = compact(st.rbuf[n:])
-	wasBusy := false
-	if len(st.rbuf) < maxRead/2 {
-		wasBusy = true
-	}
-	if wasBusy {
-		defer st.kick()
+	wake := before >= maxRead/2 && len(st.rbuf) < maxRead/2
+	st.mu.Unlock()
+	if wake {
+		st.kick()
 	}
 	return n, nil
 }
@@ -323,6 +356,12 @@ func (st *Stream) hasRoom() bool {
 	return len(st.rbuf) < maxRead/2
 }
 
+func (st *Stream) pending() bool {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return len(st.wbuf) > 0
+}
+
 func compact(b []byte) []byte {
 	if cap(b) > 4096 && cap(b) > 4*len(b) {
 		return append([]byte(nil), b...)
@@ -350,9 +389,8 @@ func (s *Switch) loop() {
 }
 
 func (s *Switch) shutdown() {
-	for key, c := range s.conns {
-		s.finish(c, ErrClosed)
-		delete(s.conns, key)
+	for _, c := range s.conns {
+		s.end(c, ErrClosed)
 	}
 }
 
@@ -365,7 +403,7 @@ func (s *Switch) handle(ev event) {
 	case evClose:
 		s.onClose(ev.stream, ev.done)
 	case evAbort:
-		s.onAbort(ev.remote)
+		s.onAbort(ev.remote, ev.err)
 	case evKick:
 		if ev.stream != nil {
 			if c := s.conns[ev.stream.remote.String()]; c != nil {
@@ -384,7 +422,7 @@ func (s *Switch) onDial(remote Address, result chan dialResult) {
 		result <- dialResult{err: errors.New(remote.String() + " is already connected")}
 		return
 	}
-	if len(s.conns) >= maxSessions {
+	if len(s.conns) >= MaxSessions {
 		result <- dialResult{err: errors.New("too many connections")}
 		return
 	}
@@ -392,17 +430,20 @@ func (s *Switch) onDial(remote Address, result chan dialResult) {
 	c.phase = phaseSetup
 	c.waiter = result
 	s.conns[remote.String()] = c
+	s.began(remote)
 	s.sendU(remote, SABM, true, true)
 	c.arm(s.now())
 }
 
-func (s *Switch) onAbort(remote Address) {
+func (s *Switch) onAbort(remote Address, err error) {
 	c := s.conns[remote.String()]
-	if c == nil || c.phase != phaseSetup {
+	if c == nil || c.phase != phaseSetup || c.waiter == nil {
 		return
 	}
-	s.finish(c, context.Canceled)
-	delete(s.conns, remote.String())
+	if err == nil {
+		err = context.Canceled
+	}
+	s.end(c, err)
 }
 
 func (s *Switch) onClose(st *Stream, done chan struct{}) {
@@ -420,11 +461,11 @@ func (s *Switch) onClose(st *Stream, done chan struct{}) {
 		return
 	}
 	if c.phase == phaseSetup {
-		s.finish(c, io.EOF)
-		delete(s.conns, c.remote.String())
 		if done != nil {
-			close(done)
+			c.done = done
 		}
+		s.sendU(c.remote, DM, false, true)
+		s.end(c, io.EOF)
 		return
 	}
 	if c.phase == phaseRelease {
@@ -435,15 +476,15 @@ func (s *Switch) onClose(st *Stream, done chan struct{}) {
 		}
 		return
 	}
-	// Send queued text before DISC so a last line is not stranded behind the disconnect.
+	if c.done == nil {
+		c.done = done
+	} else if done != nil {
+		close(done)
+	}
+	// Stay in the information phase until queued text is acknowledged, then DISC.
+	c.closing = true
 	c.pump(s)
-	c.phase = phaseRelease
-	c.done = done
-	c.retries = 0
-	c.poll = false
-	c.needAck = false
-	s.sendU(c.remote, DISC, true, true)
-	c.arm(s.now())
+	s.maybeDisc(c)
 }
 
 func (s *Switch) onFrame(f Frame) {
@@ -455,16 +496,14 @@ func (s *Switch) onFrame(f Frame) {
 	case IsSABME(f.Control):
 		s.sendU(f.Src, DM, false, PF(f.Control))
 		if c != nil {
-			s.finish(c, errors.New("peer requested modulo 128"))
-			delete(s.conns, f.Src.String())
+			s.end(c, errors.New("peer requested modulo 128"))
 		}
 	case IsSABM(f.Control):
 		s.onSABM(f, c)
 	case IsDISC(f.Control):
 		s.sendU(f.Src, UA, false, PF(f.Control))
 		if c != nil {
-			s.finish(c, io.EOF)
-			delete(s.conns, f.Src.String())
+			s.end(c, io.EOF)
 		}
 	case IsUA(f.Control):
 		s.onUA(c)
@@ -474,13 +513,11 @@ func (s *Switch) onFrame(f Frame) {
 			if c.phase == phaseSetup {
 				err = errors.New("connection refused")
 			}
-			s.finish(c, err)
-			delete(s.conns, f.Src.String())
+			s.end(c, err)
 		}
 	case IsFRMR(f.Control):
 		if c != nil {
-			s.finish(c, errors.New("frame rejected"))
-			delete(s.conns, f.Src.String())
+			s.end(c, errors.New("frame rejected"))
 		}
 	case IsI(f.Control):
 		if c == nil || c.phase != phaseInfo {
@@ -502,18 +539,19 @@ func (s *Switch) onFrame(f Frame) {
 }
 
 func (s *Switch) onSABM(f Frame, c *conn) {
-	if c != nil && c.phase == phaseRelease {
+	if c != nil && (c.phase == phaseRelease || c.closing) {
 		s.sendU(f.Src, DM, false, PF(f.Control))
 		return
 	}
-	if c == nil && len(s.conns) >= maxSessions {
-		s.sendU(f.Src, DM, false, true)
+	if c == nil && len(s.conns) >= MaxSessions {
+		s.sendU(f.Src, DM, false, PF(f.Control))
 		return
 	}
 	fresh := c == nil
 	if fresh {
 		c = s.newConn(f.Src)
 		s.conns[f.Src.String()] = c
+		s.began(f.Src)
 	}
 	c.vs, c.vr, c.va = 0, 0, 0
 	c.sent = [8][]byte{}
@@ -524,7 +562,9 @@ func (s *Switch) onSABM(f Frame, c *conn) {
 	c.localBusy = false
 	c.rejecting = false
 	c.needAck = false
+	c.closing = false
 	c.phase = phaseInfo
+	c.touched = s.now()
 	c.stopT1()
 	s.sendU(f.Src, UA, false, PF(f.Control))
 	if c.waiter != nil {
@@ -545,14 +585,14 @@ func (s *Switch) onUA(c *conn) {
 	case phaseSetup:
 		c.phase = phaseInfo
 		c.retries = 0
+		c.touched = s.now()
 		c.stopT1()
 		if c.waiter != nil {
 			c.waiter <- dialResult{stream: c.stream}
 			c.waiter = nil
 		}
 	case phaseRelease:
-		s.finish(c, io.EOF)
-		delete(s.conns, c.remote.String())
+		s.end(c, io.EOF)
 	}
 }
 
@@ -560,6 +600,7 @@ func (s *Switch) onI(c *conn, f Frame) {
 	if !c.ack(NR(f.Control), s.now()) {
 		return
 	}
+	c.touched = s.now()
 	must := f.Command && PF(f.Control)
 	ns := NS(f.Control)
 	if ns == c.vr {
@@ -591,24 +632,29 @@ func (s *Switch) onS(c *conn, f Frame) {
 	if !c.ack(NR(f.Control), s.now()) {
 		return
 	}
-	base := f.Control & 0x0F &^ 0x10
+	c.touched = s.now()
+	base := f.Control & 0x0F
 	pf := PF(f.Control)
 	response := !f.Command
 	if f.Legacy && c.poll && pf {
 		response = true
 	}
+	sentAgain := false
 	switch base {
 	case RNR:
 		c.peerBusy = true
 	case REJ:
 		c.peerBusy = false
 		s.retransmit(c)
+		sentAgain = true
 	default:
 		c.peerBusy = false
 	}
 	if response && pf && c.poll {
 		c.poll = false
-		s.retransmit(c)
+		if !sentAgain {
+			s.retransmit(c)
+		}
 	}
 	if f.Command && pf {
 		s.ackNow(c, true)
@@ -626,7 +672,13 @@ func (s *Switch) ackNow(c *conn, final bool) {
 
 func (s *Switch) tick() {
 	now := s.now()
-	for key, c := range s.conns {
+	for _, c := range s.conns {
+		if c.phase == phaseInfo && !c.closing && c.outstanding() == 0 && len(c.hold) == 0 && !c.stream.pending() && !c.touched.IsZero() && now.Sub(c.touched) > s.idle {
+			c.closing = true
+			c.retries = 0
+			s.maybeDisc(c)
+			continue
+		}
 		if c.deadline.IsZero() || now.Before(c.deadline) {
 			continue
 		}
@@ -636,8 +688,7 @@ func (s *Switch) tick() {
 			if c.phase == phaseSetup {
 				err = errors.New("connection timed out")
 			}
-			s.finish(c, err)
-			delete(s.conns, key)
+			s.end(c, err)
 			continue
 		}
 		switch c.phase {
@@ -665,6 +716,7 @@ func (s *Switch) pumpAll() {
 		if c.needAck {
 			s.ackNow(c, false)
 		}
+		s.maybeDisc(c)
 	}
 }
 
@@ -699,9 +751,29 @@ func (c *conn) pump(s *Switch) bool {
 		if c.deadline.IsZero() {
 			c.arm(s.now())
 		}
+		c.touched = s.now()
 		sent = true
 	}
 	return sent
+}
+
+func (s *Switch) maybeDisc(c *conn) {
+	if !c.closing || c.phase != phaseInfo {
+		return
+	}
+	if c.outstanding() == 0 && len(c.hold) == 0 && !c.stream.pending() {
+		c.phase = phaseRelease
+		c.closing = false
+		c.retries = 0
+		c.poll = false
+		c.needAck = false
+		s.sendU(c.remote, DISC, true, true)
+		c.arm(s.now())
+		return
+	}
+	if c.deadline.IsZero() {
+		c.arm(s.now())
+	}
 }
 
 func (c *conn) outstanding() int { return (c.vs - c.va) & 7 }
@@ -750,6 +822,23 @@ func (s *Switch) newConn(remote Address) *conn {
 	st := &Stream{sw: s, remote: remote}
 	st.cond = sync.NewCond(&st.mu)
 	return &conn{remote: remote, stream: st}
+}
+
+func (s *Switch) began(remote Address) {
+	if s.onBegin != nil {
+		s.onBegin(remote)
+	}
+}
+
+func (s *Switch) end(c *conn, err error) {
+	if s.conns[c.remote.String()] != c {
+		return
+	}
+	delete(s.conns, c.remote.String())
+	s.finish(c, err)
+	if s.onEnd != nil {
+		s.onEnd(c.remote)
+	}
 }
 
 func (s *Switch) finish(c *conn, err error) {

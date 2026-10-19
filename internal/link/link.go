@@ -23,6 +23,21 @@ import (
 	"github.com/bbeamer41/crossbeam/internal/settings"
 )
 
+const (
+	maxDatagram    = 1024
+	maxGuestsPerIP = 4
+	guestHold      = 2 * time.Second
+	termLineWait   = 5 * time.Second
+	peerReserveMax = 8
+)
+
+// guestRoute is the return address of a station that is not in the peer list.
+type guestRoute struct {
+	addr   *net.UDPAddr
+	active bool
+	seen   time.Time
+}
+
 // Config is one AX/UDP station.
 type Config struct {
 	Bind         string
@@ -50,11 +65,14 @@ type Node struct {
 	quit     chan struct{}
 	once     sync.Once
 
-	mu      sync.Mutex
-	peers   map[string]*net.UDPAddr
-	learned map[string]*net.UDPAddr
-	drop    func(ax25.Frame) bool
-	terms   int
+	lineWait time.Duration
+
+	mu       sync.Mutex
+	peers    map[string]*net.UDPAddr
+	peerPort map[string]int
+	guests   map[string]*guestRoute
+	drop     func(ax25.Frame) bool
+	terms    int
 }
 
 // Listen binds the UDP port and, when TerminalPath is set, the local
@@ -96,9 +114,11 @@ func Listen(cfg Config) (*Node, error) {
 		lookup:   cfg.Lookup,
 		dialFor:  t1 * time.Duration(n2+2),
 		termPath: cfg.TerminalPath,
+		lineWait: termLineWait,
 		quit:     make(chan struct{}),
 		peers:    map[string]*net.UDPAddr{},
-		learned:  map[string]*net.UDPAddr{},
+		peerPort: map[string]int{},
+		guests:   map[string]*guestRoute{},
 	}
 	if err := n.SetPeers(cfg.Peers); err != nil {
 		pc.Close()
@@ -116,6 +136,8 @@ func Listen(cfg Config) (*Node, error) {
 		T1:     cfg.T1,
 		Send:   n.transmit,
 		Accept: accept,
+		Begin:  n.beginSession,
+		End:    n.endSession,
 	})
 	go n.readLoop()
 	if cfg.TerminalPath != "" {
@@ -159,6 +181,10 @@ func (n *Node) SetPeers(text string) error {
 	}
 	n.mu.Lock()
 	n.peers = next
+	n.peerPort = map[string]int{}
+	for call := range next {
+		delete(n.guests, call)
+	}
 	n.mu.Unlock()
 	return nil
 }
@@ -200,21 +226,22 @@ func (n *Node) Close() error {
 }
 
 func (n *Node) readLoop() {
-	buf := make([]byte, 2048)
+	buf := make([]byte, maxDatagram+1)
 	for {
 		count, from, err := n.pc.ReadFromUDP(buf)
 		if err != nil {
 			return
 		}
-		if count == 0 {
+		// A full buffer means the datagram was longer than an AX.25 frame we accept.
+		if count == 0 || count > maxDatagram || from == nil {
 			continue
 		}
 		frame, err := ax25.Decode(buf[:count])
-		if err != nil || !frame.Dest.Equal(n.local) || len(frame.Digis) > 0 {
+		if err != nil || !frame.Dest.Equal(n.local) || len(frame.Digis) > 0 || ax25.IsUI(frame.Control) {
 			continue
 		}
-		if from != nil {
-			n.remember(frame.Src, from)
+		if !n.allow(frame.Src, from) {
+			continue
 		}
 		n.sw.Inject(frame)
 	}
@@ -235,21 +262,118 @@ func (n *Node) transmit(remote ax25.Address, frame ax25.Frame) {
 }
 
 func (n *Node) lookupAddr(remote ax25.Address) *net.UDPAddr {
-	if addr, ok := n.learned[remote.String()]; ok {
-		return addr
+	key := remote.String()
+	if peer, ok := n.peers[key]; ok {
+		port := peer.Port
+		if learned, ok := n.peerPort[key]; ok {
+			port = learned
+		}
+		return &net.UDPAddr{IP: peer.IP, Port: port}
 	}
-	return n.peers[remote.String()]
+	if guest, ok := n.guests[key]; ok {
+		return &net.UDPAddr{IP: guest.addr.IP, Port: guest.addr.Port}
+	}
+	return nil
 }
 
-func (n *Node) remember(remote ax25.Address, from *net.UDPAddr) {
-	ip := from.IP
-	if ip4 := ip.To4(); ip4 != nil {
-		ip = ip4
+func (n *Node) allow(src ax25.Address, from *net.UDPAddr) bool {
+	ip := canonicalIP(from.IP)
+	if from.Port < 1 || ip == nil || ip.IsUnspecified() || ip.IsMulticast() || ip.Equal(net.IPv4bcast) {
+		return false
 	}
-	cp := &net.UDPAddr{IP: append(net.IP(nil), ip...), Port: from.Port}
+	key := src.String()
+	now := time.Now()
 	n.mu.Lock()
-	n.learned[remote.String()] = cp
-	n.mu.Unlock()
+	defer n.mu.Unlock()
+	n.sweepGuestsLocked(now)
+	if peer, ok := n.peers[key]; ok {
+		if !peer.IP.Equal(ip) {
+			return false
+		}
+		if from.Port != peer.Port {
+			n.peerPort[key] = from.Port
+		} else {
+			delete(n.peerPort, key)
+		}
+		return true
+	}
+	if guest, ok := n.guests[key]; ok {
+		if !guest.addr.IP.Equal(ip) {
+			return false
+		}
+		guest.addr.Port = from.Port
+		guest.seen = now
+		return true
+	}
+	if len(n.guests) >= n.guestLimitLocked() || n.guestsFromLocked(ip) >= maxGuestsPerIP {
+		return false
+	}
+	n.guests[key] = &guestRoute{
+		addr: &net.UDPAddr{IP: append(net.IP(nil), ip...), Port: from.Port},
+		seen: now,
+	}
+	return true
+}
+
+func (n *Node) guestLimitLocked() int {
+	reserve := len(n.peers)
+	if reserve > peerReserveMax {
+		reserve = peerReserveMax
+	}
+	limit := ax25.MaxSessions - reserve
+	if limit < 1 {
+		limit = 1
+	}
+	return limit
+}
+
+func (n *Node) guestsFromLocked(ip net.IP) int {
+	count := 0
+	for _, guest := range n.guests {
+		if guest.addr.IP.Equal(ip) {
+			count++
+		}
+	}
+	return count
+}
+
+func (n *Node) sweepGuestsLocked(now time.Time) {
+	for key, guest := range n.guests {
+		if guest.active || now.Sub(guest.seen) < guestHold {
+			continue
+		}
+		delete(n.guests, key)
+	}
+}
+
+func (n *Node) beginSession(remote ax25.Address) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	guest, ok := n.guests[remote.String()]
+	if !ok || guest.active {
+		return
+	}
+	guest.active = true
+}
+
+func (n *Node) endSession(remote ax25.Address) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	key := remote.String()
+	if _, ok := n.guests[key]; !ok {
+		return
+	}
+	delete(n.guests, key)
+}
+
+func canonicalIP(ip net.IP) net.IP {
+	if ip == nil {
+		return nil
+	}
+	if v4 := ip.To4(); v4 != nil {
+		return append(net.IP(nil), v4...)
+	}
+	return append(net.IP(nil), ip...)
 }
 
 func (n *Node) resolve(host string, port int) (*net.UDPAddr, error) {
@@ -321,11 +445,17 @@ func (n *Node) acceptTerm() {
 
 func (n *Node) serveTerm(conn net.Conn) {
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	wait := n.lineWait
+	if wait <= 0 {
+		wait = termLineWait
+	}
+	_ = conn.SetDeadline(time.Now().Add(wait))
 	line, err := readCRLF(conn, 80)
 	if err != nil {
 		return
 	}
+	// The dial can take much longer than the line that asked for it.
+	_ = conn.SetDeadline(time.Time{})
 	const prefix = "CONNECT "
 	if !strings.HasPrefix(line, prefix) {
 		fmt.Fprintf(conn, "ERR usage\n")
@@ -339,6 +469,7 @@ func (n *Node) serveTerm(conn net.Conn) {
 	ctx, cancel := context.WithTimeout(context.Background(), n.dialFor)
 	stream, err := n.Dial(ctx, call)
 	cancel()
+	_ = conn.SetDeadline(time.Now().Add(wait))
 	if err != nil {
 		fmt.Fprintf(conn, "ERR %s\n", termErr(err))
 		return
@@ -360,6 +491,9 @@ func (n *Node) serveTerm(conn net.Conn) {
 }
 
 func termErr(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return "connection timed out"
+	}
 	msg := err.Error()
 	if msg == "" || len(msg) > 120 || strings.ContainsAny(msg, "\r\n") {
 		return "The connection failed."

@@ -174,6 +174,217 @@ func TestPeerList(t *testing.T) {
 	}
 }
 
+func TestDisconnectWaitsForTheLastFrame(t *testing.T) {
+	var mu sync.Mutex
+	var got []byte
+	done := make(chan struct{})
+	b, err := Listen(Config{
+		Bind:   "127.0.0.1:0",
+		Local:  mustCall(t, "W1AW-1"),
+		T1:     150 * time.Millisecond,
+		N2:     6,
+		Paclen: 128,
+		Window: 4,
+		Handler: func(_ ax25.Address, st *ax25.Stream) {
+			defer close(done)
+			buf := make([]byte, 64)
+			var all []byte
+			for {
+				n, err := st.Read(buf)
+				if n > 0 {
+					all = append(all, buf[:n]...)
+				}
+				if err != nil {
+					mu.Lock()
+					got = append([]byte(nil), all...)
+					mu.Unlock()
+					return
+				}
+			}
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { b.Close() })
+	a := startNode(t, "K5LEB", false)
+	mustPeers(t, a, b)
+	var once sync.Once
+	a.mu.Lock()
+	a.drop = func(frame ax25.Frame) bool {
+		if !ax25.IsI(frame.Control) {
+			return false
+		}
+		drop := false
+		once.Do(func() { drop = true })
+		return drop
+	}
+	a.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	stream, err := a.Dial(ctx, b.Local().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stream.Write([]byte("Thursday\r")); err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("handler did not finish")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !bytes.Contains(got, []byte("Thursday\r")) {
+		t.Fatalf("lost last line %q", got)
+	}
+}
+
+func TestTerminalWaitsOutTheHandshake(t *testing.T) {
+	node := startNode(t, "K5LEB", true)
+	node.lineWait = 200 * time.Millisecond
+	peer := listenUDP(t, "127.0.0.1")
+	if err := node.SetPeers("W1AW-1@" + peer.LocalAddr().String()); err != nil {
+		t.Fatal(err)
+	}
+	errc := make(chan error, 1)
+	go func() {
+		errc <- answerSABMAfter(peer, node.Local(), mustCall(t, "W1AW-1"), []byte("W1AW-1>\r"), 500*time.Millisecond)
+	}()
+	conn, err := net.Dial("unix", node.Terminal())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
+	if _, err := fmt.Fprintf(conn, "CONNECT W1AW-1\n"); err != nil {
+		t.Fatal(err)
+	}
+	line, err := bufio.NewReader(conn).ReadString('\n')
+	if err != nil || line != "OK\n" {
+		t.Fatalf("handshake %q %v", line, err)
+	}
+	if err := <-errc; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestListedPeerRejectsAnotherAddress(t *testing.T) {
+	node := startNode(t, "K5LEB", false)
+	real := listenUDP(t, "127.0.0.1")
+	spoof := listenUDP(t, "127.0.0.2")
+	if err := node.SetPeers("W1AW-1@127.0.0.1:9"); err != nil {
+		t.Fatal(err)
+	}
+	sabm := ax25.Frame{Dest: node.Local(), Src: mustCall(t, "W1AW-1"), Command: true, Control: ax25.SABM | 0x10}.Encode()
+	if _, err := spoof.WriteToUDP(sabm, node.LocalAddr()); err != nil {
+		t.Fatal(err)
+	}
+	if frames := readFrames(spoof, 1, 200*time.Millisecond); len(frames) != 0 {
+		t.Fatalf("spoof got %+v", frames)
+	}
+	if _, err := real.WriteToUDP(sabm, node.LocalAddr()); err != nil {
+		t.Fatal(err)
+	}
+	frames := readFrames(real, 1, time.Second)
+	if len(frames) == 0 || !ax25.IsUA(frames[0].Control) {
+		t.Fatalf("real peer %+v", frames)
+	}
+}
+
+func TestUnlistedCallerStaysOnItsAddress(t *testing.T) {
+	node := startNode(t, "K5LEB", false)
+	home := listenUDP(t, "127.0.0.1")
+	other := listenUDP(t, "127.0.0.2")
+	sabm := ax25.Frame{Dest: node.Local(), Src: mustCall(t, "N0CALL"), Command: true, Control: ax25.SABM | 0x10}.Encode()
+	if _, err := home.WriteToUDP(sabm, node.LocalAddr()); err != nil {
+		t.Fatal(err)
+	}
+	frames := readFrames(home, 1, time.Second)
+	if len(frames) == 0 || !ax25.IsUA(frames[0].Control) {
+		t.Fatalf("home %+v", frames)
+	}
+	if _, err := other.WriteToUDP(sabm, node.LocalAddr()); err != nil {
+		t.Fatal(err)
+	}
+	if frames := readFrames(other, 1, 200*time.Millisecond); len(frames) != 0 {
+		t.Fatalf("retarget %+v", frames)
+	}
+}
+
+func TestUnlistedCapPerAddress(t *testing.T) {
+	node := startNode(t, "K5LEB", false)
+	home := listenUDP(t, "127.0.0.1")
+	for i := 1; i <= maxGuestsPerIP; i++ {
+		call := mustCall(t, fmt.Sprintf("N0C%d", i))
+		sabm := ax25.Frame{Dest: node.Local(), Src: call, Command: true, Control: ax25.SABM | 0x10}.Encode()
+		if _, err := home.WriteToUDP(sabm, node.LocalAddr()); err != nil {
+			t.Fatal(err)
+		}
+		frames := readFrames(home, 2, time.Second)
+		if !hasUA(frames) {
+			t.Fatalf("guest %s %+v", call, frames)
+		}
+		ackInfo(t, home, node.LocalAddr(), frames)
+	}
+	extra := ax25.Frame{Dest: node.Local(), Src: mustCall(t, "N0CX"), Command: true, Control: ax25.SABM | 0x10}.Encode()
+	if _, err := home.WriteToUDP(extra, node.LocalAddr()); err != nil {
+		t.Fatal(err)
+	}
+	if frames := readFrames(home, 1, 200*time.Millisecond); len(frames) != 0 {
+		t.Fatalf("over cap %+v", frames)
+	}
+	other := listenUDP(t, "127.0.0.2")
+	if _, err := other.WriteToUDP(extra, node.LocalAddr()); err != nil {
+		t.Fatal(err)
+	}
+	frames := readFrames(other, 1, time.Second)
+	if len(frames) == 0 || !ax25.IsUA(frames[0].Control) {
+		t.Fatalf("other address %+v", frames)
+	}
+}
+
+func TestUIDoesNotTakeASession(t *testing.T) {
+	node := startNode(t, "K5LEB", false)
+	other := listenUDP(t, "127.0.0.1")
+	for i := 0; i < ax25.MaxSessions+8; i++ {
+		call := mustCall(t, fmt.Sprintf("N%05d", i))
+		ui := ax25.Frame{Dest: node.Local(), Src: call, Command: true, Control: ax25.UI, PID: ax25.PIDText, Info: []byte("beacon")}.Encode()
+		if _, err := other.WriteToUDP(ui, node.LocalAddr()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sabm := ax25.Frame{Dest: node.Local(), Src: mustCall(t, "N0CALL"), Command: true, Control: ax25.SABM | 0x10}.Encode()
+	if _, err := other.WriteToUDP(sabm, node.LocalAddr()); err != nil {
+		t.Fatal(err)
+	}
+	frames := readFrames(other, 1, time.Second)
+	if len(frames) == 0 || !ax25.IsUA(frames[0].Control) {
+		t.Fatalf("after ui %+v", frames)
+	}
+}
+
+func TestOversizedDatagramIsDropped(t *testing.T) {
+	node := startNode(t, "K5LEB", false)
+	other := listenUDP(t, "127.0.0.1")
+	big := bytes.Repeat([]byte{0x7e}, maxDatagram+50)
+	if _, err := other.WriteToUDP(big, node.LocalAddr()); err != nil {
+		t.Fatal(err)
+	}
+	sabm := ax25.Frame{Dest: node.Local(), Src: mustCall(t, "N0CALL"), Command: true, Control: ax25.SABM | 0x10}.Encode()
+	if _, err := other.WriteToUDP(sabm, node.LocalAddr()); err != nil {
+		t.Fatal(err)
+	}
+	frames := readFrames(other, 1, time.Second)
+	if len(frames) == 0 || !ax25.IsUA(frames[0].Control) {
+		t.Fatalf("after oversized %+v", frames)
+	}
+}
+
 func startNode(t *testing.T, call string, terminal bool) *Node {
 	t.Helper()
 	cfg := Config{
@@ -317,6 +528,68 @@ func readN(r io.Reader, n int, d time.Duration) ([]byte, error) {
 	case <-time.After(d):
 		return nil, fmt.Errorf("timed out")
 	}
+}
+
+func listenUDP(t *testing.T, host string) *net.UDPConn {
+	t.Helper()
+	pc, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP(host)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { pc.Close() })
+	return pc
+}
+
+func hasUA(frames []ax25.Frame) bool {
+	for _, frame := range frames {
+		if ax25.IsUA(frame.Control) {
+			return true
+		}
+	}
+	return false
+}
+
+func ackInfo(t *testing.T, pc *net.UDPConn, to *net.UDPAddr, frames []ax25.Frame) {
+	t.Helper()
+	for _, frame := range frames {
+		if !ax25.IsI(frame.Control) {
+			continue
+		}
+		rr := ax25.Frame{
+			Dest: frame.Src, Src: frame.Dest, Command: false,
+			Control: ax25.SControl(ax25.RR, (ax25.NS(frame.Control)+1)&7, false),
+		}.Encode()
+		if _, err := pc.WriteToUDP(rr, to); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func answerSABMAfter(pc *net.UDPConn, local, remote ax25.Address, info []byte, wait time.Duration) error {
+	pc.SetReadDeadline(time.Now().Add(2 * time.Second))
+	buf := make([]byte, 2048)
+	n, from, err := pc.ReadFromUDP(buf)
+	if err != nil {
+		return err
+	}
+	frame, err := ax25.Decode(buf[:n])
+	if err != nil {
+		return err
+	}
+	if !frame.Dest.Equal(remote) || !frame.Src.Equal(local) || !ax25.IsSABM(frame.Control) || !frame.Command {
+		return fmt.Errorf("sabm %+v", frame)
+	}
+	time.Sleep(wait)
+	ua := ax25.Frame{Dest: local, Src: remote, Command: false, Control: ax25.UA | 0x10}.Encode()
+	if _, err := pc.WriteToUDP(ua, from); err != nil {
+		return err
+	}
+	data := ax25.Frame{
+		Dest: local, Src: remote, Command: true,
+		Control: ax25.IControl(0, 0, false), PID: ax25.PIDText, Info: info,
+	}.Encode()
+	_, err = pc.WriteToUDP(data, from)
+	return err
 }
 
 func answerSABM(pc *net.UDPConn, local, remote ax25.Address, info []byte) error {
