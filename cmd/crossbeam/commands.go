@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -138,6 +139,9 @@ func startLink(ctx context.Context, st *store.Store, socketPath string, mode os.
 		TerminalPath: filepath.Join(filepath.Dir(socketPath), "terminal.sock"),
 		TerminalMode: mode,
 		Handler:      bulletin.Answer(st, call),
+		ForwardReady: func(ctx context.Context) error {
+			return bulletin.Check(ctx, st, call)
+		},
 		Forward: func(ctx context.Context, stream *ax25.Stream) (string, error) {
 			res, err := bulletin.Forward(ctx, st, call, stream)
 			if err != nil {
@@ -581,7 +585,7 @@ func cmdStatus(ctx context.Context, args []string, stdout, stderr io.Writer) int
 
 func cmdArticle(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "crossbeam: usage: crossbeam article preview|save|list")
+		fmt.Fprintln(stderr, "crossbeam: usage: crossbeam article preview|save|list|delete")
 		return 2
 	}
 	switch args[0] {
@@ -591,9 +595,48 @@ func cmdArticle(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return cmdSave(ctx, args[1:], stdout, stderr)
 	case "list":
 		return cmdList(ctx, args[1:], stdout, stderr)
+	case "delete":
+		return cmdDelete(ctx, args[1:], stdout, stderr)
 	default:
 		return unknown(append([]string{"article"}, args...), stderr)
 	}
+}
+
+func cmdDelete(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("delete", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	state := fs.String("state", defaultState, "state directory")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if fs.NArg() != 1 {
+		fmt.Fprintln(stderr, "crossbeam: usage: crossbeam article delete ROW [--state DIR]")
+		return 2
+	}
+	row, err := strconv.ParseInt(fs.Arg(0), 10, 64)
+	if err != nil || row <= 0 {
+		fmt.Fprintln(stderr, "crossbeam: article row must be a positive integer")
+		return 2
+	}
+	st, err := store.Open(*state)
+	if err != nil {
+		fmt.Fprintln(stderr, "crossbeam: the article could not be deleted")
+		return 1
+	}
+	defer st.Close()
+	if err := st.DeleteArticle(ctx, row); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			fmt.Fprintln(stderr, "crossbeam: article not found")
+			return 1
+		}
+		fmt.Fprintln(stderr, "crossbeam: the article could not be deleted")
+		return 1
+	}
+	fmt.Fprintf(stdout, "deleted %d\n", row)
+	return 0
 }
 
 type articleFlags struct {

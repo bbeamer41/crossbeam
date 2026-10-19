@@ -33,7 +33,7 @@ type Result struct {
 
 type outgoing struct {
 	prop fbb.Proposal
-	wire []byte
+	row  int64
 }
 
 // Answer handles one inbound AX.25 session. The banner carries the FBB
@@ -132,10 +132,13 @@ func Forward(ctx context.Context, st *store.Store, local ax25.Address, rw io.Rea
 func serveForward(ctx context.Context, st *store.Store, local ax25.Address, w io.Writer, rd *reader, first string) error {
 	queue, err := prepare(ctx, st, local)
 	if err != nil {
-		_ = writeAll(w, "*** "+oneLine(err)+"\r")
-		return err
+		// The caller is still sending its offer. Wait until that offer
+		// has been read, then report the problem. Writing it now can
+		// block both sides: each is waiting for the other to read.
+		queue = nil
 	}
 	sess := newSession(ctx, st, w, rd, queue)
+	sess.localErr = err
 	if !isSID(strings.TrimSpace(first)) {
 		sess.held = true
 		sess.hold = first
@@ -197,53 +200,99 @@ func isSID(trim string) bool {
 	return strings.HasPrefix(trim, "[") && strings.HasSuffix(trim, "]") && len(trim) >= 3
 }
 
+// Check reports whether the stored articles can be forwarded. The
+// terminal runs this before it dials, so a local problem does not open
+// the link.
+func Check(ctx context.Context, st *store.Store, local ax25.Address) error {
+	_, err := prepare(ctx, st, local)
+	return err
+}
+
 func prepare(ctx context.Context, st *store.Store, local ax25.Address) ([]outgoing, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	current, err := st.Settings(ctx)
 	if err != nil {
-		return nil, err
+		return nil, cleanStore(err)
 	}
 	to := current[settings.KeyBulletinTo]
 	at := current[settings.KeyBulletinAt]
 	if !fbb.ValidTo(to) || !fbb.ValidAt(at) {
 		return nil, errors.New("bulletin settings are not valid")
 	}
-	rows, err := st.AllArticles(ctx)
+	rows, err := st.BulletinSources(ctx)
 	if err != nil {
-		return nil, err
+		return nil, cleanStore(err)
 	}
 	seen := map[string]bool{}
 	out := make([]outgoing, 0, len(rows))
 	for _, row := range rows {
-		art, err := row.Article.Canonical()
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		item, err := oneOutgoing(ctx, st, local, row, to, at)
 		if err != nil {
 			return nil, err
 		}
-		if n := utf8.RuneCountInString(art.Title); n > fbb.MaxSubjectRunes {
-			return nil, errors.New(titleLimit(row.RowID, n))
+		if seen[item.prop.BID] {
+			return nil, errors.New("two articles use bulletin id " + item.prop.BID)
 		}
-		from := fromCall(art.Author, local)
-		bid, err := wireBID(art, from)
-		if err != nil {
-			return nil, err
-		}
-		if seen[bid] {
-			return nil, errors.New("two articles use bulletin id " + bid)
-		}
-		seen[bid] = true
-		wire, err := fbb.EncodeMessage(art.Title, art.Body)
-		if err != nil {
-			return nil, err
-		}
-		item := outgoing{prop: fbb.Proposal{
-			Type: "B", From: from, At: at, To: to, BID: bid, Size: len(wire),
-		}, wire: wire}
+		seen[item.prop.BID] = true
 		out = append(out, item)
 	}
 	return out, nil
 }
 
+func oneOutgoing(ctx context.Context, st *store.Store, local ax25.Address, row store.BulletinSource, to, at string) (outgoing, error) {
+	title := row.Title
+	author := row.Author
+	framed := len(title) + 1 + row.BodyBytes + 1
+	if n := utf8.RuneCountInString(title); n > fbb.MaxSubjectRunes {
+		return outgoing{}, errors.New(titleLimit(row.RowID, n))
+	}
+	from := fromCall(author, local)
+	id := strings.ToUpper(strings.TrimSpace(row.ID))
+	var bid string
+	if fbb.ValidBID(id) {
+		bid = id
+	} else {
+		saved, err := st.Article(ctx, row.RowID)
+		if err != nil {
+			return outgoing{}, cleanStore(err)
+		}
+		art, err := saved.Article.Canonical()
+		if err != nil {
+			return outgoing{}, err
+		}
+		if n := utf8.RuneCountInString(art.Title); n > fbb.MaxSubjectRunes {
+			return outgoing{}, errors.New(titleLimit(saved.RowID, n))
+		}
+		from = fromCall(art.Author, local)
+		framed = len(art.Title) + 1 + len(art.Body) + 1
+		var formErr error
+		bid, formErr = wireBID(art, from)
+		if formErr != nil {
+			return outgoing{}, formErr
+		}
+	}
+	if framed > fbb.MaxMessage {
+		return outgoing{}, errors.New(messageLimit(row.RowID, framed))
+	}
+	if !fbb.ValidBID(bid) {
+		return outgoing{}, errors.New("bulletin id cannot be formed")
+	}
+	return outgoing{prop: fbb.Proposal{
+		Type: "B", From: from, At: at, To: to, BID: bid, Size: framed,
+	}, row: row.RowID}, nil
+}
+
 func titleLimit(rowID int64, n int) string {
 	return fmt.Sprintf("article %d title is %d runes, above the bulletin limit of %d", rowID, n, fbb.MaxSubjectRunes)
+}
+
+func messageLimit(rowID int64, n int) string {
+	return fmt.Sprintf("article %d is %d bytes, above the bulletin limit of %d", rowID, n, fbb.MaxMessage)
 }
 
 func fromCall(author string, local ax25.Address) string {
@@ -323,9 +372,41 @@ func peerGone(err error) error {
 }
 
 func oneLine(err error) string {
-	msg := err.Error()
-	if msg == "" || len(msg) > 80 || strings.ContainsAny(msg, "\r\n") {
+	if err == nil || !safeWire(err.Error()) {
 		return "bad proposal"
 	}
-	return msg
+	return err.Error()
+}
+
+// safeWire reports whether text can be shown on the AX.25 session.
+// Paths, database details, and control bytes stay off the air.
+func safeWire(msg string) bool {
+	if msg == "" || len(msg) > 80 || strings.ContainsAny(msg, "\r\n\\/") {
+		return false
+	}
+	for i := 0; i < len(msg); i++ {
+		if msg[i] < 0x20 || msg[i] > 0x7e {
+			return false
+		}
+	}
+	lower := strings.ToLower(msg)
+	for _, bad := range []string{"sqlite", ".db", "password", "token"} {
+		if strings.Contains(lower, bad) {
+			return false
+		}
+	}
+	return true
+}
+
+func cleanStore(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	if safeWire(err.Error()) {
+		return err
+	}
+	return errors.New("the article store could not be read")
 }

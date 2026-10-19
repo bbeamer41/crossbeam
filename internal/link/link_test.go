@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -616,6 +617,108 @@ func answerSABM(pc *net.UDPConn, local, remote ax25.Address, info []byte) error 
 	}.Encode()
 	_, err = pc.WriteToUDP(data, from)
 	return err
+}
+
+func TestTermErrHidesPaths(t *testing.T) {
+	if termErr(errors.New("open /var/lib/crossbeam/crossbeam.db: sqlite busy")) != "The connection failed." {
+		t.Fatal(termErr(errors.New("open /var/lib/crossbeam/crossbeam.db: sqlite busy")))
+	}
+	if termErr(errors.New("W1AW-1 is not listed")) != "W1AW-1 is not listed" {
+		t.Fatal(termErr(errors.New("W1AW-1 is not listed")))
+	}
+}
+
+func TestForwardUnlistedSkipsReady(t *testing.T) {
+	ready := false
+	node, err := Listen(Config{
+		Bind: "127.0.0.1:0", Local: mustCall(t, "K5LEB"), T1: 150 * time.Millisecond, N2: 4,
+		TerminalPath: filepath.Join(t.TempDir(), "terminal.sock"), TerminalMode: 0o600,
+		Forward: func(context.Context, *ax25.Stream) (string, error) {
+			return "sent 0 received 0", nil
+		},
+		ForwardReady: func(context.Context) error {
+			ready = true
+			return errors.New("article 1 title is 81 runes, above the bulletin limit of 80")
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer node.Close()
+	conn, err := net.Dial("unix", node.Terminal())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+	if _, err := fmt.Fprintf(conn, "FORWARD W1AW-1\n"); err != nil {
+		t.Fatal(err)
+	}
+	reply, err := bufio.NewReader(conn).ReadString('\n')
+	if err != nil || reply != "ERR W1AW-1 is not listed\n" || ready {
+		t.Fatalf("reply %q ready %v err %v", reply, ready, err)
+	}
+}
+
+func TestForwardClientCloseReleasesTheCall(t *testing.T) {
+	peer, err := Listen(Config{
+		Bind: "127.0.0.1:0", Local: mustCall(t, "W1AW-1"), T1: 150 * time.Millisecond, N2: 6, Paclen: 128,
+		Handler: func(_ ax25.Address, st *ax25.Stream) {
+			defer st.Close()
+			buf := make([]byte, 1)
+			_, _ = st.Read(buf)
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer peer.Close()
+	started := make(chan struct{})
+	var once sync.Once
+	master, err := Listen(Config{
+		Bind: "127.0.0.1:0", Local: mustCall(t, "K5LEB"), T1: 150 * time.Millisecond, N2: 6, Paclen: 128,
+		TerminalPath: filepath.Join(t.TempDir(), "terminal.sock"), TerminalMode: 0o600,
+		Forward: func(_ context.Context, st *ax25.Stream) (string, error) {
+			once.Do(func() { close(started) })
+			buf := make([]byte, 1)
+			_, err := st.Read(buf)
+			return "", err
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer master.Close()
+	mustPeers(t, master, peer)
+	conn, err := net.Dial("unix", master.Terminal())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
+	if _, err := fmt.Fprintf(conn, "FORWARD %s\n", peer.Local()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("forward did not start")
+	}
+	conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	var last error
+	for {
+		stream, err := master.Dial(ctx, peer.Local().String())
+		if err == nil {
+			stream.Close()
+			return
+		}
+		last = err
+		if ctx.Err() != nil {
+			t.Fatal(last)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 func TestForwardWithoutExchange(t *testing.T) {

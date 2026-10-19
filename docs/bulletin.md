@@ -12,7 +12,7 @@ The link has to be running, and the other station has to be listed in `link.peer
 crossbeam bulletin send W1AW-1 --state /var/lib/crossbeam
 ```
 
-With the systemd layout the terminal socket is `/run/crossbeam/terminal.sock`. `--socket` selects that path. The command prints `sent N received N` when the exchange finishes. A second run sends the same articles again. The peer answers `-` for a bulletin id it already has, and nothing new is stored.
+With the systemd layout the terminal socket is `/run/crossbeam/terminal.sock`. `--socket` selects that path. The command prints `sent N received N` when the exchange finishes. Stopping the command closes the forward and releases the callsign. A second run sends the same articles again. The peer answers `-` for a bulletin id it already has, and nothing new is stored.
 
 `bulletin.to` and `bulletin.at` set the category and the distribution. The defaults are `ALL` and `WW`.
 
@@ -35,7 +35,7 @@ The fields are the command, the type (`B`), the sender, the distribution, the ca
 
 The answer is `FS` and one mark per proposal. `+` accepts it. `-` rejects it or means the peer already has that id. `=` and `H` defer it to a later forward. `R` and `E` are treated as rejects. Crossbeam sends only `+` and `-`.
 
-An accepted message is the subject, a carriage return, the body with carriage returns, and a final byte `0x1A`. The size counts all of those bytes. Lines may use a carriage return or a carriage return and a line feed. The line feed is not part of the checksum.
+An accepted message is the subject, a carriage return, the body with carriage returns, and a final byte `0x1A`. The size counts all of those bytes. Lines may use a carriage return or a carriage return and a line feed. The line feed is not part of the checksum. In a message, a carriage return and line feed is one line ending, not a blank line.
 
 After the bodies, the peer offers its own bulletins, or sends `FF` when it has nothing more, or `FQ` to close. `FS` may be followed immediately by the next proposal when every proposal was rejected.
 
@@ -48,7 +48,7 @@ A line that starts with `;` is a comment and is ignored.
 | Title | Subject, at most 80 characters |
 | Author | Sender, when the author is an AX.25 callsign. Otherwise this station's callsign. |
 | ID | Bulletin id, when it is 1 to 12 letters, digits, hyphens, or underscores. A longer or empty id is replaced by a stable id of at most 12 characters. |
-| Body | Message text. Carriage returns become newlines, then the article rules in `docs/article.md` apply. Routing lines that begin with `R:` stay in the body. |
+| Body | Message text. A carriage return, or a carriage return and line feed, becomes one newline, then the article rules in `docs/article.md` apply. Routing lines that begin with `R:` stay in the body. |
 | Created | Not sent. The receiver stores the time it accepted the bulletin. |
 
 The receiver stores the bulletin id as the article id and the sender as the author. A title, author, id, and body therefore come back in that form. Created becomes the receive time. A title longer than 80 characters stops the forward with an error instead of being cut short.
@@ -59,4 +59,8 @@ The receiver stores the bulletin id as the article id and the sender as the auth
 
 ## Limits
 
-One message may be at most 256 KiB, the same cap as an article body. A session accepts at most 100 new bulletins and 2 MiB of message text. A larger offer ends the session. Bulletins already stored stay stored, and a later forward can continue. A bad message after `+` is not stored, so the peer can offer it again.
+One framed message, including the subject, the carriage returns, the body, and the final `0x1A`, may be at most 256 KiB. An article whose framed message is larger stops the forward and names that article. A session accepts at most 100 new bulletins and 2 MiB of message text. A larger offer ends the session before the `FS` line, so the peer retries it later. Bulletins already stored stay stored.
+
+A peer bulletin is deferred with `=` when the store already holds 2000 articles or 32 MiB of body text. It is offered again on a later forward. The admin panel can still save an article. `crossbeam article delete ROW --state DIR` removes one article and frees that room. Shortening a body in the admin panel frees bytes as well.
+
+A line that starts with `***` is an error from the peer. The forward stops and reports that text. A bad message after `+` is not stored, so the peer can offer it again.

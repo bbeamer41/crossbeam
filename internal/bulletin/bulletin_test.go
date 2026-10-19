@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -660,5 +661,265 @@ func lastField(line string) int {
 func TestMessageCapMatchesArticle(t *testing.T) {
 	if fbb.MaxMessage != article.MaxBodyBytes {
 		t.Fatalf("caps %d %d", fbb.MaxMessage, article.MaxBodyBytes)
+	}
+}
+
+func TestFramedMessageNamesTheArticle(t *testing.T) {
+	st := openStore(t)
+	saveArt(t, st, "BIG", "Hi", "K5LEB", strings.Repeat("A", article.MaxBodyBytes), time.Now().UTC())
+	_, err := Forward(context.Background(), st, mustCall(t, "K5LEB"), nil)
+	if err == nil || !strings.Contains(err.Error(), "article") || !strings.Contains(err.Error(), "bulletin limit") {
+		t.Fatal(err)
+	}
+	msg := messageLimit(1<<62, fbb.MaxMessage+800)
+	if len(msg) > 80 || !safeWire(msg) {
+		t.Fatalf("wire error %d %q", len(msg), msg)
+	}
+}
+
+func TestRemoteTitleErrorIsReturned(t *testing.T) {
+	stA := openStore(t)
+	stB := openStore(t)
+	saveArt(t, stB, "LONG", strings.Repeat("T", fbb.MaxSubjectRunes+1), "W1AW", "x", time.Now().UTC())
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	errc := make(chan error, 1)
+	go func() {
+		errc <- Serve(context.Background(), stB, mustCall(t, "W1AW"), b)
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ch := make(chan error, 1)
+	go func() {
+		_, err := Forward(ctx, stA, mustCall(t, "K5LEB"), a)
+		ch <- err
+	}()
+	var err error
+	select {
+	case err = <-ch:
+	case <-ctx.Done():
+		a.Close()
+		b.Close()
+		t.Fatal("timed out")
+	}
+	if err == nil || !strings.Contains(err.Error(), "bulletin limit") {
+		t.Fatalf("master %v", err)
+	}
+	a.Close()
+	if serveErr := <-errc; serveErr == nil || !strings.Contains(serveErr.Error(), "bulletin limit") {
+		t.Fatalf("answer %v", serveErr)
+	}
+}
+
+func TestPeerErrorIsSanitized(t *testing.T) {
+	st := openStore(t)
+	a, b := net.Pipe()
+	defer a.Close()
+	errc := make(chan error, 1)
+	go func() {
+		defer b.Close()
+		rd := bufio.NewReader(b)
+		if _, err := io.WriteString(b, "[TEST-1-F$]\rW1AW>\r"); err != nil {
+			errc <- err
+			return
+		}
+		// SID, then FF. Read both before the error so the writes do not block each other.
+		for i := 0; i < 2; i++ {
+			if _, err := readCR(rd); err != nil {
+				errc <- err
+				return
+			}
+		}
+		_, err := io.WriteString(b, "*** open /var/lib/crossbeam/crossbeam.db\r")
+		errc <- err
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ch := make(chan error, 1)
+	go func() {
+		_, err := Forward(ctx, st, mustCall(t, "K5LEB"), a)
+		ch <- err
+	}()
+	var err error
+	select {
+	case err = <-ch:
+	case <-ctx.Done():
+		a.Close()
+		b.Close()
+		t.Fatal("timed out")
+	}
+	a.Close()
+	if err == nil || err.Error() != "bad proposal" {
+		t.Fatalf("master %v", err)
+	}
+	if err := <-errc; err != nil {
+		t.Fatal(err)
+	}
+	if oneLine(errors.New("bad checksum")) != "bad checksum" {
+		t.Fatal(oneLine(errors.New("bad checksum")))
+	}
+}
+
+func TestCRLFMessageStoresOneParagraph(t *testing.T) {
+	st := openStore(t)
+	msg := []byte("Hello net\r\nline one\r\nline two\x1a")
+	line := fmt.Sprintf("FB B W1AW WW ALL LINES %d", len(msg))
+	sum := fbb.Checksum([]string{line})
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	errc := make(chan error, 1)
+	go func() {
+		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), b)
+	}()
+	rd := bufio.NewReader(a)
+	if err := readUntilPrompt(rd); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(a, "[TEST-1-F$]\r"+line+"\r"+fmt.Sprintf("F> %02X\r", sum)); err != nil {
+		t.Fatal(err)
+	}
+	fs, err := readCR(rd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(fs) != "FS +" {
+		t.Fatalf("fs %q", fs)
+	}
+	if _, err := a.Write(msg); err != nil {
+		t.Fatal(err)
+	}
+	next, err := readCR(rd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(next) != "FF" {
+		t.Fatalf("after %q", next)
+	}
+	if _, err := io.WriteString(a, "FQ\r"); err != nil {
+		t.Fatal(err)
+	}
+	a.Close()
+	if err := <-errc; err != nil {
+		t.Fatal(err)
+	}
+	got := findArt(t, st, "Hello net")
+	if got.Article.Body != "line one line two" {
+		t.Fatalf("%q", got.Article.Body)
+	}
+}
+
+func TestUTF8BodySize(t *testing.T) {
+	stA := openStore(t)
+	stB := openStore(t)
+	saveArt(t, stA, "CAFE", "Cafe", "K5LEB", "café", time.Now().UTC())
+	res := exchange(t, stA, stB, "K5LEB", "W1AW")
+	if res.Sent != 1 || res.Received != 0 {
+		t.Fatalf("%+v", res)
+	}
+	got := findArt(t, stB, "Cafe")
+	if got.Article.Body != "café" || got.Article.ID != "CAFE" {
+		t.Fatalf("%+v", got.Article)
+	}
+}
+
+func TestStoreFullDefers(t *testing.T) {
+	oldN, oldB := maxStoreArticles, maxStoreBytes
+	maxStoreArticles = 1
+	t.Cleanup(func() {
+		maxStoreArticles = oldN
+		maxStoreBytes = oldB
+	})
+	st := openStore(t)
+	msg := []byte("Hello\rOne.\x1a")
+	line1 := fmt.Sprintf("FB B W1AW WW ALL ONE %d", len(msg))
+	line2 := fmt.Sprintf("FB B W1AW WW ALL TWO %d", len(msg))
+	sum := fbb.Checksum([]string{line1, line2})
+	a, b := net.Pipe()
+	defer a.Close()
+	errc := make(chan error, 1)
+	go func() {
+		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), b)
+	}()
+	rd := bufio.NewReader(a)
+	if err := readUntilPrompt(rd); err != nil {
+		t.Fatal(err)
+	}
+	payload := "[TEST-1-F$]\r" + line1 + "\r" + line2 + "\r" + fmt.Sprintf("F> %02X\r", sum)
+	if _, err := io.WriteString(a, payload); err != nil {
+		t.Fatal(err)
+	}
+	fs, err := readCR(rd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(fs) != "FS +=" {
+		t.Fatalf("fs %q", fs)
+	}
+	if _, err := a.Write(msg); err != nil {
+		t.Fatal(err)
+	}
+	next, err := readCR(rd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(next) != "FF" {
+		t.Fatalf("after %q", next)
+	}
+	if _, err := io.WriteString(a, "FQ\r"); err != nil {
+		t.Fatal(err)
+	}
+	a.Close()
+	if err := <-errc; err != nil {
+		t.Fatal(err)
+	}
+	if countArt(t, st) != 1 {
+		t.Fatalf("stored %d", countArt(t, st))
+	}
+	got := findArt(t, st, "Hello")
+	if got.Article.ID != "ONE" || got.Article.Body != "One." {
+		t.Fatalf("%+v", got.Article)
+	}
+
+	maxStoreBytes = 1
+	st = openStore(t)
+	line := fmt.Sprintf("FB B W1AW WW ALL TINY %d", len(msg))
+	sum = fbb.Checksum([]string{line})
+	a, b = net.Pipe()
+	defer a.Close()
+	go func() {
+		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), b)
+	}()
+	rd = bufio.NewReader(a)
+	if err := readUntilPrompt(rd); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(a, "[TEST-1-F$]\r"+line+"\r"+fmt.Sprintf("F> %02X\r", sum)); err != nil {
+		t.Fatal(err)
+	}
+	fs, err = readCR(rd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(fs) != "FS =" {
+		t.Fatalf("byte cap %q", fs)
+	}
+	next, err = readCR(rd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(next) != "FF" {
+		t.Fatalf("after byte cap %q", next)
+	}
+	if _, err := io.WriteString(a, "FQ\r"); err != nil {
+		t.Fatal(err)
+	}
+	a.Close()
+	if err := <-errc; err != nil {
+		t.Fatal(err)
+	}
+	if countArt(t, st) != 0 {
+		t.Fatal("byte cap stored a bulletin")
 	}
 }

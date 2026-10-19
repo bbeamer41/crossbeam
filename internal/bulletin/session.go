@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/bbeamer41/crossbeam/internal/article"
+	"github.com/bbeamer41/crossbeam/internal/ax25"
 	"github.com/bbeamer41/crossbeam/internal/fbb"
 	"github.com/bbeamer41/crossbeam/internal/store"
 )
@@ -23,6 +24,14 @@ const (
 	maxAccepted      = 100
 	maxAcceptedBytes = 2 * 1024 * 1024
 	maxRounds        = 200
+)
+
+// A peer can reconnect, so the per-session caps are not the disk cap.
+// These bounds are what one station will accept into the article store.
+// Editing an article down, or deleting it, makes room for a later forward.
+var (
+	maxStoreArticles = 2000
+	maxStoreBytes    = 32 << 20
 )
 
 var errLong = errors.New("line is too long")
@@ -118,6 +127,7 @@ type session struct {
 	sent          int
 	received      int
 	receivedBytes int
+	localErr      error
 }
 
 func newSession(ctx context.Context, st *store.Store, w io.Writer, rd *reader, queue []outgoing) *session {
@@ -161,6 +171,11 @@ func (s *session) run(offerFirst bool) error {
 			return err
 		}
 		if expectOffer {
+			// A local problem is reported on our turn. The caller has
+			// finished writing its offer and is waiting to read.
+			if s.localErr != nil {
+				return s.fail(s.localErr)
+			}
 			if len(s.queue) == 0 {
 				if peerSaidFF {
 					return s.write("FQ\r")
@@ -184,6 +199,9 @@ func (s *session) run(offerFirst bool) error {
 		}
 		switch kind {
 		case "fq":
+			if s.localErr != nil {
+				return s.localErr
+			}
 			return nil
 		case "ff":
 			peerSaidFF = true
@@ -196,12 +214,23 @@ func (s *session) run(offerFirst bool) error {
 	return s.fail(errors.New("too many proposal blocks"))
 }
 
+type peerErr struct {
+	text string
+}
+
+func (e peerErr) Error() string { return e.text }
+
 func (s *session) fail(err error) error {
-	if err == nil || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+	var peer peerErr
+	if err == nil || errors.As(err, &peer) || quietErr(err) {
 		return err
 	}
 	_ = s.write("*** " + oneLine(err) + "\r")
 	return err
+}
+
+func quietErr(err error) bool {
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, ax25.ErrClosed) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 func (s *session) nextLine() (string, error) {
@@ -224,15 +253,35 @@ func (s *session) nextLine() (string, error) {
 		if strings.HasPrefix(trim, ";") {
 			continue
 		}
+		if text, ok := peerError(trim); ok {
+			return "", peerErr{text: text}
+		}
 		return line, nil
 	}
+}
+
+func peerError(trim string) (string, bool) {
+	if !strings.HasPrefix(trim, "***") {
+		return "", false
+	}
+	msg := strings.TrimSpace(strings.TrimPrefix(trim, "***"))
+	if !safeWire(msg) {
+		return "bad proposal", true
+	}
+	return msg, true
 }
 
 func (s *session) sendBatch() error {
 	batch, rest := takeBatch(s.queue)
 	s.queue = rest
 	props := make([]fbb.Proposal, len(batch))
+	wires := make([][]byte, len(batch))
 	for i := range batch {
+		wire, err := s.encodeRow(batch[i])
+		if err != nil {
+			return err
+		}
+		wires[i] = wire
 		props[i] = batch[i].prop
 	}
 	raw, err := fbb.EncodeProposals(props)
@@ -250,12 +299,31 @@ func (s *session) sendBatch() error {
 		if mark != '+' {
 			continue
 		}
-		if err := s.writeBytes(batch[i].wire); err != nil {
+		if err := s.writeBytes(wires[i]); err != nil {
 			return err
 		}
 		s.sent++
 	}
 	return nil
+}
+
+func (s *session) encodeRow(item outgoing) ([]byte, error) {
+	saved, err := s.st.Article(s.ctx, item.row)
+	if err != nil {
+		return nil, cleanStore(err)
+	}
+	art, err := saved.Article.Canonical()
+	if err != nil {
+		return nil, err
+	}
+	wire, err := fbb.EncodeMessage(art.Title, art.Body)
+	if err != nil {
+		return nil, err
+	}
+	if len(wire) != item.prop.Size {
+		return nil, fmt.Errorf("article %d message size changed", item.row)
+	}
+	return wire, nil
 }
 
 func (s *session) readFS(n int) ([]byte, error) {
@@ -340,6 +408,12 @@ func (s *session) takeProposal(lines []string, end string) error {
 	seen := map[string]bool{}
 	count := s.received
 	total := s.receivedBytes
+	usedN, usedB, err := s.st.BulletinUsage(s.ctx)
+	if err != nil {
+		return cleanStore(err)
+	}
+	pendN := 0
+	pendB := 0
 	for i, p := range props {
 		if p.Type != "B" {
 			answers[i] = '-'
@@ -347,10 +421,14 @@ func (s *session) takeProposal(lines []string, end string) error {
 		}
 		have, err := s.st.HasBulletinID(s.ctx, p.BID)
 		if err != nil {
-			return err
+			return cleanStore(err)
 		}
 		if have || seen[p.BID] || s.known[p.BID] {
 			answers[i] = '-'
+			continue
+		}
+		if usedN+pendN >= maxStoreArticles || usedB+int64(pendB)+int64(p.Size) > int64(maxStoreBytes) {
+			answers[i] = '='
 			continue
 		}
 		if count >= maxAccepted || total+p.Size > maxAcceptedBytes {
@@ -359,6 +437,8 @@ func (s *session) takeProposal(lines []string, end string) error {
 		seen[p.BID] = true
 		count++
 		total += p.Size
+		pendN++
+		pendB += p.Size
 		answers[i] = '+'
 		yes = append(yes, p)
 	}
@@ -378,7 +458,7 @@ func (s *session) takeProposal(lines []string, end string) error {
 			if errors.Is(err, store.ErrDuplicateID{}) {
 				continue
 			}
-			return err
+			return cleanStore(err)
 		}
 		s.received++
 		s.receivedBytes += p.Size

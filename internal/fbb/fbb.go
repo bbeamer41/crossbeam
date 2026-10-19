@@ -228,13 +228,14 @@ func EncodeMessage(title, body string) ([]byte, error) {
 }
 
 // DecodeMessage splits a message whose size was declared in the proposal.
-// The last byte must be Ctrl-Z. Carriage returns in the body become
-// newlines. The subject is limited to MaxSubjectRunes.
+// The last byte must be Ctrl-Z. A carriage return, or a carriage return
+// and line feed, is one line ending. The line feed does not become a
+// blank line. The subject is limited to MaxSubjectRunes.
 func DecodeMessage(raw []byte) (string, string, error) {
 	if len(raw) < MinSize || raw[len(raw)-1] != CtrlZ {
 		return "", "", errors.New("message does not end with Ctrl-Z")
 	}
-	payload := raw[:len(raw)-1]
+	payload := bytes.ReplaceAll(raw[:len(raw)-1], []byte("\r\n"), []byte("\r"))
 	cut := bytes.IndexByte(payload, '\r')
 	if cut < 0 {
 		return "", "", errors.New("message has no subject")

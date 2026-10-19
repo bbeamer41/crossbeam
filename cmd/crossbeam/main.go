@@ -74,6 +74,7 @@ func printHelp(stdout io.Writer) {
 	fmt.Fprintln(stdout, "  crossbeam article preview --title TITLE [--author CALL] [--id ID] [--created TIME] [--body TEXT | --body-file PATH]")
 	fmt.Fprintln(stdout, "  crossbeam article save --title TITLE [--author CALL] [--id ID] [--created TIME] [--body TEXT | --body-file PATH] [--state DIR | --socket PATH]")
 	fmt.Fprintln(stdout, "  crossbeam article list [--state DIR | --socket PATH]")
+	fmt.Fprintln(stdout, "  crossbeam article delete ROW [--state DIR]")
 	fmt.Fprintln(stdout, "  crossbeam version")
 }
 

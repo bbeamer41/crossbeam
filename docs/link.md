@@ -38,4 +38,4 @@ Lines on the air end with a carriage return.
 
 ## Limits
 
-The link is modulo 8. A modulo-128 request is refused. Frames with digipeaters are ignored. One session is open to a given callsign at a time. A session with nothing passing disconnects after 15 minutes. One IP address can hold four sessions from callsigns that are not listed. ASCII FBB bulletins use this session. NET/ROM and the radio port are later goals.
+The link is modulo 8. A modulo-128 request is refused. Frames with digipeaters are ignored. One session is open to a given callsign at a time. A session with nothing passing disconnects after 15 minutes. Closing `crossbeam bulletin send` releases that callsign. One IP address can hold four sessions from callsigns that are not listed. ASCII FBB bulletins use this session. NET/ROM and the radio port are later goals.

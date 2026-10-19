@@ -681,6 +681,74 @@ ORDER BY row_id ASC
 	return out, rows.Err()
 }
 
+// BulletinSource is one article without its body. BodyBytes is the
+// stored body length in bytes.
+type BulletinSource struct {
+	RowID     int64
+	ID        string
+	Title     string
+	Author    string
+	Created   time.Time
+	BodyBytes int
+}
+
+// BulletinSources returns every row oldest first, without bodies.
+func (s *Store) BulletinSources(ctx context.Context) ([]BulletinSource, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT row_id, bulletin_id, title, author, created, LENGTH(CAST(body AS BLOB))
+FROM articles
+ORDER BY row_id ASC
+`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []BulletinSource
+	for rows.Next() {
+		var src BulletinSource
+		var created string
+		if err := rows.Scan(&src.RowID, &src.ID, &src.Title, &src.Author, &created, &src.BodyBytes); err != nil {
+			return nil, err
+		}
+		parsed, err := time.Parse(time.RFC3339, created)
+		if err != nil {
+			return nil, fmt.Errorf("created time is not RFC3339")
+		}
+		src.Created = parsed
+		out = append(out, src)
+	}
+	return out, rows.Err()
+}
+
+// BulletinUsage reports how many articles are stored and how many body
+// bytes they hold.
+func (s *Store) BulletinUsage(ctx context.Context) (articles int, bodyBytes int64, err error) {
+	err = s.db.QueryRowContext(ctx, `
+SELECT COUNT(*), COALESCE(SUM(LENGTH(CAST(body AS BLOB))), 0) FROM articles
+`).Scan(&articles, &bodyBytes)
+	return articles, bodyBytes, err
+}
+
+// DeleteArticle removes one row. A missing row is ErrNotFound.
+func (s *Store) DeleteArticle(ctx context.Context, rowID int64) error {
+	if rowID <= 0 {
+		return ErrNotFound
+	}
+	res, err := s.db.ExecContext(ctx, `DELETE FROM articles WHERE row_id = ?`, rowID)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	s.tighten()
+	return nil
+}
+
 func isUnique(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
 }

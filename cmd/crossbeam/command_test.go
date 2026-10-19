@@ -47,6 +47,22 @@ func TestArticleCommands(t *testing.T) {
 	if code != 0 || !strings.Contains(stdout, "Hello") || !strings.Contains(stdout, "K5LEB") {
 		t.Fatalf("list code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
+	stdout, stderr, code = capture([]string{"article", "delete", "--state", dir, "1"})
+	if code != 0 || stderr != "" || stdout != "deleted 1\n" {
+		t.Fatalf("delete code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	stdout, stderr, code = capture([]string{"article", "list", "--state", dir})
+	if code != 0 || strings.Contains(stdout, "Hello") {
+		t.Fatalf("list after delete code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	_, stderr, code = capture([]string{"article", "delete", "--state", dir, "1"})
+	if code != 1 || !strings.Contains(stderr, "article not found") {
+		t.Fatalf("missing code=%d stderr=%q", code, stderr)
+	}
+	_, stderr, code = capture([]string{"article", "delete", "--state", dir, "0"})
+	if code != 2 || !strings.Contains(stderr, "positive integer") {
+		t.Fatalf("zero code=%d stderr=%q", code, stderr)
+	}
 	_, stderr, code = capture([]string{"article", "save", "--title", "Hello", "extra"})
 	if code != 2 || !strings.Contains(stderr, "does not take arguments") {
 		t.Fatalf("save extra code=%d stderr=%q", code, stderr)

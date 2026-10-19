@@ -250,6 +250,39 @@ func TestAuthorRequiredWhenCallsignEmpty(t *testing.T) {
 	}
 }
 
+func TestBulletinUsageAndDelete(t *testing.T) {
+	s := openStore(t, filepath.Join(t.TempDir(), "state"))
+	ctx := context.Background()
+	n, bytes, err := s.BulletinUsage(ctx)
+	if err != nil || n != 0 || bytes != 0 {
+		t.Fatalf("empty %d %d %v", n, bytes, err)
+	}
+	saved, err := s.SaveArticle(ctx, ArticleIn{
+		ID: "CAFE", Title: "Cafe", Author: "K5LEB", Body: "café", Now: time.Now(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, bytes, err = s.BulletinUsage(ctx)
+	if err != nil || n != 1 || bytes != int64(len("café")) {
+		t.Fatalf("usage %d %d %v", n, bytes, err)
+	}
+	sources, err := s.BulletinSources(ctx)
+	if err != nil || len(sources) != 1 || sources[0].RowID != saved.RowID || sources[0].BodyBytes != len("café") || sources[0].ID != "CAFE" {
+		t.Fatalf("%v %+v", err, sources)
+	}
+	if err := s.DeleteArticle(ctx, saved.RowID); err != nil {
+		t.Fatal(err)
+	}
+	n, bytes, err = s.BulletinUsage(ctx)
+	if err != nil || n != 0 || bytes != 0 {
+		t.Fatalf("after delete %d %d %v", n, bytes, err)
+	}
+	if err := s.DeleteArticle(ctx, saved.RowID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing %v", err)
+	}
+}
+
 func openStore(t *testing.T, dir string) *Store {
 	t.Helper()
 	s, err := Open(dir)

@@ -110,4 +110,22 @@ func TestMessageFraming(t *testing.T) {
 	if _, _, err := DecodeMessage([]byte("No ctrl z")); err == nil {
 		t.Fatal("unterminated message accepted")
 	}
+	cr := []byte("Hello net\rline one\rline two\x1a")
+	crlf := []byte("Hello net\r\nline one\r\nline two\x1a")
+	crTitle, crBody, err := DecodeMessage(cr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lfTitle, lfBody, err := DecodeMessage(crlf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if crTitle != lfTitle || crBody != lfBody || crBody != "line one\nline two" {
+		t.Fatalf("cr %q %q crlf %q %q", crTitle, crBody, lfTitle, lfBody)
+	}
+	blank := []byte("Hello net\r\nMeet at seven.\r\n\r\nBring the list.\x1a")
+	title, body, err = DecodeMessage(blank)
+	if err != nil || title != "Hello net" || body != "Meet at seven.\n\nBring the list." {
+		t.Fatalf("crlf blank %q %q %v", title, body, err)
+	}
 }

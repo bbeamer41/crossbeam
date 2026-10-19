@@ -54,6 +54,8 @@ type Config struct {
 	// Forward runs one FBB exchange on a dialed session. The string is
 	// the OK detail. Nil refuses the FORWARD terminal command.
 	Forward func(context.Context, *ax25.Stream) (string, error)
+	// ForwardReady runs before a FORWARD dial. A non-nil error skips the dial.
+	ForwardReady func(context.Context) error
 }
 
 // Node is a running AX/UDP station.
@@ -77,6 +79,7 @@ type Node struct {
 	drop     func(ax25.Frame) bool
 	terms    int
 	forward  func(context.Context, *ax25.Stream) (string, error)
+	ready    func(context.Context) error
 }
 
 // Listen binds the UDP port and, when TerminalPath is set, the local
@@ -124,6 +127,7 @@ func Listen(cfg Config) (*Node, error) {
 		peerPort: map[string]int{},
 		guests:   map[string]*guestRoute{},
 		forward:  cfg.Forward,
+		ready:    cfg.ForwardReady,
 	}
 	if err := n.SetPeers(cfg.Peers); err != nil {
 		pc.Close()
@@ -196,20 +200,28 @@ func (n *Node) SetPeers(text string) error {
 
 // Dial connects to a listed station and returns the byte stream.
 func (n *Node) Dial(ctx context.Context, call string) (*ax25.Stream, error) {
-	addr, err := ax25.Parse(call)
+	addr, err := n.listed(call)
 	if err != nil {
 		return nil, err
-	}
-	n.mu.Lock()
-	_, ok := n.peers[addr.String()]
-	n.mu.Unlock()
-	if !ok {
-		return nil, fmt.Errorf("%s is not listed", addr)
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	return n.sw.Dial(ctx, addr)
+}
+
+func (n *Node) listed(call string) (ax25.Address, error) {
+	addr, err := ax25.Parse(call)
+	if err != nil {
+		return ax25.Address{}, err
+	}
+	n.mu.Lock()
+	_, ok := n.peers[addr.String()]
+	n.mu.Unlock()
+	if !ok {
+		return ax25.Address{}, fmt.Errorf("%s is not listed", addr)
+	}
+	return addr, nil
 }
 
 // Close stops the UDP port, the terminal socket, and open sessions.
@@ -471,6 +483,10 @@ func (n *Node) serveTerm(conn net.Conn) {
 		fmt.Fprintf(conn, "ERR forwarding is not available\n")
 		return
 	}
+	if kind == "forward" {
+		n.serveForward(conn, call, wait)
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), n.dialFor)
 	stream, err := n.Dial(ctx, call)
 	cancel()
@@ -480,20 +496,6 @@ func (n *Node) serveTerm(conn net.Conn) {
 		return
 	}
 	defer stream.Close()
-	if kind == "forward" {
-		_ = conn.SetDeadline(time.Time{})
-		detail, err := n.forward(context.Background(), stream)
-		_ = conn.SetDeadline(time.Now().Add(wait))
-		if err != nil {
-			fmt.Fprintf(conn, "ERR %s\n", termErr(err))
-			return
-		}
-		if detail == "" || len(detail) > 80 || strings.ContainsAny(detail, "\r\n") {
-			detail = "forward complete"
-		}
-		fmt.Fprintf(conn, "OK %s\n", detail)
-		return
-	}
 	if _, err := fmt.Fprintf(conn, "OK\n"); err != nil {
 		return
 	}
@@ -507,6 +509,67 @@ func (n *Node) serveTerm(conn net.Conn) {
 	_, _ = io.Copy(conn, stream)
 	_ = conn.Close()
 	<-done
+}
+
+// serveForward dials one listed station and runs the FBB exchange.
+// If the terminal client goes away, the AX.25 session is closed.
+// Cancelling the context does not unblock a stream read, so the
+// session itself is closed.
+func (n *Node) serveForward(conn net.Conn, call string, wait time.Duration) {
+	if _, err := n.listed(call); err != nil {
+		_ = conn.SetDeadline(time.Now().Add(wait))
+		fmt.Fprintf(conn, "ERR %s\n", termErr(err))
+		return
+	}
+	fctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	clientDone := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(io.Discard, conn)
+		cancel()
+		close(clientDone)
+	}()
+	if n.ready != nil {
+		if err := n.ready(fctx); err != nil {
+			_ = conn.SetDeadline(time.Now().Add(wait))
+			fmt.Fprintf(conn, "ERR %s\n", termErr(err))
+			return
+		}
+	}
+	select {
+	case <-clientDone:
+		return
+	default:
+	}
+	dctx, dcancel := context.WithTimeout(context.Background(), n.dialFor)
+	stream, err := n.Dial(dctx, call)
+	dcancel()
+	_ = conn.SetDeadline(time.Now().Add(wait))
+	if err != nil {
+		fmt.Fprintf(conn, "ERR %s\n", termErr(err))
+		return
+	}
+	defer stream.Close()
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		select {
+		case <-clientDone:
+			_ = stream.Close()
+		case <-stop:
+		}
+	}()
+	_ = conn.SetDeadline(time.Time{})
+	detail, err := n.forward(fctx, stream)
+	_ = conn.SetDeadline(time.Now().Add(wait))
+	if err != nil {
+		fmt.Fprintf(conn, "ERR %s\n", termErr(err))
+		return
+	}
+	if detail == "" || len(detail) > 80 || strings.ContainsAny(detail, "\r\n") {
+		detail = "forward complete"
+	}
+	fmt.Fprintf(conn, "OK %s\n", detail)
 }
 
 func terminalCommand(line string) (string, string) {
@@ -527,6 +590,17 @@ func termErr(err error) string {
 	msg := err.Error()
 	if msg == "" || len(msg) > 120 || strings.ContainsAny(msg, "\r\n") {
 		return "The connection failed."
+	}
+	for i := 0; i < len(msg); i++ {
+		if msg[i] < 0x20 || msg[i] > 0x7e {
+			return "The connection failed."
+		}
+	}
+	lower := strings.ToLower(msg)
+	for _, bad := range []string{"sqlite", ".db", "/home/", "/var/", "password", "token"} {
+		if strings.Contains(lower, bad) {
+			return "The connection failed."
+		}
 	}
 	return msg
 }
