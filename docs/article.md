@@ -10,9 +10,11 @@ An article is the one copy Crossbeam stores. Rendering does not change that copy
 | ID | no | One line. Omitted from both renderings when empty. |
 | Body | no | Plain text. Paragraphs are separated by a blank line. Words inside a paragraph are separated by single spaces. Line breaks inside a paragraph are for display and are joined back on import. |
 
-Control characters are rejected in Title, Author, and ID.
+All text is UTF-8. Control characters are rejected in every field, including C1 controls such as U+0085. In the body, tab, vertical tab, form feed, and carriage return are whitespace, and carriage return is turned into a newline before paragraphs are split. A Unicode line separator (U+2028) or paragraph separator (U+2029) is rejected in every field. Other Unicode spaces in the body, including a non-breaking space, become a normal space.
 
-The body width for both renderings is 72 runes. A word longer than 72 stays on one line. Header lines are not wrapped.
+Created is stored only when that UTC second can be written as RFC3339 and read back as the same instant. The year is four digits, from 0000 through 9999. An offset is converted to UTC. A fractional second is truncated.
+
+The body width for both renderings is 72 runes of text. A word longer than 72 stays on one line. Header lines are not wrapped. On a Micron page the body is also indented two spaces, and those spaces are not part of the 72.
 
 ## Packet bulletin
 
@@ -29,9 +31,11 @@ The Denton net meets on Thursday.
 
 `ID` is left off when the article has no ID. An empty body is the header, a blank line, and nothing else. The text ends with a newline.
 
+Header names are case-sensitive and may appear in any order. A repeated header, or a header other than `Title`, `Author`, `Created`, and `ID`, is an error. Values are trimmed. The first blank line ends the header, so a body line that reads `Title: …` stays in the body. `ParsePacket` reads a bulletin written by `RenderPacket`.
+
 ## NomadNet Micron page
 
-The title is a level-1 heading. The other fields are plain lines. A `----` divider marks the start of the body. Body lines are indented two spaces, so a line the author wrote cannot become a heading or a divider. A backslash or a backtick in any text field is written with a backslash in front of it (`\\` and `` \` ``). Import reverses that.
+The title is a level-1 heading. The other fields are plain lines. A line that is exactly `----` marks the start of the body. Body lines are indented two spaces, so NomadNet does not treat a line the author wrote as a heading, a comment, or a divider. A backslash or a backtick is written with a backslash in front of it (`\\` and `` \` ``). That is Micron's own escape: the page shows the original character, and import removes the extra backslash. `ParseMicron` reads a page written by `RenderMicron`. It is not a general Micron parser.
 
 ```
 > Net night notes

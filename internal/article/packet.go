@@ -75,15 +75,47 @@ func parsePlainHeader(header string) (map[string]string, error) {
 }
 
 func articleFromFields(fields map[string]string, body string) (Article, error) {
-	created, err := time.Parse(time.RFC3339, fields["Created"])
+	title, err := requiredField(fields, "Title", "title")
 	if err != nil {
-		return Article{}, fmt.Errorf("created time %q is not RFC3339", fields["Created"])
+		return Article{}, err
+	}
+	author, err := requiredField(fields, "Author", "author")
+	if err != nil {
+		return Article{}, err
+	}
+	created, err := parseCreated(fields)
+	if err != nil {
+		return Article{}, err
 	}
 	return Article{
 		ID:      fields["ID"],
-		Title:   fields["Title"],
-		Author:  fields["Author"],
+		Title:   title,
+		Author:  author,
 		Created: created,
 		Body:    body,
 	}.Canonical()
+}
+
+func requiredField(fields map[string]string, key, name string) (string, error) {
+	value, ok := fields[key]
+	if !ok {
+		return "", fmt.Errorf("%s is missing", name)
+	}
+	return value, nil
+}
+
+func parseCreated(fields map[string]string) (time.Time, error) {
+	raw, ok := fields["Created"]
+	if !ok {
+		return time.Time{}, fmt.Errorf("created time is missing")
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}, fmt.Errorf("created time is missing")
+	}
+	created, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("created time %q is not RFC3339", raw)
+	}
+	return created, nil
 }

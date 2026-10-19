@@ -30,8 +30,9 @@ type Article struct {
 }
 
 // Canonical checks the article and returns the normalized form that
-// render and import use. Created is UTC, truncated to one second.
-// Body paragraphs are separated by one blank line.
+// render and import use. Created is UTC, truncated to one second, and
+// must survive a write and read as RFC3339. Body paragraphs are
+// separated by one blank line.
 func (a Article) Canonical() (Article, error) {
 	title, err := singleLine("title", a.Title)
 	if err != nil {
@@ -51,31 +52,71 @@ func (a Article) Canonical() (Article, error) {
 	if err != nil {
 		return Article{}, err
 	}
-	if a.Created.IsZero() {
-		return Article{}, fmt.Errorf("created time is missing")
+	created, err := canonicalCreated(a.Created)
+	if err != nil {
+		return Article{}, err
+	}
+	body, err := normalizeBody(a.Body)
+	if err != nil {
+		return Article{}, err
 	}
 	return Article{
 		ID:      id,
 		Title:   title,
 		Author:  author,
-		Created: a.Created.UTC().Truncate(time.Second),
-		Body:    normalizeBody(a.Body),
+		Created: created,
+		Body:    body,
 	}, nil
 }
 
 func singleLine(name, value string) (string, error) {
-	value = strings.TrimSpace(value)
-	if strings.ContainsAny(value, "\r\n") {
-		return "", fmt.Errorf("%s must be a single line", name)
+	if !utf8.ValidString(value) {
+		return "", fmt.Errorf("%s is not valid UTF-8", name)
 	}
-	if strings.IndexFunc(value, func(r rune) bool { return r < 0x20 || r == 0x7f }) != -1 {
-		return "", fmt.Errorf("%s contains a control character", name)
+	value = strings.TrimSpace(value)
+	for _, r := range value {
+		switch {
+		case r == '\n' || r == '\r' || r == '\u2028' || r == '\u2029':
+			return "", fmt.Errorf("%s must be a single line", name)
+		case r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f):
+			return "", fmt.Errorf("%s contains a control character", name)
+		}
 	}
 	return value, nil
 }
 
+// canonicalCreated stores a time that Render writes and Parse reads
+// back as the same instant. Go's RFC3339 layout round-trips years
+// 0000 through 9999. Later and earlier years do not.
+func canonicalCreated(t time.Time) (time.Time, error) {
+	if t.IsZero() {
+		return time.Time{}, fmt.Errorf("created time is missing")
+	}
+	u := t.UTC().Truncate(time.Second)
+	formatted := u.Format(time.RFC3339)
+	parsed, err := time.Parse(time.RFC3339, formatted)
+	if err != nil || !parsed.Equal(u) {
+		return time.Time{}, fmt.Errorf("created time cannot be written as RFC3339")
+	}
+	return u, nil
+}
+
 // normalizeBody turns arbitrary text into canonical paragraphs.
-func normalizeBody(body string) string {
+func normalizeBody(body string) (string, error) {
+	if !utf8.ValidString(body) {
+		return "", fmt.Errorf("body is not valid UTF-8")
+	}
+	for _, r := range body {
+		switch r {
+		case '\n', '\r', '\t', '\v', '\f':
+			continue
+		case '\u2028', '\u2029':
+			return "", fmt.Errorf("body contains a line separator")
+		}
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
+			return "", fmt.Errorf("body contains a control character")
+		}
+	}
 	body = strings.ReplaceAll(body, "\r\n", "\n")
 	body = strings.ReplaceAll(body, "\r", "\n")
 	chunks := strings.Split(body, "\n\n")
@@ -87,7 +128,7 @@ func normalizeBody(body string) string {
 		}
 		paras = append(paras, strings.Join(words, " "))
 	}
-	return strings.Join(paras, "\n\n")
+	return strings.Join(paras, "\n\n"), nil
 }
 
 // wrap breaks one paragraph into lines of at most width runes.

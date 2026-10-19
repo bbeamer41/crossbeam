@@ -8,7 +8,7 @@ The repository is GPL-3.0-or-later. See `LICENSE`.
 
 ## This build
 
-Version 0.1.0 is the article format only. It does not open a radio, speak AX.25, serve a web page, or start NomadNet. Those come in later goals. The format and its tests are in `docs/article.md`.
+Version 0.1.0 is the article format only. It does not open a radio, speak AX.25, serve a web page, or start NomadNet. Those come in later goals. The format is `docs/article.md`. The tests are in `internal/article`.
 
 ```bash
 go test ./...

@@ -5,16 +5,31 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
+	"strings"
 )
 
 const version = "0.1.0"
 
 func main() {
-	if len(os.Args) == 2 && (os.Args[1] == "version" || os.Args[1] == "--version") {
-		fmt.Println("crossbeam", version)
-		return
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+func run(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 || (len(args) == 1 && isHelp(args[0])) {
+		fmt.Fprintf(stdout, "crossbeam %s\n", version)
+		fmt.Fprintln(stdout, "Article formats only in this build. See docs/article.md.")
+		return 0
 	}
-	fmt.Printf("crossbeam %s\n", version)
-	fmt.Println("Article formats only in this build. See docs/article.md.")
+	if len(args) == 1 && (args[0] == "version" || args[0] == "--version") {
+		fmt.Fprintln(stdout, "crossbeam", version)
+		return 0
+	}
+	fmt.Fprintf(stderr, "crossbeam: unknown command %q\n", strings.Join(args, " "))
+	return 2
+}
+
+func isHelp(arg string) bool {
+	return arg == "help" || arg == "--help" || arg == "-h"
 }

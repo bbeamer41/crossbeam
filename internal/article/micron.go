@@ -95,14 +95,18 @@ func ParseMicron(text string) (Article, error) {
 	if err != nil {
 		return Article{}, err
 	}
-	created, err := time.Parse(time.RFC3339, fields["Created"])
+	author, err := requiredField(fields, "Author", "author")
 	if err != nil {
-		return Article{}, fmt.Errorf("created time %q is not RFC3339", fields["Created"])
+		return Article{}, err
+	}
+	created, err := parseCreated(fields)
+	if err != nil {
+		return Article{}, err
 	}
 	return Article{
 		ID:      fields["ID"],
 		Title:   fields["Title"],
-		Author:  fields["Author"],
+		Author:  author,
 		Created: created,
 		Body:    body,
 	}.Canonical()
