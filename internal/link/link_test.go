@@ -626,6 +626,12 @@ func TestTermErrHidesPaths(t *testing.T) {
 	if termErr(errors.New("W1AW-1 is not listed")) != "W1AW-1 is not listed" {
 		t.Fatal(termErr(errors.New("W1AW-1 is not listed")))
 	}
+	if !showTerminal("sent 1 received 2", 80) {
+		t.Fatal("plain result")
+	}
+	if showTerminal("open /var/lib/crossbeam/crossbeam.db", 80) {
+		t.Fatal("path result")
+	}
 }
 
 func TestForwardUnlistedSkipsReady(t *testing.T) {
@@ -715,6 +721,65 @@ func TestForwardClientCloseReleasesTheCall(t *testing.T) {
 		}
 		last = err
 		if ctx.Err() != nil {
+			t.Fatal(last)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestForwardClientCloseDuringDial(t *testing.T) {
+	sink, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.Close()
+	saw := make(chan struct{})
+	go func() {
+		buf := make([]byte, 2048)
+		_ = sink.SetReadDeadline(time.Now().Add(3 * time.Second))
+		if _, _, err := sink.ReadFromUDP(buf); err == nil {
+			close(saw)
+		}
+	}()
+	master, err := Listen(Config{
+		Bind: "127.0.0.1:0", Local: mustCall(t, "K5LEB"), T1: 5 * time.Second, N2: 6, Paclen: 128,
+		TerminalPath: filepath.Join(t.TempDir(), "terminal.sock"), TerminalMode: 0o600,
+		Forward: func(context.Context, *ax25.Stream) (string, error) {
+			return "", errors.New("dial should have stopped")
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer master.Close()
+	if err := master.SetPeers("W1AW-1@" + sink.LocalAddr().String()); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := net.Dial("unix", master.Terminal())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := fmt.Fprintf(conn, "FORWARD W1AW-1\n"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-saw:
+	case <-time.After(3 * time.Second):
+		t.Fatal("dial did not start")
+	}
+	conn.Close()
+	deadline := time.Now().Add(2 * time.Second)
+	var last error
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		_, err := master.Dial(ctx, "W1AW-1")
+		cancel()
+		if errors.Is(err, context.DeadlineExceeded) {
+			return
+		}
+		last = err
+		if time.Now().After(deadline) {
 			t.Fatal(last)
 		}
 		time.Sleep(20 * time.Millisecond)

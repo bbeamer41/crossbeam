@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"net"
@@ -70,6 +71,82 @@ func TestArticleCommands(t *testing.T) {
 	_, stderr, code = capture([]string{"article", "list", "extra"})
 	if code != 2 || !strings.Contains(stderr, "does not take arguments") {
 		t.Fatalf("list extra code=%d stderr=%q", code, stderr)
+	}
+}
+
+func TestBulletinSendWaitsUntilStopped(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "terminal.sock")
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		rd := bufio.NewReader(conn)
+		line, err := rd.ReadString('\n')
+		if err != nil || line != "FORWARD W1AW-1\n" {
+			return
+		}
+		time.Sleep(300 * time.Millisecond)
+		_, _ = conn.Write([]byte("OK sent 1 received 0\n"))
+	}()
+	stdout, stderr, code := capture([]string{"bulletin", "send", "--socket", path, "W1AW-1"})
+	if code != 0 || stderr != "" || stdout != "sent 1 received 0\n" {
+		t.Fatalf("wait code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	got := make(chan struct{})
+	closed := make(chan struct{})
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		rd := bufio.NewReader(conn)
+		if _, err := rd.ReadString('\n'); err != nil {
+			return
+		}
+		close(got)
+		one := []byte{0}
+		_, _ = conn.Read(one)
+		close(closed)
+	}()
+	type result struct {
+		stdout string
+		stderr string
+		code   int
+	}
+	done := make(chan result, 1)
+	go func() {
+		stdout, stderr, code := captureIn(ctx, []string{"bulletin", "send", "--socket", path, "W1AW-1"}, strings.NewReader(""))
+		done <- result{stdout, stderr, code}
+	}()
+	select {
+	case <-got:
+	case <-time.After(2 * time.Second):
+		t.Fatal("forward did not start")
+	}
+	cancel()
+	select {
+	case res := <-done:
+		if res.code != 1 || res.stdout != "" || !strings.Contains(res.stderr, "forward stopped") {
+			t.Fatalf("stop code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("command hung")
+	}
+	select {
+	case <-closed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("socket stayed open")
 	}
 }
 

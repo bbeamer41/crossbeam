@@ -283,6 +283,32 @@ func TestBulletinUsageAndDelete(t *testing.T) {
 	}
 }
 
+func TestDeleteFromASecondHandle(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "state")
+	first := openStore(t, dir)
+	second, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { second.Close() })
+	ctx := context.Background()
+	saved, err := first.SaveArticle(ctx, ArticleIn{
+		ID: "CAFE", Title: "Cafe", Author: "K5LEB", Body: "hello", Now: time.Now(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := second.DeleteArticle(ctx, saved.RowID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.Article(ctx, saved.RowID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("still visible %v", err)
+	}
+	if err := second.DeleteArticle(ctx, saved.RowID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing %v", err)
+	}
+}
+
 func openStore(t *testing.T, dir string) *Store {
 	t.Helper()
 	s, err := Open(dir)

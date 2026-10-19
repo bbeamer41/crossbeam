@@ -12,7 +12,7 @@ The link has to be running, and the other station has to be listed in `link.peer
 crossbeam bulletin send W1AW-1 --state /var/lib/crossbeam
 ```
 
-With the systemd layout the terminal socket is `/run/crossbeam/terminal.sock`. `--socket` selects that path. The command prints `sent N received N` when the exchange finishes. Stopping the command closes the forward and releases the callsign. A second run sends the same articles again. The peer answers `-` for a bulletin id it already has, and nothing new is stored.
+With the systemd layout the terminal socket is `/run/crossbeam/terminal.sock`. `--socket` selects that path. The command waits until the exchange finishes and prints `sent N received N`. Stopping the command closes the forward and releases the callsign, including while the link is still connecting. A second run sends the same articles again. The peer answers `-` for a bulletin id it already has, and nothing new is stored.
 
 `bulletin.to` and `bulletin.at` set the category and the distribution. The defaults are `ALL` and `WW`.
 

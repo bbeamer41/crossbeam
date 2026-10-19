@@ -541,7 +541,9 @@ func (n *Node) serveForward(conn net.Conn, call string, wait time.Duration) {
 		return
 	default:
 	}
-	dctx, dcancel := context.WithTimeout(context.Background(), n.dialFor)
+	// fctx ends when the terminal client goes away, so a dial still in
+	// setup releases the callsign instead of running out its timer.
+	dctx, dcancel := context.WithTimeout(fctx, n.dialFor)
 	stream, err := n.Dial(dctx, call)
 	dcancel()
 	_ = conn.SetDeadline(time.Now().Add(wait))
@@ -550,6 +552,11 @@ func (n *Node) serveForward(conn net.Conn, call string, wait time.Duration) {
 		return
 	}
 	defer stream.Close()
+	select {
+	case <-clientDone:
+		return
+	default:
+	}
 	stop := make(chan struct{})
 	defer close(stop)
 	go func() {
@@ -566,7 +573,7 @@ func (n *Node) serveForward(conn net.Conn, call string, wait time.Duration) {
 		fmt.Fprintf(conn, "ERR %s\n", termErr(err))
 		return
 	}
-	if detail == "" || len(detail) > 80 || strings.ContainsAny(detail, "\r\n") {
+	if !showTerminal(detail, 80) {
 		detail = "forward complete"
 	}
 	fmt.Fprintf(conn, "OK %s\n", detail)
@@ -587,22 +594,30 @@ func termErr(err error) string {
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		return "connection timed out"
 	}
-	msg := err.Error()
-	if msg == "" || len(msg) > 120 || strings.ContainsAny(msg, "\r\n") {
+	if err == nil || !showTerminal(err.Error(), 120) {
 		return "The connection failed."
+	}
+	return err.Error()
+}
+
+// showTerminal reports whether text can be written to the terminal.
+// Paths, database details, and control bytes stay off that line.
+func showTerminal(msg string, max int) bool {
+	if msg == "" || len(msg) > max || strings.ContainsAny(msg, "\r\n") {
+		return false
 	}
 	for i := 0; i < len(msg); i++ {
 		if msg[i] < 0x20 || msg[i] > 0x7e {
-			return "The connection failed."
+			return false
 		}
 	}
 	lower := strings.ToLower(msg)
 	for _, bad := range []string{"sqlite", ".db", "/home/", "/var/", "password", "token"} {
 		if strings.Contains(lower, bad) {
-			return "The connection failed."
+			return false
 		}
 	}
-	return msg
+	return true
 }
 
 func readCRLF(r io.Reader, max int) (string, error) {

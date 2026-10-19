@@ -269,9 +269,16 @@ func cmdBulletin(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		fmt.Fprintf(stderr, "crossbeam: %s\n", err)
 		return 1
 	}
-	_ = conn.SetDeadline(time.Now().Add(120 * time.Second))
+	// The reply arrives when the exchange finishes. A read deadline
+	// would close this socket and abort a slow forward. Stopping the
+	// command is what releases the callsign.
+	_ = conn.SetDeadline(time.Time{})
 	reply, err := readConnLine(conn)
 	if err != nil {
+		if ctx.Err() != nil {
+			fmt.Fprintln(stderr, "crossbeam: forward stopped")
+			return 1
+		}
 		fmt.Fprintln(stderr, "crossbeam: the AX/UDP link is not running")
 		return 1
 	}
