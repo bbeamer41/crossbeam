@@ -20,6 +20,8 @@ import (
 
 	"github.com/bbeamer41/crossbeam/internal/admin"
 	"github.com/bbeamer41/crossbeam/internal/article"
+	"github.com/bbeamer41/crossbeam/internal/ax25"
+	"github.com/bbeamer41/crossbeam/internal/link"
 	"github.com/bbeamer41/crossbeam/internal/settings"
 	"github.com/bbeamer41/crossbeam/internal/store"
 	"golang.org/x/term"
@@ -32,6 +34,8 @@ func cmdServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	fs.SetOutput(stderr)
 	state := fs.String("state", defaultState, "state directory")
 	listen := fs.String("listen", "", "address for this start only; a public address still requires admin.public")
+	linkFlag := fs.String("link", "", "AX/UDP address for this start only; does not change the saved setting")
+	peersFlag := fs.String("peers", "", "peer list for this start only; does not change the saved setting")
 	socket := fs.String("socket", "", "unix socket path")
 	modeText := fs.String("socket-mode", "0600", "0600 or 0660")
 	if err := fs.Parse(args); err != nil {
@@ -77,13 +81,211 @@ func cmdServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		fmt.Fprintf(stderr, "crossbeam: %s\n", err)
 		return 1
 	}
+	node, err := startLink(ctx, st, running.SocketPath, mode, fs, *linkFlag, *peersFlag)
+	if err != nil {
+		running.Close()
+		fmt.Fprintf(stderr, "crossbeam: %s\n", err)
+		return 1
+	}
+	if node != nil {
+		defer node.Close()
+	}
 	fmt.Fprintf(stdout, "crossbeam %s\n%s\nunix socket %s\ncertificate sha256 %s\n", version, running.URL, running.SocketPath, running.CertSHA256)
+	if node != nil {
+		fmt.Fprintf(stdout, "ax/udp %s\nterminal socket %s\n", node.LocalAddr(), node.Terminal())
+	}
 	err = waitServe(ctx, running)
 	if err != nil {
 		fmt.Fprintf(stderr, "crossbeam: %s\n", err)
 		return 1
 	}
 	return 0
+}
+
+func startLink(ctx context.Context, st *store.Store, socketPath string, mode os.FileMode, fs *flag.FlagSet, linkFlag, peersFlag string) (*link.Node, error) {
+	current, err := st.Settings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	linkText := current[settings.KeyLinkListen]
+	peersText := current[settings.KeyLinkPeers]
+	allowZero := false
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "link":
+			linkText = linkFlag
+			allowZero = true
+		case "peers":
+			peersText = peersFlag
+		}
+	})
+	if strings.TrimSpace(linkText) == "" {
+		return nil, nil
+	}
+	bind, err := settings.ResolveLink(linkText, nil, allowZero)
+	if err != nil {
+		return nil, err
+	}
+	call, err := ax25.Parse(current[settings.KeyCallsign])
+	if err != nil {
+		return nil, errors.New("station.callsign must be an AX.25 callsign when the link is on")
+	}
+	return link.Listen(link.Config{
+		Bind:         bind,
+		Local:        call,
+		Peers:        peersText,
+		TerminalPath: filepath.Join(filepath.Dir(socketPath), "terminal.sock"),
+		TerminalMode: mode,
+	})
+}
+
+func cmdConnect(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("connect", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	state := fs.String("state", defaultState, "state directory")
+	socket := fs.String("socket", "", "terminal socket path")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if fs.NArg() != 1 {
+		fmt.Fprintln(stderr, "crossbeam: usage: crossbeam connect CALL [--state DIR | --socket PATH]")
+		return 2
+	}
+	if _, err := ax25.Parse(fs.Arg(0)); err != nil {
+		fmt.Fprintf(stderr, "crossbeam: %s\n", err)
+		return 2
+	}
+	path := *socket
+	if path == "" {
+		path = filepath.Join(*state, "terminal.sock")
+	}
+	conn, err := net.DialTimeout("unix", path, time.Second)
+	if err != nil {
+		fmt.Fprintln(stderr, "crossbeam: the AX/UDP link is not running")
+		return 1
+	}
+	defer conn.Close()
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		select {
+		case <-ctx.Done():
+			conn.Close()
+		case <-stop:
+		}
+	}()
+	if _, err := fmt.Fprintf(conn, "CONNECT %s\n", fs.Arg(0)); err != nil {
+		fmt.Fprintf(stderr, "crossbeam: %s\n", err)
+		return 1
+	}
+	_ = conn.SetDeadline(time.Now().Add(70 * time.Second))
+	reply, err := readConnLine(conn)
+	if err != nil {
+		fmt.Fprintln(stderr, "crossbeam: the AX/UDP link is not running")
+		return 1
+	}
+	_ = conn.SetDeadline(time.Time{})
+	if strings.HasPrefix(reply, "ERR ") {
+		fmt.Fprintf(stderr, "crossbeam: %s\n", reply[4:])
+		return 1
+	}
+	if reply != "OK" {
+		fmt.Fprintln(stderr, "crossbeam: the link did not accept the connection")
+		return 1
+	}
+	if file, ok := stdin.(*os.File); ok && term.IsTerminal(int(file.Fd())) {
+		return connectTerminal(file, conn, stdout, stderr)
+	}
+	go func() { _, _ = io.Copy(conn, stdin) }()
+	if _, err := io.Copy(stdout, conn); err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, io.EOF) {
+		fmt.Fprintf(stderr, "crossbeam: %s\n", err)
+		return 1
+	}
+	return 0
+}
+
+func connectTerminal(in *os.File, conn net.Conn, stdout, stderr io.Writer) int {
+	old, err := term.MakeRaw(int(in.Fd()))
+	if err != nil {
+		fmt.Fprintf(stderr, "crossbeam: %s\n", err)
+		return 1
+	}
+	defer term.Restore(int(in.Fd()), old)
+	done := make(chan struct{})
+	go func() {
+		one := []byte{0}
+		var last byte
+		for {
+			if _, err := conn.Read(one); err != nil {
+				close(done)
+				return
+			}
+			switch one[0] {
+			case '\r':
+				_, _ = stdout.Write([]byte("\r\n"))
+			case '\n':
+				if last != '\r' {
+					_, _ = stdout.Write([]byte("\r\n"))
+				}
+			default:
+				_, _ = stdout.Write(one)
+			}
+			last = one[0]
+		}
+	}()
+	one := []byte{0}
+	var line []byte
+	for {
+		if _, err := in.Read(one); err != nil {
+			break
+		}
+		switch one[0] {
+		case 3, 4:
+			return 0
+		case '\r', '\n':
+			_, _ = stdout.Write([]byte("\r\n"))
+			line = append(line, '\r')
+			if _, err := conn.Write(line); err != nil {
+				return 1
+			}
+			line = line[:0]
+		case 8, 127:
+			if len(line) > 0 {
+				line = line[:len(line)-1]
+				_, _ = stdout.Write([]byte("\b \b"))
+			}
+		default:
+			if one[0] >= 32 && one[0] < 127 && len(line) < 236 {
+				line = append(line, one[0])
+				_, _ = stdout.Write(one)
+			}
+		}
+	}
+	<-done
+	return 0
+}
+
+func readConnLine(conn net.Conn) (string, error) {
+	var b []byte
+	one := []byte{0}
+	for {
+		if _, err := conn.Read(one); err != nil {
+			return "", err
+		}
+		if one[0] == '\n' {
+			return string(b), nil
+		}
+		if one[0] == '\r' {
+			continue
+		}
+		if len(b) >= 200 {
+			return "", errors.New("reply is too long")
+		}
+		b = append(b, one[0])
+	}
 }
 
 func waitServe(ctx context.Context, running *admin.Running) error {

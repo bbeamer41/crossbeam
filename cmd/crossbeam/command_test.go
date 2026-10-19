@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bbeamer41/crossbeam/internal/ax25"
+	"github.com/bbeamer41/crossbeam/internal/link"
 	"github.com/bbeamer41/crossbeam/internal/store"
 )
 
@@ -84,6 +86,77 @@ func TestSysopPassword(t *testing.T) {
 	_, stderr, code = capture([]string{"serve", "--socket-mode", "0666"})
 	if code != 2 || !strings.Contains(stderr, "0600 or 0660") {
 		t.Fatalf("mode code=%d stderr=%q", code, stderr)
+	}
+}
+
+func TestConnectCommand(t *testing.T) {
+	_, stderr, code := capture([]string{"connect"})
+	if code != 2 || !strings.Contains(stderr, "usage") {
+		t.Fatalf("usage %d %s", code, stderr)
+	}
+	_, stderr, code = capture([]string{"connect", "--socket", filepath.Join(t.TempDir(), "missing.sock"), "NOTACALL"})
+	if code != 2 || !strings.Contains(stderr, "callsign") {
+		t.Fatalf("call %d %s", code, stderr)
+	}
+	_, stderr, code = capture([]string{"connect", "--socket", filepath.Join(t.TempDir(), "missing.sock"), "W1AW-1"})
+	if code != 1 || !strings.Contains(stderr, "not running") {
+		t.Fatalf("down %d %s", code, stderr)
+	}
+
+	call, err := ax25.Parse("W1AW-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	remote, err := link.Listen(link.Config{Bind: "127.0.0.1:0", Local: call, T1: 200 * time.Millisecond, N2: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer remote.Close()
+	dir := filepath.Join(t.TempDir(), "state")
+	stdout, stderr, code := captureIn(context.Background(), []string{"sysop", "password", "--state", dir}, strings.NewReader("test-password-1\n"))
+	if code != 0 {
+		t.Fatalf("password %d %s %s", code, stdout, stderr)
+	}
+	peer := "W1AW-1@" + remote.LocalAddr().String()
+	if _, stderr, code = capture([]string{"settings", "set", "--state", dir, "station.callsign", "K5LEB"}); code != 0 {
+		t.Fatal(stderr)
+	}
+	if _, stderr, code = capture([]string{"settings", "set", "--state", dir, "link.peers", peer}); code != 0 {
+		t.Fatal(stderr)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var out lockedBuffer
+	var errb lockedBuffer
+	done := make(chan int, 1)
+	go func() {
+		done <- run(ctx, []string{"serve", "--state", dir, "--listen", "127.0.0.1:0", "--link", "127.0.0.1:0"}, strings.NewReader(""), &out, &errb)
+	}()
+	term := filepath.Join(dir, "terminal.sock")
+	deadline := time.Now().Add(8 * time.Second)
+	for {
+		if strings.Contains(out.String(), "ax/udp 127.0.0.1:") && dialUnix(term) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("serve did not start the link: %s %s", out.String(), errb.String())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	connectCtx, connectCancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer connectCancel()
+	stdout, stderr, code = captureIn(connectCtx, []string{"connect", "--socket", term, "W1AW-1"}, strings.NewReader("?\rBYE\r"))
+	if code != 0 || !strings.Contains(stdout, "W1AW-1>\r") || !strings.Contains(stdout, "Commands:\r") || !strings.Contains(stdout, "Bye\r") {
+		t.Fatalf("connect %d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	cancel()
+	select {
+	case code = <-done:
+		if code != 0 {
+			t.Fatalf("serve exit %d %s", code, errb.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("serve did not stop")
 	}
 }
 

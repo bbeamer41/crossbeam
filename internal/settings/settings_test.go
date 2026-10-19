@@ -26,10 +26,12 @@ func TestValidateTable(t *testing.T) {
 			name:   "defaults",
 			values: map[string]string{},
 			want: map[string]string{
-				KeyCallsign: "",
-				KeyName:     "",
-				KeyListen:   "",
-				KeyPublic:   "false",
+				KeyCallsign:   "",
+				KeyName:       "",
+				KeyListen:     "",
+				KeyPublic:     "false",
+				KeyLinkListen: "",
+				KeyLinkPeers:  "",
 			},
 		},
 		{
@@ -251,7 +253,7 @@ func TestSettingsDocument(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc := string(text)
-	if len(Schema) != 4 {
+	if len(Schema) != 6 {
 		t.Fatalf("schema has %d keys", len(Schema))
 	}
 	for _, field := range Schema {
@@ -261,5 +263,64 @@ func TestSettingsDocument(t *testing.T) {
 		if !strings.Contains(doc, field.Help) {
 			t.Errorf("docs/settings.md is missing the help for %s", field.Key)
 		}
+	}
+}
+
+func TestLinkSettings(t *testing.T) {
+	got, err := Validate(map[string]string{
+		KeyCallsign:   "k5leb-0",
+		KeyLinkListen: "192.168.1.20:10093",
+		KeyLinkPeers:  "w1aw-1@192.168.1.21:10093, K5LEB-2@node.example:10094",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[KeyCallsign] != "k5leb-0" || got[KeyLinkListen] != "192.168.1.20:10093" {
+		t.Fatalf("stored %v", got)
+	}
+	if got[KeyLinkPeers] != "W1AW-1@192.168.1.21:10093 K5LEB-2@node.example:10094" {
+		t.Fatalf("peers %q", got[KeyLinkPeers])
+	}
+	if _, err := Validate(map[string]string{KeyLinkListen: "1.2.3.4:10093", KeyCallsign: "K5LEB", KeyPublic: "false"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Validate(map[string]string{KeyLinkListen: "0.0.0.0:10093", KeyCallsign: "K5LEB"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, listen := range []string{"127.0.0.1:0", "224.0.0.1:10093", "192.168.1.20:10093%eth0", "not a port"} {
+		if _, err := Validate(map[string]string{KeyLinkListen: listen, KeyCallsign: "K5LEB"}); err == nil {
+			t.Fatalf("%s was accepted", listen)
+		}
+	}
+	if _, err := Validate(map[string]string{KeyLinkListen: "127.0.0.1:10093", KeyCallsign: "not a call"}); err == nil {
+		t.Fatal("bad callsign was accepted")
+	}
+	if _, err := Validate(map[string]string{KeyCallsign: "not a call"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Validate(map[string]string{
+		KeyCallsign:  "K5LEB",
+		KeyLinkPeers: "K5LEB@192.168.1.20:10093",
+	}); err == nil {
+		t.Fatal("self peer was accepted")
+	}
+	if _, err := Validate(map[string]string{KeyLinkPeers: "W1AW-1@0.0.0.0:10093"}); err == nil {
+		t.Fatal("unspecified peer was accepted")
+	}
+	bind, err := ResolveLink("[::ffff:192.168.1.20]:10093", nil, false)
+	if err != nil || bind != "192.168.1.20:10093" {
+		t.Fatalf("mapped %s %v", bind, err)
+	}
+	if _, err := ResolveLink("127.0.0.1:0", nil, false); err == nil {
+		t.Fatal("saved port 0")
+	}
+	if bind, err := ResolveLink("127.0.0.1:0", nil, true); err != nil || bind != "127.0.0.1:0" {
+		t.Fatalf("ephemeral %s %v", bind, err)
+	}
+	_, err = ResolveLink("node.example:10093", func(context.Context, string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("192.168.1.20"), net.ParseIP("192.168.1.21")}, nil
+	}, false)
+	if err == nil || !strings.Contains(err.Error(), "more than one") {
+		t.Fatalf("multi %v", err)
 	}
 }

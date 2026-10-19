@@ -67,6 +67,20 @@ sudo systemctl restart crossbeam
 
 Use an address of this machine. A public address is rejected until you set `admin.public` to `true` and restart.
 
+## AX/UDP link
+
+The link stays off until you set it. Use an address of this machine. 10093 is the usual port. List the other station, and have that station list this one. Then a terminal on either side can reach the other prompt. The frames are readable text. Details are in `docs/link.md`.
+
+```bash
+sudo -u crossbeam crossbeam settings set station.callsign K5LEB --state /var/lib/crossbeam
+sudo -u crossbeam crossbeam settings set link.listen 192.168.1.20:10093 --state /var/lib/crossbeam
+sudo -u crossbeam crossbeam settings set link.peers W1AW-1@192.168.1.21:10093 --state /var/lib/crossbeam
+sudo systemctl restart crossbeam
+crossbeam connect W1AW-1 --socket /run/crossbeam/terminal.sock
+```
+
+`?` lists the commands. `BYE` disconnects. The terminal socket is mode `0660`, next to the admin socket, so a user in the `crossbeam` group can connect without reading the state directory.
+
 ## Offline
 
 The article store, the settings, and the admin panel on the LAN do not need a default route. A hostname in `admin.listen` is resolved once when the service starts, and the panel binds those addresses. If that lookup fails, the service does not start. Use an IP address when the machine must boot with no DNS.

@@ -4,13 +4,13 @@ The admin panel and the `crossbeam` command change the same settings. A setting 
 
 The state directory is not a setting either. Pass it as `--state`. The database, the session list, and the TLS certificate live in that directory. The directory is mode `0700`. The database and the private key are mode `0600`.
 
-A change to `admin.listen` or `admin.public` is saved immediately and used the next time `crossbeam serve` starts. The running panel keeps the address it already bound.
+A change to `admin.listen`, `admin.public`, `link.listen`, or `link.peers` is saved immediately and used the next time `crossbeam serve` starts. The running panel keeps the address it already bound, and the running link keeps the peers it already resolved.
 
 ## station.callsign
 
-The station callsign. Compose uses it as the article author when the author box is empty.
+The station callsign. Compose uses it as the article author when the author box is empty. The AX/UDP link uses it as the station address.
 
-One line, at most 64 runes. It may be empty until you set it. The value is not checked against a callsign pattern.
+One line, at most 64 runes. It may be empty until you set it. When the link is off, the value is not checked against a callsign pattern. When `link.listen` is set, it must be an AX.25 callsign, with an optional SSID such as `K5LEB-1`.
 
 ## station.name
 
@@ -37,6 +37,24 @@ Allow the admin panel to listen on a public address. Leave this false to keep th
 The only values are `true` and `false`.
 
 Leave this false unless you intend to put the admin panel on a public address. The panel still requires the sysop password, and the browser will warn until you trust the certificate.
+
+## link.listen
+
+The host and port for the AX/UDP link, such as 192.168.1.20:10093. Leave this empty to keep the link off. A change takes effect on the next start.
+
+10093 is the usual port. The payload is one AX.25 frame, as described in `docs/link.md`. An empty value does not open a socket. A saved address may be a public address: this is the packet port, and `admin.public` does not apply to it. `0.0.0.0:10093` listens on every IPv4 interface. The bytes are readable text.
+
+A hostname is saved without looking it up. At start it must resolve to one address. Port 0 is rejected. A zone id, such as `%eth0`, is rejected.
+
+`--link` on `crossbeam serve` binds this start to another address and does not change the saved setting. Port 0 is allowed on that flag so a test can ask for a free port.
+
+## link.peers
+
+Stations this node can call. Separate entries with spaces or commas. Each entry is CALL@host:port, such as W1AW-1@192.168.1.20:10093. A change takes effect on the next start.
+
+Each callsign is stored in uppercase. SSID 0 is stored without a suffix. At most 32 stations. A hostname in an entry is resolved when the link starts, and it must resolve to one address. This node can answer a station that is not listed; the list is who this node is willing to call. The reply goes to the address the request came from.
+
+`--peers` on `crossbeam serve` uses another list for this start and does not change the saved setting.
 
 ## Command
 

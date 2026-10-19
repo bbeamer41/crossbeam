@@ -1,0 +1,38 @@
+# AX/UDP link
+
+Crossbeam speaks AX.25 connected mode over UDP so a terminal can reach another node's prompt. The usual port is 10093. This is the encapsulation in RFC 1226, carried in UDP instead of IP protocol 93: one AX.25 frame per datagram, without HDLC flags or bit stuffing, with the 16-bit frame check sequence. The frame is readable text. It is not encrypted.
+
+The link is off until `link.listen` is set. Each node lists the stations it will call in `link.peers`. A node answers a station that calls it, and sends the reply to the address that packet came from. An answer does not require the caller to be listed.
+
+## Settings
+
+```bash
+crossbeam settings set station.callsign K5LEB --state /var/lib/crossbeam
+crossbeam settings set link.listen 192.168.1.20:10093 --state /var/lib/crossbeam
+crossbeam settings set link.peers W1AW-1@192.168.1.21:10093 --state /var/lib/crossbeam
+```
+
+`station.callsign` is this station's AX.25 address. An SSID is optional: `K5LEB-1` is a different address from `K5LEB`. Restart `crossbeam serve` after changing the link settings. `--link` and `--peers` override them for one start and are not saved.
+
+On a LinBPQ node, the matching piece is an AX/UDP port on UDP 10093 and a `MAP` line for this station's callsign and address. This station lists the LinBPQ callsign in `link.peers`. The two programs do not share code.
+
+## Terminal
+
+```bash
+crossbeam connect W1AW-1 --state /var/lib/crossbeam
+```
+
+With the systemd layout the terminal socket is `/run/crossbeam/terminal.sock`. The command prints nothing until the session is up, then it shows the remote bytes. At a keyboard it edits a line locally and sends it when you press Enter. `?` lists the remote commands. `BYE` disconnects. Ctrl-C closes the local terminal.
+
+The prompt from a Crossbeam node looks like this:
+
+```text
+Crossbeam K5LEB
+K5LEB>
+```
+
+Lines on the air end with a carriage return.
+
+## Limits
+
+The link is modulo 8. A modulo-128 request is refused. Frames with digipeaters are ignored. One session is open to a given callsign at a time. NET/ROM, bulletins, and the radio port are later goals.

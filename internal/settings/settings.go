@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/bbeamer41/crossbeam/internal/article"
+	"github.com/bbeamer41/crossbeam/internal/ax25"
 )
 
 // Kind is how a setting is edited and checked.
@@ -28,10 +29,12 @@ const (
 
 // Setting keys. These names are stored and shown as-is.
 const (
-	KeyCallsign = "station.callsign"
-	KeyName     = "station.name"
-	KeyListen   = "admin.listen"
-	KeyPublic   = "admin.public"
+	KeyCallsign   = "station.callsign"
+	KeyName       = "station.name"
+	KeyListen     = "admin.listen"
+	KeyPublic     = "admin.public"
+	KeyLinkListen = "link.listen"
+	KeyLinkPeers  = "link.peers"
 )
 
 // Field is one setting.
@@ -48,7 +51,7 @@ type Field struct {
 var Schema = []Field{
 	{
 		Key:      KeyCallsign,
-		Help:     "The station callsign. Compose uses it as the article author when the author box is empty.",
+		Help:     "The station callsign. Compose uses it as the article author when the author box is empty. The AX/UDP link uses it as the station address.",
 		Kind:     KindLine,
 		MaxRunes: article.MaxAuthorRunes,
 	},
@@ -68,6 +71,18 @@ var Schema = []Field{
 		Help:    "Allow the admin panel to listen on a public address. Leave this false to keep the panel on the LAN.",
 		Kind:    KindBool,
 		Default: "false",
+	},
+	{
+		Key:      KeyLinkListen,
+		Help:     "The host and port for the AX/UDP link, such as 192.168.1.20:10093. Leave this empty to keep the link off. A change takes effect on the next start.",
+		Kind:     KindLine,
+		MaxRunes: 256,
+	},
+	{
+		Key:      KeyLinkPeers,
+		Help:     "Stations this node can call. Separate entries with spaces or commas. Each entry is CALL@host:port, such as W1AW-1@192.168.1.20:10093. A change takes effect on the next start.",
+		Kind:     KindLine,
+		MaxRunes: 2048,
 	},
 }
 
@@ -115,7 +130,33 @@ func Validate(values map[string]string) (map[string]string, error) {
 	if err := ValidateListen(out[KeyListen], public); err != nil {
 		return nil, err
 	}
+	if err := validateLink(out); err != nil {
+		return nil, err
+	}
 	return out, nil
+}
+
+func validateLink(out map[string]string) error {
+	peers, err := ParsePeers(out[KeyLinkPeers])
+	if err != nil {
+		return err
+	}
+	out[KeyLinkPeers] = FormatPeers(peers)
+	if err := ValidateLinkListen(out[KeyLinkListen]); err != nil {
+		return err
+	}
+	call, callErr := ax25.Parse(out[KeyCallsign])
+	if out[KeyLinkListen] != "" && callErr != nil {
+		return fmt.Errorf("station.callsign must be an AX.25 callsign when link.listen is set")
+	}
+	if callErr == nil {
+		for _, peer := range peers {
+			if peer.Call == call.String() {
+				return fmt.Errorf("link.peers cannot list this station")
+			}
+		}
+	}
+	return nil
 }
 
 func validateField(field Field, raw string) (string, error) {
