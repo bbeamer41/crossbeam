@@ -4,13 +4,15 @@ An article is the one copy Crossbeam stores. Rendering does not change that copy
 
 | Field | Required | Rules |
 | --- | --- | --- |
-| Title | yes | One line. Leading and trailing spaces are removed. |
-| Author | yes | One line. This is the station callsign, such as `K5LEB`. |
+| Title | yes | One line, at most 200 runes. Leading and trailing spaces are removed. |
+| Author | yes | One line, at most 64 runes. This is the station callsign, such as `K5LEB`. |
 | Created | yes | A date and time. Stored in UTC and truncated to one second. Written as RFC3339, for example `2026-10-11T18:04:05Z`. |
-| ID | no | One line. Omitted from both renderings when empty. |
-| Body | no | Plain text. Paragraphs are separated by a blank line. Words inside a paragraph are separated by single spaces. Line breaks inside a paragraph are for display and are joined back on import. |
+| ID | no | One line, at most 80 runes. Omitted from both renderings when empty. |
+| Body | no | Plain text, at most 256 KiB. Paragraphs are separated by a blank line. Words inside a paragraph are separated by single spaces. Line breaks inside a paragraph are for display and are joined back on import. |
 
-All text is UTF-8. Control characters are rejected in every field, including C1 controls such as U+0085. In the body, tab, vertical tab, form feed, and carriage return are whitespace, and carriage return is turned into a newline before paragraphs are split. A Unicode line separator (U+2028) or paragraph separator (U+2029) is rejected in every field. Other Unicode spaces in the body, including a non-breaking space, become a normal space.
+All text is UTF-8. Control characters are rejected in every field, including C1 controls such as U+0085. Format characters are rejected too, including zero-width characters and bidi controls, so a callsign or a line cannot hide extra characters. In the body, tab, vertical tab, form feed, and carriage return are whitespace, and carriage return is turned into a newline before paragraphs are split. A Unicode line separator (U+2028) or paragraph separator (U+2029) is rejected in every field. Other Unicode spaces in the body, including a non-breaking space, become a normal space.
+
+A bulletin or a page passed to a parser may be at most 1 MiB. A header line may be at most 1024 bytes. Anything larger is rejected before it is parsed.
 
 Created is stored only when that UTC second can be written as RFC3339 and read back as the same instant. The year is four digits, from 0000 through 9999. An offset is converted to UTC. A fractional second is truncated.
 

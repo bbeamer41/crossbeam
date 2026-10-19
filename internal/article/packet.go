@@ -34,6 +34,9 @@ func (a Article) RenderPacket() (string, error) {
 
 // ParsePacket reads a bulletin produced by RenderPacket.
 func ParsePacket(text string) (Article, error) {
+	if err := checkMessageSize(text); err != nil {
+		return Article{}, err
+	}
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	text = strings.ReplaceAll(text, "\r", "\n")
 	text = strings.TrimPrefix(text, "\uFEFF")
@@ -54,6 +57,9 @@ func parsePlainHeader(header string) (map[string]string, error) {
 	}
 	fields := make(map[string]string)
 	for i, line := range strings.Split(header, "\n") {
+		if err := checkHeaderLine("packet", i+1, line); err != nil {
+			return nil, err
+		}
 		if line == "" {
 			return nil, fmt.Errorf("packet header line %d is empty", i+1)
 		}

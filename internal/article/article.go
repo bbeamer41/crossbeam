@@ -10,12 +10,24 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
 // PacketWidth is the body line width for a packet bulletin and for a
 // Micron page. Headers stay on one line even when they are longer.
 const PacketWidth = 72
+
+// Limits for untrusted bulletin and page text. A net note fits. A
+// multi-megabyte paste does not.
+const (
+	MaxTitleRunes      = 200
+	MaxAuthorRunes     = 64
+	MaxIDRunes         = 80
+	MaxBodyBytes       = 256 * 1024
+	MaxHeaderLineBytes = 1024
+	MaxMessageBytes    = 1024 * 1024
+)
 
 // Article is one bulletin. Body is plain text: paragraphs are separated
 // by a blank line, and a paragraph is a single line of words. Renderers
@@ -41,6 +53,9 @@ func (a Article) Canonical() (Article, error) {
 	if title == "" {
 		return Article{}, fmt.Errorf("title is empty")
 	}
+	if err := limitRunes("title", title, MaxTitleRunes); err != nil {
+		return Article{}, err
+	}
 	author, err := singleLine("author", a.Author)
 	if err != nil {
 		return Article{}, err
@@ -48,8 +63,14 @@ func (a Article) Canonical() (Article, error) {
 	if author == "" {
 		return Article{}, fmt.Errorf("author is empty")
 	}
+	if err := limitRunes("author", author, MaxAuthorRunes); err != nil {
+		return Article{}, err
+	}
 	id, err := singleLine("id", a.ID)
 	if err != nil {
+		return Article{}, err
+	}
+	if err := limitRunes("id", id, MaxIDRunes); err != nil {
 		return Article{}, err
 	}
 	created, err := canonicalCreated(a.Created)
@@ -80,9 +101,32 @@ func singleLine(name, value string) (string, error) {
 			return "", fmt.Errorf("%s must be a single line", name)
 		case r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f):
 			return "", fmt.Errorf("%s contains a control character", name)
+		case unicode.Is(unicode.Cf, r):
+			return "", fmt.Errorf("%s contains a format character", name)
 		}
 	}
 	return value, nil
+}
+
+func limitRunes(name, value string, max int) error {
+	if n := utf8.RuneCountInString(value); n > max {
+		return fmt.Errorf("%s is %d runes, above the limit of %d", name, n, max)
+	}
+	return nil
+}
+
+func checkMessageSize(text string) error {
+	if len(text) > MaxMessageBytes {
+		return fmt.Errorf("message is %d bytes, above the limit of %d", len(text), MaxMessageBytes)
+	}
+	return nil
+}
+
+func checkHeaderLine(kind string, n int, line string) error {
+	if len(line) > MaxHeaderLineBytes {
+		return fmt.Errorf("%s header line %d is too long", kind, n)
+	}
+	return nil
 }
 
 // canonicalCreated stores a time that Render writes and Parse reads
@@ -103,18 +147,22 @@ func canonicalCreated(t time.Time) (time.Time, error) {
 
 // normalizeBody turns arbitrary text into canonical paragraphs.
 func normalizeBody(body string) (string, error) {
+	if len(body) > MaxBodyBytes {
+		return "", fmt.Errorf("body is %d bytes, above the limit of %d", len(body), MaxBodyBytes)
+	}
 	if !utf8.ValidString(body) {
 		return "", fmt.Errorf("body is not valid UTF-8")
 	}
 	for _, r := range body {
-		switch r {
-		case '\n', '\r', '\t', '\v', '\f':
+		switch {
+		case r == '\n' || r == '\r' || r == '\t' || r == '\v' || r == '\f':
 			continue
-		case '\u2028', '\u2029':
+		case r == '\u2028' || r == '\u2029':
 			return "", fmt.Errorf("body contains a line separator")
-		}
-		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
+		case r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f):
 			return "", fmt.Errorf("body contains a control character")
+		case unicode.Is(unicode.Cf, r):
+			return "", fmt.Errorf("body contains a format character")
 		}
 	}
 	body = strings.ReplaceAll(body, "\r\n", "\n")

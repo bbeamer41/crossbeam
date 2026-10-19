@@ -44,6 +44,9 @@ func (a Article) RenderMicron() (string, error) {
 
 // ParseMicron reads a page produced by RenderMicron.
 func ParseMicron(text string) (Article, error) {
+	if err := checkMessageSize(text); err != nil {
+		return Article{}, err
+	}
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	text = strings.ReplaceAll(text, "\r", "\n")
 	text = strings.TrimPrefix(text, "\uFEFF")
@@ -51,6 +54,9 @@ func ParseMicron(text string) (Article, error) {
 	lines := strings.Split(text, "\n")
 	if len(lines) == 0 || lines[0] == "" {
 		return Article{}, fmt.Errorf("micron page is empty")
+	}
+	if err := checkHeaderLine("micron", 1, lines[0]); err != nil {
+		return Article{}, err
 	}
 	if !strings.HasPrefix(lines[0], "> ") {
 		return Article{}, fmt.Errorf("micron page must start with a \"> \" heading")
@@ -70,13 +76,16 @@ func ParseMicron(text string) (Article, error) {
 		if line == "" {
 			continue
 		}
+		if err := checkHeaderLine("micron", i+1, line); err != nil {
+			return Article{}, err
+		}
 		key, val, ok := strings.Cut(line, ": ")
 		if !ok {
 			return Article{}, fmt.Errorf("micron header line %d must look like \"Name: value\"", i+1)
 		}
 		raw, err := unescapeInline(val)
 		if err != nil {
-			return Article{}, fmt.Errorf("micron header %s: %w", key, err)
+			return Article{}, fmt.Errorf("micron header %q: %w", key, err)
 		}
 		switch key {
 		case "Author", "Created", "ID":
@@ -164,7 +173,7 @@ func unescapeInline(s string) (string, error) {
 		}
 		next := runes[i+1]
 		if next != '\\' && next != '`' {
-			return "", fmt.Errorf("unknown escape \\%c", next)
+			return "", fmt.Errorf("unknown escape %q", string(next))
 		}
 		b.WriteRune(next)
 		i++

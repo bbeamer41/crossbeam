@@ -34,7 +34,7 @@ Each goal starts after the one before it is demonstrated.
 2. **Admin program.** A Debian service. HTTPS on the LAN, one sysop login, and the same settings from the browser and the command. A compose screen shows both previews.
 3. **LinBPQ link.** AX/UDP on UDP 10093. Each node lists the other, and a terminal on each side reaches the other node's prompt.
 4. **Packet bulletins.** Publish an article as an FBB bulletin to LinBPQ, and ingest a LinBPQ bulletin into the article store.
-5. **NomadNet pages.** Publish the same article as a Micron page to a local NomadNet, and ingest a NomadNet page back. An article waits on disk if NomadNet or the internet is down.
+5. **NomadNet pages.** Publish the same article as a Micron page to a local NomadNet, and ingest a NomadNet page back. An article waits on disk if NomadNet or the internet is down. A page Crossbeam writes is a normal file, not an executable, so NomadNet does not run it.
 6. **NET/ROM routing.** Quality, node broadcasts, and a connection across more than one hop.
 7. **Radio.** A KISS port aimed at Graywolf on 1200 baud AFSK. Graywolf's digipeater and iGate stay off on that channel.
 8. **Remaining peers.** Telnet and FBB TCP, BPQ chat linking, and a Winlink RMS gateway.
