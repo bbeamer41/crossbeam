@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/bbeamer41/crossbeam/internal/article"
 	"github.com/bbeamer41/crossbeam/internal/store"
@@ -92,6 +93,10 @@ func TestPublishAndIngest(t *testing.T) {
 	read, failed, err := Ingest(ctx, st, pages)
 	if err != nil || read != 1 || failed != 0 {
 		t.Fatalf("ingest read=%d failed=%d err=%v", read, failed, err)
+	}
+	kept, err := st.Article(ctx, saved.RowID)
+	if err != nil || !kept.Article.Created.Equal(saved.Article.Created) || kept.Article.Body != saved.Article.Body || kept.Article.ID != saved.Article.ID {
+		t.Fatalf("round trip %+v %v", kept, err)
 	}
 	rows, err := st.ListArticles(ctx)
 	if err != nil || len(rows) != 1 || rows[0].RowID != saved.RowID {
@@ -338,9 +343,18 @@ func TestPublishLeavesArticlesWhenPagesAreUnavailable(t *testing.T) {
 	if err != nil || len(entries) != 0 {
 		t.Fatalf("symlink target %v %v", entries, err)
 	}
-	unclean := filepath.Join(t.TempDir(), "pages") + "/../pages"
+	base := t.TempDir()
+	realPages := filepath.Join(base, "pages")
+	if err := os.Mkdir(realPages, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	unclean := realPages + "/../pages"
 	if _, _, err := Publish(ctx, st, unclean); !errors.Is(err, ErrPagesUnavailable) {
 		t.Fatalf("unclean: %v", err)
+	}
+	entries, err = os.ReadDir(realPages)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("unclean write %v %v", entries, err)
 	}
 	if _, _, err := Publish(ctx, st, "pages"); !errors.Is(err, ErrPagesUnavailable) {
 		t.Fatalf("relative: %v", err)
@@ -371,6 +385,115 @@ func TestPublishCountsOneBlockedPage(t *testing.T) {
 	info, err = os.Lstat(filepath.Join(pages, "cb-2.mu"))
 	if err != nil || info.Mode().Perm() != 0o644 {
 		t.Fatalf("second page %v %v", info, err)
+	}
+}
+
+func TestPublishDoesNotFollowASymlink(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+	pages := t.TempDir()
+	saved := saveArticle(t, st, "NIGHT", "Net tonight", "Meet at 7.")
+	secret := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(secret, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(pages, ".cb-tmp-1")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(pages, "cb-1.mu")); err != nil {
+		t.Fatal(err)
+	}
+	written, failed, err := Publish(ctx, st, pages)
+	if err != nil || written != 1 || failed != 0 {
+		t.Fatalf("publish written=%d failed=%d err=%v", written, failed, err)
+	}
+	got, err := os.ReadFile(secret)
+	if err != nil || string(got) != "keep" {
+		t.Fatalf("secret %q %v", got, err)
+	}
+	info, err := os.Lstat(secret)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("secret mode %v %v", info, err)
+	}
+	final := filepath.Join(pages, "cb-1.mu")
+	info, err = os.Lstat(final)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm() != 0o644 {
+		t.Fatalf("page %v %v", info, err)
+	}
+	text, err := saved.Article.RenderMicron()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageText, err := os.ReadFile(final)
+	if err != nil || string(pageText) != text {
+		t.Fatalf("page text %q %v", pageText, err)
+	}
+	if _, err := os.Lstat(filepath.Join(pages, ".cb-tmp-1")); !os.IsNotExist(err) {
+		t.Fatal("temporary symlink remained")
+	}
+}
+
+func TestIngestDoesNotBlockOnAPipe(t *testing.T) {
+	st := testStore(t)
+	pages := t.TempDir()
+	secret := filepath.Join(t.TempDir(), "secret.mu")
+	outside := article.Article{
+		ID: "SECRET", Title: "Secret", Author: "K5LEB", Created: time.Date(2026, 10, 18, 15, 4, 5, 0, time.UTC), Body: "hidden",
+	}
+	text, err := outside.RenderMicron()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(secret, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pipe := filepath.Join(pages, "pipe.mu")
+	if err := syscall.Mkfifo(pipe, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(pipe, filepath.Join(pages, "linked.mu")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(pages, "alias.mu")); err != nil {
+		t.Fatal(err)
+	}
+	type result struct {
+		read, failed int
+		err          error
+	}
+	done := make(chan result, 1)
+	go func() {
+		read, failed, err := Ingest(context.Background(), st, pages)
+		done <- result{read, failed, err}
+	}()
+	select {
+	case res := <-done:
+		if res.err != nil || res.read != 0 || res.failed != 0 {
+			t.Fatalf("ingest read=%d failed=%d err=%v", res.read, res.failed, res.err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("ingest blocked")
+	}
+	rows, err := st.ListArticles(context.Background())
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("rows %+v %v", rows, err)
+	}
+}
+
+func TestPublishReportsNoPathWhenTheDirectoryIsReadOnly(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can write a read-only directory")
+	}
+	st := testStore(t)
+	pages := t.TempDir()
+	saveArticle(t, st, "NIGHT", "Net tonight", "Meet at 7.")
+	if err := os.Chmod(pages, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(pages, 0o755) })
+	written, failed, err := Publish(context.Background(), st, pages)
+	if err != nil || written != 0 || failed != 1 {
+		t.Fatalf("publish written=%d failed=%d err=%v", written, failed, err)
 	}
 }
 

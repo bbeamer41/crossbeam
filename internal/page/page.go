@@ -144,24 +144,19 @@ func writePage(dir string, row store.SavedArticle) error {
 	_ = os.Remove(tmp)
 	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, pageMode)
 	if err != nil {
-		return err
-	}
-	_, werr := io.WriteString(f, text)
-	cerr := f.Close()
-	if werr != nil || cerr != nil {
-		_ = os.Remove(tmp)
 		return errors.New("article could not be written")
 	}
-	if err := os.Chmod(tmp, pageMode); err != nil {
+	_, werr := io.WriteString(f, text)
+	// fchmod applies to this inode. A later chmod by path would follow a
+	// symlink swapped in after the rename.
+	merr := f.Chmod(pageMode)
+	cerr := f.Close()
+	if werr != nil || merr != nil || cerr != nil {
 		_ = os.Remove(tmp)
 		return errors.New("article could not be written")
 	}
 	if err := os.Rename(tmp, final); err != nil {
 		_ = os.Remove(tmp)
-		return errors.New("article could not be written")
-	}
-	if err := os.Chmod(final, pageMode); err != nil {
-		_ = os.Remove(final)
 		return errors.New("article could not be written")
 	}
 	info, err := os.Lstat(final)
@@ -181,10 +176,10 @@ func readParsed(dir, name string) (article.Article, bool) {
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return article.Article{}, false
 	}
-	if info.Size() > article.MaxMessageBytes {
+	if info.Size() < 0 || info.Size() > article.MaxMessageBytes {
 		return article.Article{}, false
 	}
-	f, err := os.Open(path)
+	f, err := openPage(path)
 	if err != nil {
 		return article.Article{}, false
 	}

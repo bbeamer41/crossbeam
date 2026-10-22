@@ -29,7 +29,7 @@ A page Crossbeam writes is named `cb-<row>.mu`, where `<row>` is the article row
 
 The file is written under a temporary name that starts with a dot, then renamed into place. NomadNet skips names that start with a dot. `index.mu` is left unchanged. Publish replaces `cb-<row>.mu` for each article still in the store and leaves every other file, including a page whose article was deleted.
 
-A symbolic link is not followed. Hidden files are skipped. A file larger than 1 MiB is skipped. A file that is not this program's Micron page is skipped, including `index.mu` and a page written by another program.
+A symbolic link is not followed, including when the pages directory itself is a symbolic link. Replacing a page does not change the file a symbolic link points at. Hidden files are skipped. A file larger than 1 MiB is skipped. A file that is not this program's Micron page is skipped, including `index.mu` and a page written by another program.
 
 Ingest updates an article when the file name is `cb-<row>.mu` and that row still exists. Otherwise it updates the one article with the same ID. When the page has no ID, it updates the one article with the same title, author, and created time. Anything else is inserted. Running ingest again updates that article. Deleting an article leaves the page file in place. A later ingest stores the page again when the row is gone.
 
