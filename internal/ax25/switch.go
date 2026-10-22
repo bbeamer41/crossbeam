@@ -25,6 +25,10 @@ const (
 // ErrClosed is returned after the switch has stopped.
 var ErrClosed = errors.New("link is closed")
 
+// ErrNotConnected is returned when a NET/ROM frame has no open session
+// to that neighbor.
+var ErrNotConnected = errors.New("not connected")
+
 // Switch is one station's modulo-8 connections. Acknowledgements are sent
 // as soon as a frame is accepted. T1 stays at several seconds so a peer that
 // delays its own acknowledgement, the way BPQ's RESPTIME does, still fits.
@@ -36,6 +40,7 @@ type Switch struct {
 	t1      time.Duration
 	send    func(Address, Frame)
 	accept  func(Address, *Stream)
+	netrom  func(Address, []byte)
 	onBegin func(Address)
 	onEnd   func(Address)
 	idle    time.Duration
@@ -56,6 +61,10 @@ type Config struct {
 	T1     time.Duration
 	Send   func(Address, Frame)
 	Accept func(Address, *Stream)
+	// Netrom receives the information field of one PID CF I-frame.
+	// It runs on the engine goroutine, in arrival order, and must
+	// only enqueue the frame. It must not call this switch.
+	Netrom func(Address, []byte)
 	// Begin and End run on the engine goroutine and must not call the switch.
 	Begin func(Address)
 	End   func(Address)
@@ -77,13 +86,15 @@ type dialResult struct {
 }
 
 type event struct {
-	kind   int
-	frame  Frame
-	remote Address
-	result chan dialResult
-	stream *Stream
-	done   chan struct{}
-	err    error
+	kind    int
+	frame   Frame
+	remote  Address
+	result  chan dialResult
+	stream  *Stream
+	done    chan struct{}
+	err     error
+	payload []byte
+	note    chan error
 }
 
 const (
@@ -92,7 +103,15 @@ const (
 	evClose
 	evAbort
 	evKick
+	evNetrom
 )
+
+// slot is one sent I-frame. NET/ROM keeps its own PID so a retransmission
+// is not turned into text.
+type slot struct {
+	pid  byte
+	data []byte
+}
 
 type conn struct {
 	remote    Address
@@ -100,7 +119,8 @@ type conn struct {
 	vs        int
 	vr        int
 	va        int
-	sent      [8][]byte
+	sent      [8]slot
+	netq      [][]byte
 	hold      []byte
 	retries   int
 	deadline  time.Time
@@ -155,6 +175,7 @@ func NewSwitch(cfg Config) *Switch {
 		idle:    cfg.Idle,
 		send:    cfg.Send,
 		accept:  cfg.Accept,
+		netrom:  cfg.Netrom,
 		onBegin: cfg.Begin,
 		onEnd:   cfg.End,
 		events:  make(chan event, 64),
@@ -410,7 +431,48 @@ func (s *Switch) handle(ev event) {
 				s.recoverBusy(c)
 			}
 		}
+	case evNetrom:
+		if ev.note != nil {
+			ev.note <- s.enqueueNetrom(ev.remote, ev.payload)
+		}
 	}
+}
+
+// SendNetrom queues one PID CF information field on the session to remote.
+// The session must already be up. The field is one I-frame and is not split
+// across the text stream.
+func (s *Switch) SendNetrom(remote Address, info []byte) error {
+	if len(info) == 0 {
+		return errors.New("frame is empty")
+	}
+	if len(info) > s.paclen {
+		return errors.New("frame is too long")
+	}
+	note := make(chan error, 1)
+	ev := event{kind: evNetrom, remote: remote, payload: append([]byte(nil), info...), note: note}
+	select {
+	case s.events <- ev:
+	case <-s.quit:
+		return ErrClosed
+	}
+	select {
+	case err := <-note:
+		return err
+	case <-s.quit:
+		return ErrClosed
+	}
+}
+
+func (s *Switch) enqueueNetrom(remote Address, info []byte) error {
+	c := s.conns[remote.String()]
+	if c == nil || c.phase != phaseInfo || c.closing {
+		return ErrNotConnected
+	}
+	if len(info) > s.paclen {
+		return errors.New("frame is too long")
+	}
+	c.netq = append(c.netq, info)
+	return nil
 }
 
 func (s *Switch) onDial(remote Address, result chan dialResult) {
@@ -554,7 +616,8 @@ func (s *Switch) onSABM(f Frame, c *conn) {
 		s.began(f.Src)
 	}
 	c.vs, c.vr, c.va = 0, 0, 0
-	c.sent = [8][]byte{}
+	c.sent = [8]slot{}
+	c.netq = nil
 	c.hold = nil
 	c.retries = 0
 	c.poll = false
@@ -604,10 +667,22 @@ func (s *Switch) onI(c *conn, f Frame) {
 	must := f.Command && PF(f.Control)
 	ns := NS(f.Control)
 	if ns == c.vr {
-		if c.stream.deliver(f.Info) {
+		accepted := false
+		if f.PID == PIDNetrom {
+			// Routing frames share this connection and stay out of the
+			// terminal byte stream. A full text buffer does not refuse them.
+			accepted = true
+			if s.netrom != nil {
+				info := append([]byte(nil), f.Info...)
+				s.netrom(c.remote, info)
+			}
+		} else if c.stream.deliver(f.Info) {
+			accepted = true
+			c.localBusy = false
+		}
+		if accepted {
 			c.vr = (c.vr + 1) & 7
 			c.rejecting = false
-			c.localBusy = false
 			c.needAck = true
 		} else {
 			c.localBusy = true
@@ -673,7 +748,7 @@ func (s *Switch) ackNow(c *conn, final bool) {
 func (s *Switch) tick() {
 	now := s.now()
 	for _, c := range s.conns {
-		if c.phase == phaseInfo && !c.closing && c.outstanding() == 0 && len(c.hold) == 0 && !c.stream.pending() && !c.touched.IsZero() && now.Sub(c.touched) > s.idle {
+		if c.phase == phaseInfo && !c.closing && c.outstanding() == 0 && len(c.hold) == 0 && len(c.netq) == 0 && !c.stream.pending() && !c.touched.IsZero() && now.Sub(c.touched) > s.idle {
 			c.closing = true
 			c.retries = 0
 			s.maybeDisc(c)
@@ -733,19 +808,27 @@ func (c *conn) pump(s *Switch) bool {
 	}
 	sent := false
 	for c.outstanding() < s.window {
-		if len(c.hold) == 0 {
-			c.hold = c.stream.take(s.paclen)
+		var payload []byte
+		pid := PIDText
+		if len(c.netq) > 0 {
+			payload = c.netq[0]
+			c.netq = c.netq[1:]
+			pid = PIDNetrom
+		} else {
+			if len(c.hold) == 0 {
+				c.hold = c.stream.take(s.paclen)
+			}
+			if len(c.hold) == 0 {
+				break
+			}
+			n := s.paclen
+			if n > len(c.hold) {
+				n = len(c.hold)
+			}
+			payload = append([]byte(nil), c.hold[:n]...)
+			c.hold = c.hold[n:]
 		}
-		if len(c.hold) == 0 {
-			break
-		}
-		n := s.paclen
-		if n > len(c.hold) {
-			n = len(c.hold)
-		}
-		payload := append([]byte(nil), c.hold[:n]...)
-		c.hold = c.hold[n:]
-		c.sent[c.vs] = payload
+		c.sent[c.vs] = slot{pid: pid, data: payload}
 		s.sendI(c, c.vs)
 		c.vs = (c.vs + 1) & 7
 		if c.deadline.IsZero() {
@@ -761,7 +844,7 @@ func (s *Switch) maybeDisc(c *conn) {
 	if !c.closing || c.phase != phaseInfo {
 		return
 	}
-	if c.outstanding() == 0 && len(c.hold) == 0 && !c.stream.pending() {
+	if c.outstanding() == 0 && len(c.hold) == 0 && len(c.netq) == 0 && !c.stream.pending() {
 		c.phase = phaseRelease
 		c.closing = false
 		c.retries = 0
@@ -784,7 +867,7 @@ func (c *conn) ack(nr int, now time.Time) bool {
 	}
 	advanced := nr != c.va
 	for c.va != nr {
-		c.sent[c.va] = nil
+		c.sent[c.va] = slot{}
 		c.va = (c.va + 1) & 7
 	}
 	if c.va == c.vs {
@@ -866,8 +949,8 @@ func (s *Switch) sendI(c *conn, ns int) {
 		Src:     s.local,
 		Command: true,
 		Control: IControl(ns, c.vr, false),
-		PID:     PIDText,
-		Info:    c.sent[ns],
+		PID:     c.sent[ns].pid,
+		Info:    c.sent[ns].data,
 	})
 }
 

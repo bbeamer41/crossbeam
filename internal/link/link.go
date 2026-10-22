@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/bbeamer41/crossbeam/internal/ax25"
+	"github.com/bbeamer41/crossbeam/internal/netrom"
 	"github.com/bbeamer41/crossbeam/internal/settings"
 )
 
@@ -29,6 +30,10 @@ const (
 	guestHold      = 2 * time.Second
 	termLineWait   = 5 * time.Second
 	peerReserveMax = 8
+	// hopLinger is how long a relay crosslink stays up after the last
+	// NET/ROM frame. A circuit this node opened keeps its crosslink until
+	// the circuit closes.
+	hopLinger = 15 * time.Second
 )
 
 // guestRoute is the return address of a station that is not in the peer list.
@@ -50,7 +55,7 @@ type Config struct {
 	T1           time.Duration
 	N2           int
 	Lookup       settings.LookupIP
-	Handler      func(ax25.Address, *ax25.Stream)
+	Handler      func(ax25.Address, io.ReadWriteCloser)
 	// Forward runs one FBB exchange on a dialed session. The string is
 	// the OK detail. Nil refuses the FORWARD terminal command.
 	Forward func(context.Context, *ax25.Stream) (string, error)
@@ -80,6 +85,32 @@ type Node struct {
 	terms    int
 	forward  func(context.Context, *ax25.Stream) (string, error)
 	ready    func(context.Context) error
+
+	routes *netrom.Router
+	user   func(ax25.Address, io.ReadWriteCloser)
+	nodes  ax25.Address
+	hopMu  sync.Mutex
+	hops   map[string]*hop
+
+	netMu sync.Mutex
+	inbox []netFrame
+	wake  chan struct{}
+}
+
+// netFrame is one PID CF information field waiting for the router.
+// Frames stay in arrival order. The switch callback only enqueues them.
+type netFrame struct {
+	from ax25.Address
+	info []byte
+}
+
+// hop is an AX.25 session that carries NET/ROM frames to one neighbor.
+type hop struct {
+	st      *ax25.Stream
+	uses    int
+	last    time.Time
+	dialing bool
+	done    chan struct{}
 }
 
 // Listen binds the UDP port and, when TerminalPath is set, the local
@@ -128,27 +159,47 @@ func Listen(cfg Config) (*Node, error) {
 		guests:   map[string]*guestRoute{},
 		forward:  cfg.Forward,
 		ready:    cfg.ForwardReady,
+		nodes:    ax25.Address{Call: "NODES"},
+		hops:     map[string]*hop{},
+		wake:     make(chan struct{}, 1),
 	}
+	n.user = cfg.Handler
+	if n.user == nil {
+		local := cfg.Local
+		n.user = func(_ ax25.Address, rw io.ReadWriteCloser) { servePrompt(local, rw) }
+	}
+	paclen := cfg.Paclen
+	if paclen < 1 || paclen > ax25.DefaultPaclen {
+		paclen = ax25.DefaultPaclen
+	}
+	n.routes = netrom.New(netrom.Config{
+		Local:   cfg.Local,
+		Payload: paclen - 20,
+		Send:    n.sendNetrom,
+		Accept:  n.acceptCircuit,
+		Retain:  n.retainHop,
+		Release: n.releaseHop,
+	})
 	if err := n.SetPeers(cfg.Peers); err != nil {
+		n.routes.Close()
 		pc.Close()
 		return nil, err
 	}
-	accept := cfg.Handler
-	if accept == nil {
-		accept = func(_ ax25.Address, st *ax25.Stream) { servePrompt(cfg.Local, st) }
-	}
 	n.sw = ax25.NewSwitch(ax25.Config{
 		Local:  cfg.Local,
-		Paclen: cfg.Paclen,
+		Paclen: paclen,
 		Window: cfg.Window,
 		N2:     cfg.N2,
 		T1:     cfg.T1,
 		Send:   n.transmit,
-		Accept: accept,
+		Accept: func(addr ax25.Address, st *ax25.Stream) { n.user(addr, st) },
+		Netrom: n.onNetrom,
 		Begin:  n.beginSession,
 		End:    n.endSession,
 	})
 	go n.readLoop()
+	go n.routeLoop()
+	go n.maintain()
 	if cfg.TerminalPath != "" {
 		ln, err := listenUnix(cfg.TerminalPath, mode)
 		if err != nil {
@@ -195,6 +246,8 @@ func (n *Node) SetPeers(text string) error {
 		delete(n.guests, call)
 	}
 	n.mu.Unlock()
+	n.syncNeighbors()
+	n.broadcastRoutes()
 	return nil
 }
 
@@ -228,6 +281,18 @@ func (n *Node) listed(call string) (ax25.Address, error) {
 func (n *Node) Close() error {
 	n.once.Do(func() {
 		close(n.quit)
+		if n.routes != nil {
+			n.routes.Close()
+		}
+		n.hopMu.Lock()
+		hops := n.hops
+		n.hops = map[string]*hop{}
+		n.hopMu.Unlock()
+		for _, hop := range hops {
+			if hop.st != nil {
+				_ = hop.st.Close()
+			}
+		}
 		if n.pc != nil {
 			_ = n.pc.Close()
 		}
@@ -254,7 +319,14 @@ func (n *Node) readLoop() {
 			continue
 		}
 		frame, err := ax25.Decode(buf[:count])
-		if err != nil || !frame.Dest.Equal(n.local) || len(frame.Digis) > 0 || ax25.IsUI(frame.Control) {
+		if err != nil || len(frame.Digis) > 0 {
+			continue
+		}
+		if ax25.IsUI(frame.Control) {
+			n.hearBroadcast(frame, from)
+			continue
+		}
+		if !frame.Dest.Equal(n.local) {
 			continue
 		}
 		if !n.allow(frame.Src, from) {
@@ -276,6 +348,294 @@ func (n *Node) transmit(remote ax25.Address, frame ax25.Frame) {
 		return
 	}
 	_, _ = n.pc.WriteToUDP(frame.Encode(), addr)
+}
+
+func (n *Node) onNetrom(from ax25.Address, info []byte) {
+	n.netMu.Lock()
+	n.inbox = append(n.inbox, netFrame{from: from, info: info})
+	n.netMu.Unlock()
+	select {
+	case n.wake <- struct{}{}:
+	default:
+	}
+}
+
+// routeLoop delivers PID CF frames in the order the switch accepted them.
+// One worker keeps a disconnect from passing the information ahead of it.
+func (n *Node) routeLoop() {
+	for {
+		select {
+		case <-n.quit:
+			return
+		case <-n.wake:
+			for {
+				from, info, ok := n.takeNetrom()
+				if !ok {
+					break
+				}
+				if n.routes != nil {
+					n.routes.Deliver(from, info)
+				}
+			}
+		}
+	}
+}
+
+func (n *Node) takeNetrom() (ax25.Address, []byte, bool) {
+	n.netMu.Lock()
+	defer n.netMu.Unlock()
+	if len(n.inbox) == 0 {
+		return ax25.Address{}, nil, false
+	}
+	item := n.inbox[0]
+	n.inbox[0] = netFrame{}
+	n.inbox = n.inbox[1:]
+	if len(n.inbox) == 0 {
+		n.inbox = nil
+	}
+	return item.from, item.info, true
+}
+
+func (n *Node) acceptCircuit(user ax25.Address, rw io.ReadWriteCloser) {
+	if n.user == nil {
+		_ = rw.Close()
+		return
+	}
+	n.user(user, rw)
+}
+
+func (n *Node) syncNeighbors() {
+	if n.routes == nil {
+		return
+	}
+	n.mu.Lock()
+	list := make([]ax25.Address, 0, len(n.peers))
+	for call := range n.peers {
+		addr, err := ax25.Parse(call)
+		if err == nil {
+			list = append(list, addr)
+		}
+	}
+	n.mu.Unlock()
+	n.routes.SetNeighbors(list)
+}
+
+func (n *Node) broadcastRoutes() {
+	if n.routes == nil || n.pc == nil {
+		return
+	}
+	payloads := n.routes.Payloads()
+	n.mu.Lock()
+	peers := make([]*net.UDPAddr, 0, len(n.peers))
+	for _, addr := range n.peers {
+		peers = append(peers, &net.UDPAddr{IP: append(net.IP(nil), addr.IP...), Port: addr.Port})
+	}
+	n.mu.Unlock()
+	if len(peers) == 0 {
+		return
+	}
+	for _, info := range payloads {
+		frame := ax25.Frame{
+			Dest:    n.nodes,
+			Src:     n.local,
+			Command: true,
+			Control: ax25.UI,
+			PID:     ax25.PIDNetrom,
+			Info:    info,
+		}.Encode()
+		for _, addr := range peers {
+			_, _ = n.pc.WriteToUDP(frame, addr)
+		}
+	}
+}
+
+func (n *Node) hearBroadcast(frame ax25.Frame, from *net.UDPAddr) {
+	if n.routes == nil || frame.PID != ax25.PIDNetrom || !frame.Dest.Equal(n.nodes) {
+		return
+	}
+	if frame.Src.Equal(n.local) || !n.isPeer(frame.Src) {
+		return
+	}
+	if !n.allow(frame.Src, from) {
+		return
+	}
+	n.routes.Observe(frame.Src, frame.Info)
+}
+
+func (n *Node) isPeer(src ax25.Address) bool {
+	n.mu.Lock()
+	_, ok := n.peers[src.String()]
+	n.mu.Unlock()
+	return ok
+}
+
+func (n *Node) maintain() {
+	sweep := time.NewTicker(500 * time.Millisecond)
+	hour := time.NewTicker(time.Hour)
+	defer sweep.Stop()
+	defer hour.Stop()
+	for {
+		select {
+		case <-n.quit:
+			return
+		case <-sweep.C:
+			n.sweepHops()
+		case <-hour.C:
+			if n.routes != nil {
+				n.routes.Age()
+			}
+			n.broadcastRoutes()
+		}
+	}
+}
+
+func (n *Node) sendNetrom(via ax25.Address, info []byte) error {
+	if n.sw == nil {
+		return errors.New("link is closed")
+	}
+	err := n.sw.SendNetrom(via, info)
+	if err == nil {
+		n.touchHop(via)
+		return nil
+	}
+	if !errors.Is(err, ax25.ErrNotConnected) && !errors.Is(err, ax25.ErrClosed) {
+		return err
+	}
+	n.hopMu.Lock()
+	if h := n.hops[via.String()]; h != nil {
+		h.st = nil
+	}
+	n.hopMu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), n.dialFor)
+	defer cancel()
+	if err := n.ensureHop(ctx, via); err != nil {
+		return err
+	}
+	if err := n.sw.SendNetrom(via, info); err != nil {
+		return err
+	}
+	n.touchHop(via)
+	return nil
+}
+
+func (n *Node) retainHop(ctx context.Context, via ax25.Address) error {
+	if err := n.ensureHop(ctx, via); err != nil {
+		return err
+	}
+	n.hopMu.Lock()
+	if h := n.hops[via.String()]; h != nil {
+		h.uses++
+		h.last = time.Now()
+	}
+	n.hopMu.Unlock()
+	return nil
+}
+
+func (n *Node) releaseHop(via ax25.Address) {
+	n.hopMu.Lock()
+	h := n.hops[via.String()]
+	if h == nil {
+		n.hopMu.Unlock()
+		return
+	}
+	if h.uses > 0 {
+		h.uses--
+	}
+	var st *ax25.Stream
+	if h.uses == 0 && !h.dialing {
+		st = h.st
+		delete(n.hops, via.String())
+	}
+	n.hopMu.Unlock()
+	if st != nil {
+		_ = st.Close()
+	}
+}
+
+func (n *Node) ensureHop(ctx context.Context, via ax25.Address) error {
+	key := via.String()
+	for {
+		n.hopMu.Lock()
+		h := n.hops[key]
+		if h != nil && h.st != nil {
+			h.last = time.Now()
+			n.hopMu.Unlock()
+			return nil
+		}
+		if h != nil && h.dialing {
+			done := h.done
+			n.hopMu.Unlock()
+			select {
+			case <-done:
+				continue
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		if h == nil {
+			h = &hop{}
+			n.hops[key] = h
+		}
+		h.dialing = true
+		h.done = make(chan struct{})
+		n.hopMu.Unlock()
+
+		st, err := n.sw.Dial(ctx, via)
+		n.hopMu.Lock()
+		h.dialing = false
+		close(h.done)
+		if err != nil {
+			if strings.Contains(err.Error(), "already connected") {
+				h.last = time.Now()
+				n.hopMu.Unlock()
+				return nil
+			}
+			if h.st == nil && h.uses == 0 {
+				delete(n.hops, key)
+			}
+			n.hopMu.Unlock()
+			return err
+		}
+		h.st = st
+		h.last = time.Now()
+		n.hopMu.Unlock()
+		go n.drainHop(st)
+		return nil
+	}
+}
+
+func (n *Node) drainHop(st *ax25.Stream) {
+	buf := make([]byte, 512)
+	for {
+		if _, err := st.Read(buf); err != nil {
+			return
+		}
+	}
+}
+
+func (n *Node) touchHop(via ax25.Address) {
+	n.hopMu.Lock()
+	if h := n.hops[via.String()]; h != nil {
+		h.last = time.Now()
+	}
+	n.hopMu.Unlock()
+}
+
+func (n *Node) sweepHops() {
+	now := time.Now()
+	n.hopMu.Lock()
+	var drop []*ax25.Stream
+	for key, h := range n.hops {
+		if h.dialing || h.uses > 0 || h.st == nil || h.last.IsZero() || now.Sub(h.last) < hopLinger {
+			continue
+		}
+		drop = append(drop, h.st)
+		delete(n.hops, key)
+	}
+	n.hopMu.Unlock()
+	for _, st := range drop {
+		_ = st.Close()
+	}
 }
 
 func (n *Node) lookupAddr(remote ax25.Address) *net.UDPAddr {
@@ -487,26 +847,41 @@ func (n *Node) serveTerm(conn net.Conn) {
 		n.serveForward(conn, call, wait)
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), n.dialFor)
-	stream, err := n.Dial(ctx, call)
-	cancel()
+	addr, err := ax25.Parse(call)
+	if err != nil {
+		_ = conn.SetDeadline(time.Now().Add(wait))
+		fmt.Fprintf(conn, "ERR %s\n", termErr(err))
+		return
+	}
+	var rw io.ReadWriteCloser
+	if _, listedErr := n.listed(call); listedErr == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), n.dialFor)
+		rw, err = n.Dial(ctx, call)
+		cancel()
+	} else if n.routes != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), n.dialFor*3)
+		rw, err = n.routes.Connect(ctx, addr)
+		cancel()
+	} else {
+		err = fmt.Errorf("%s is not listed", addr)
+	}
 	_ = conn.SetDeadline(time.Now().Add(wait))
 	if err != nil {
 		fmt.Fprintf(conn, "ERR %s\n", termErr(err))
 		return
 	}
-	defer stream.Close()
+	defer rw.Close()
 	if _, err := fmt.Fprintf(conn, "OK\n"); err != nil {
 		return
 	}
 	_ = conn.SetDeadline(time.Time{})
 	done := make(chan struct{})
 	go func() {
-		_, _ = io.Copy(stream, conn)
-		_ = stream.Close()
+		_, _ = io.Copy(rw, conn)
+		_ = rw.Close()
 		close(done)
 	}()
-	_, _ = io.Copy(conn, stream)
+	_, _ = io.Copy(conn, rw)
 	_ = conn.Close()
 	<-done
 }
@@ -640,7 +1015,7 @@ func readCRLF(r io.Reader, max int) (string, error) {
 	}
 }
 
-func servePrompt(local ax25.Address, st *ax25.Stream) {
+func servePrompt(local ax25.Address, st io.ReadWriteCloser) {
 	defer st.Close()
 	name := local.String()
 	if _, err := fmt.Fprintf(st, "Crossbeam %s\r%s>\r", name, name); err != nil {

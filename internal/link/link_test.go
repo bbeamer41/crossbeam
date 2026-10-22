@@ -186,7 +186,7 @@ func TestDisconnectWaitsForTheLastFrame(t *testing.T) {
 		N2:     6,
 		Paclen: 128,
 		Window: 4,
-		Handler: func(_ ax25.Address, st *ax25.Stream) {
+		Handler: func(_ ax25.Address, st io.ReadWriteCloser) {
 			defer close(done)
 			buf := make([]byte, 64)
 			var all []byte
@@ -420,7 +420,7 @@ func startEcho(t *testing.T, call string) *Node {
 		N2:     6,
 		Paclen: 64,
 		Window: 3,
-		Handler: func(_ ax25.Address, st *ax25.Stream) {
+		Handler: func(_ ax25.Address, st io.ReadWriteCloser) {
 			defer st.Close()
 			buf := make([]byte, 512)
 			for {
@@ -567,46 +567,45 @@ func ackInfo(t *testing.T, pc *net.UDPConn, to *net.UDPAddr, frames []ax25.Frame
 }
 
 func answerSABMAfter(pc *net.UDPConn, local, remote ax25.Address, info []byte, wait time.Duration) error {
-	pc.SetReadDeadline(time.Now().Add(2 * time.Second))
-	buf := make([]byte, 2048)
-	n, from, err := pc.ReadFromUDP(buf)
+	from, err := waitSABM(pc, local, remote)
 	if err != nil {
 		return err
-	}
-	frame, err := ax25.Decode(buf[:n])
-	if err != nil {
-		return err
-	}
-	if !frame.Dest.Equal(remote) || !frame.Src.Equal(local) || !ax25.IsSABM(frame.Control) || !frame.Command {
-		return fmt.Errorf("sabm %+v", frame)
 	}
 	time.Sleep(wait)
-	ua := ax25.Frame{Dest: local, Src: remote, Command: false, Control: ax25.UA | 0x10}.Encode()
-	if _, err := pc.WriteToUDP(ua, from); err != nil {
-		return err
-	}
-	data := ax25.Frame{
-		Dest: local, Src: remote, Command: true,
-		Control: ax25.IControl(0, 0, false), PID: ax25.PIDText, Info: info,
-	}.Encode()
-	_, err = pc.WriteToUDP(data, from)
-	return err
+	return answerUA(pc, local, remote, from, info)
 }
 
 func answerSABM(pc *net.UDPConn, local, remote ax25.Address, info []byte) error {
-	pc.SetReadDeadline(time.Now().Add(2 * time.Second))
+	from, err := waitSABM(pc, local, remote)
+	if err != nil {
+		return err
+	}
+	return answerUA(pc, local, remote, from, info)
+}
+
+// waitSABM reads until the expected SABM. A NODES broadcast is a UI frame
+// and arrives before the handshake, so frames that are not SABM are skipped.
+func waitSABM(pc *net.UDPConn, local, remote ax25.Address) (*net.UDPAddr, error) {
+	deadline := time.Now().Add(2 * time.Second)
 	buf := make([]byte, 2048)
-	n, from, err := pc.ReadFromUDP(buf)
-	if err != nil {
-		return err
+	for {
+		_ = pc.SetReadDeadline(deadline)
+		n, from, err := pc.ReadFromUDP(buf)
+		if err != nil {
+			return nil, err
+		}
+		frame, err := ax25.Decode(buf[:n])
+		if err != nil || !ax25.IsSABM(frame.Control) || !frame.Command {
+			continue
+		}
+		if !frame.Dest.Equal(remote) || !frame.Src.Equal(local) {
+			return nil, fmt.Errorf("sabm %+v", frame)
+		}
+		return from, nil
 	}
-	frame, err := ax25.Decode(buf[:n])
-	if err != nil {
-		return err
-	}
-	if !frame.Dest.Equal(remote) || !frame.Src.Equal(local) || !ax25.IsSABM(frame.Control) || !frame.Command {
-		return fmt.Errorf("sabm %+v", frame)
-	}
+}
+
+func answerUA(pc *net.UDPConn, local, remote ax25.Address, from *net.UDPAddr, info []byte) error {
 	ua := ax25.Frame{Dest: local, Src: remote, Command: false, Control: ax25.UA | 0x10}.Encode()
 	if _, err := pc.WriteToUDP(ua, from); err != nil {
 		return err
@@ -615,7 +614,7 @@ func answerSABM(pc *net.UDPConn, local, remote ax25.Address, info []byte) error 
 		Dest: local, Src: remote, Command: true,
 		Control: ax25.IControl(0, 0, false), PID: ax25.PIDText, Info: info,
 	}.Encode()
-	_, err = pc.WriteToUDP(data, from)
+	_, err := pc.WriteToUDP(data, from)
 	return err
 }
 
@@ -669,7 +668,7 @@ func TestForwardUnlistedSkipsReady(t *testing.T) {
 func TestForwardClientCloseReleasesTheCall(t *testing.T) {
 	peer, err := Listen(Config{
 		Bind: "127.0.0.1:0", Local: mustCall(t, "W1AW-1"), T1: 150 * time.Millisecond, N2: 6, Paclen: 128,
-		Handler: func(_ ax25.Address, st *ax25.Stream) {
+		Handler: func(_ ax25.Address, st io.ReadWriteCloser) {
 			defer st.Close()
 			buf := make([]byte, 1)
 			_, _ = st.Read(buf)

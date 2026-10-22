@@ -39,8 +39,8 @@ type outgoing struct {
 // Answer handles one inbound AX.25 session. The banner carries the FBB
 // SID, then the same prompt a terminal already uses. A human command
 // stays on that prompt. An FBB proposal stores bulletins and offers ours.
-func Answer(st *store.Store, local ax25.Address) func(ax25.Address, *ax25.Stream) {
-	return func(_ ax25.Address, stream *ax25.Stream) {
+func Answer(st *store.Store, local ax25.Address) func(ax25.Address, io.ReadWriteCloser) {
+	return func(_ ax25.Address, stream io.ReadWriteCloser) {
 		_ = Serve(context.Background(), st, local, stream)
 	}
 }

@@ -28,7 +28,7 @@ The article is the center. The canonical fields and the two renderings are speci
 
 ## Status
 
-Goals 1, 2, 3, 4, and 5 are in this tree. Goal 6 has not been started.
+Goals 1-6 are in this tree. Goal 7 has not been started.
 
 ## Goals
 

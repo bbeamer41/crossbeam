@@ -54,6 +54,8 @@ Stations this node can call. Separate entries with spaces or commas. Each entry 
 
 Each callsign is stored in uppercase. SSID 0 is stored without a suffix. At most 32 stations. A hostname in an entry is resolved when the link starts, and it must resolve to one address. This node can answer a station that is not listed; the list is who this node is willing to call. The reply goes to the address the request came from.
 
+A listed station is also a NET/ROM neighbor. Routes learned from those neighbors stay in memory until `crossbeam serve` stops. They are described in `docs/netrom.md`.
+
 `--peers` on `crossbeam serve` uses another list for this start and does not change the saved setting.
 
 ## bulletin.to

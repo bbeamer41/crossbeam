@@ -26,6 +26,8 @@ const (
 	REJ   byte = 0x09
 	// PIDText is "no layer 3". Text uses it.
 	PIDText byte = 0xF0
+	// PIDNetrom is the amateur NET/ROM network protocol, PID CF hex.
+	PIDNetrom byte = 0xCF
 )
 
 // Address is one AX.25 callsign. SSID 0 is the plain callsign.
@@ -231,6 +233,24 @@ func SControl(base byte, nr int, pf bool) byte {
 		c |= 0x10
 	}
 	return c
+}
+
+// EncodeAddress writes one 7-byte AX.25 address. last sets the extension bit,
+// which NET/ROM sets on the destination callsign in a network header.
+func EncodeAddress(a Address, last bool) []byte {
+	return appendAddress(nil, a, false, last)
+}
+
+// DecodeAddress reads one 7-byte AX.25 address. The bool reports the extension bit.
+func DecodeAddress(b []byte) (Address, bool, error) {
+	if len(b) < 7 {
+		return Address{}, false, errors.New("address is not valid")
+	}
+	addr, _, last, err := takeAddress(b[:7])
+	if err != nil {
+		return Address{}, false, err
+	}
+	return addr, last, nil
 }
 
 func appendAddress(dst []byte, a Address, bit7, last bool) []byte {

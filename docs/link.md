@@ -22,12 +22,14 @@ On a LinBPQ node, the matching piece is an AX/UDP port on UDP 10093 and a `MAP` 
 crossbeam connect W1AW-1 --state /var/lib/crossbeam
 ```
 
+A callsign in `link.peers` is dialed directly. Any other callsign is dialed as a NET/ROM circuit when a route exists. See `docs/netrom.md`.
+
 With the systemd layout the terminal socket is `/run/crossbeam/terminal.sock`. The command prints nothing until the session is up, then it shows the remote bytes. At a keyboard it edits a line locally and sends it when you press Enter. `?` lists the remote commands. `BYE` disconnects. Ctrl-C closes the local terminal.
 
 The prompt from a Crossbeam node looks like this:
 
 ```text
-[CROSSBEAM-0.5.0-FHM$]
+[CROSSBEAM-0.6.0-FHM$]
 Crossbeam K5LEB
 K5LEB>
 ```
@@ -38,4 +40,4 @@ Lines on the air end with a carriage return.
 
 ## Limits
 
-The link is modulo 8. A modulo-128 request is refused. Frames with digipeaters are ignored. One session is open to a given callsign at a time. A session with nothing passing disconnects after 15 minutes. Closing `crossbeam bulletin send` releases that callsign, including while the link is still connecting. One IP address can hold four sessions from callsigns that are not listed. ASCII FBB bulletins use this session. NET/ROM and the radio port are later goals.
+The link is modulo 8. A modulo-128 request is refused. Frames with digipeaters are ignored. One session is open to a given callsign at a time. A session with nothing passing disconnects after 15 minutes. Closing `crossbeam bulletin send` releases that callsign, including while the link is still connecting. One IP address can hold four sessions from callsigns that are not listed. ASCII FBB bulletins use this session when the other station is listed. A station reached through NET/ROM is described in `docs/netrom.md`. The radio port is a later goal.
