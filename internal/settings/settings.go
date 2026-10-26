@@ -37,6 +37,7 @@ const (
 	KeyPublic     = "admin.public"
 	KeyLinkListen = "link.listen"
 	KeyLinkPeers  = "link.peers"
+	KeyKiss       = "kiss.tnc"
 	KeyBulletinTo = "bulletin.to"
 	KeyBulletinAt = "bulletin.at"
 	KeyPages      = "nomad.pages"
@@ -56,7 +57,7 @@ type Field struct {
 var Schema = []Field{
 	{
 		Key:      KeyCallsign,
-		Help:     "The station callsign. Compose uses it as the article author when the author box is empty. The AX/UDP link uses it as the station address.",
+		Help:     "The station callsign. Compose uses it as the article author when the author box is empty. The AX/UDP link and the KISS radio use it as the station address.",
 		Kind:     KindLine,
 		MaxRunes: article.MaxAuthorRunes,
 	},
@@ -88,6 +89,12 @@ var Schema = []Field{
 		Help:     "Stations this node can call. Separate entries with spaces or commas. Each entry is CALL@host:port, such as W1AW-1@192.168.1.20:10093. A change takes effect on the next start.",
 		Kind:     KindLine,
 		MaxRunes: 2048,
+	},
+	{
+		Key:      KeyKiss,
+		Help:     "The TCP address of the KISS TNC, such as 127.0.0.1:6700. Leave this empty to keep the radio off. The radio is 1200 baud. A change takes effect on the next start.",
+		Kind:     KindLine,
+		MaxRunes: 256,
 	},
 	{
 		Key:      KeyBulletinTo,
@@ -155,6 +162,11 @@ func Validate(values map[string]string) (map[string]string, error) {
 	if err := ValidateListen(out[KeyListen], public); err != nil {
 		return nil, err
 	}
+	kiss, err := canonicalKiss(out[KeyKiss])
+	if err != nil {
+		return nil, err
+	}
+	out[KeyKiss] = kiss
 	if err := validateLink(out); err != nil {
 		return nil, err
 	}
@@ -254,6 +266,9 @@ func validateLink(out map[string]string) error {
 	call, callErr := ax25.Parse(out[KeyCallsign])
 	if out[KeyLinkListen] != "" && callErr != nil {
 		return fmt.Errorf("station.callsign must be an AX.25 callsign when link.listen is set")
+	}
+	if out[KeyKiss] != "" && callErr != nil {
+		return fmt.Errorf("station.callsign must be an AX.25 callsign when kiss.tnc is set")
 	}
 	if callErr == nil {
 		for _, peer := range peers {

@@ -1,10 +1,12 @@
 // Copyright (C) 2026 K5LEB
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package link is the AX/UDP port. Each datagram is one AX.25 frame with
-// its frame check sequence and without HDLC flags, the encapsulation in
-// RFC 1226, carried on UDP. Port 10093 is the port other nodes expect.
-// The bytes are readable text.
+// Package link is the AX/UDP port and the optional KISS radio port.
+// Each UDP datagram is one AX.25 frame with its frame check sequence and
+// without HDLC flags, the encapsulation in RFC 1226, carried on UDP.
+// Port 10093 is the port other nodes expect. The bytes are readable text.
+// The KISS port dials a TNC. That frame has no frame check sequence;
+// the TNC adds it. The radio is 1200 baud.
 package link
 
 import (
@@ -61,6 +63,10 @@ type Config struct {
 	Forward func(context.Context, *ax25.Stream) (string, error)
 	// ForwardReady runs before a FORWARD dial. A non-nil error skips the dial.
 	ForwardReady func(context.Context) error
+	// Kiss is the TCP address of a KISS TNC. Empty keeps the radio off.
+	Kiss string
+	// KissRetry is the pause between TNC dials. Zero uses two seconds.
+	KissRetry time.Duration
 }
 
 // Node is a running AX/UDP station.
@@ -95,6 +101,12 @@ type Node struct {
 	netMu sync.Mutex
 	inbox []netFrame
 	wake  chan struct{}
+
+	kissAddr  string
+	kissWait  time.Duration
+	kissMu    sync.Mutex
+	kissWrite sync.Mutex
+	kissConn  net.Conn
 }
 
 // netFrame is one PID CF information field waiting for the router.
@@ -119,23 +131,40 @@ func Listen(cfg Config) (*Node, error) {
 	if cfg.Local.Call == "" {
 		return nil, errors.New("station callsign is empty")
 	}
-	if strings.TrimSpace(cfg.Bind) == "" {
+	bind := strings.TrimSpace(cfg.Bind)
+	kissAddr := strings.TrimSpace(cfg.Kiss)
+	if bind == "" && kissAddr == "" {
 		return nil, errors.New("link.listen is empty")
 	}
-	udpAddr, err := net.ResolveUDPAddr("udp", cfg.Bind)
-	if err != nil {
-		return nil, err
+	var pc *net.UDPConn
+	if bind != "" {
+		udpAddr, err := net.ResolveUDPAddr("udp", bind)
+		if err != nil {
+			return nil, err
+		}
+		pc, err = net.ListenUDP("udp", udpAddr)
+		if err != nil {
+			return nil, err
+		}
 	}
-	pc, err := net.ListenUDP("udp", udpAddr)
-	if err != nil {
-		return nil, err
+	if kissAddr != "" {
+		resolved, err := settings.ResolveKiss(kissAddr, cfg.Lookup)
+		if err != nil {
+			if pc != nil {
+				pc.Close()
+			}
+			return nil, err
+		}
+		kissAddr = resolved
 	}
 	mode := cfg.TerminalMode.Perm()
 	if cfg.TerminalPath != "" && mode == 0 {
 		mode = 0o600
 	}
 	if cfg.TerminalPath != "" && mode != 0o600 && mode != 0o660 {
-		pc.Close()
+		if pc != nil {
+			pc.Close()
+		}
 		return nil, errors.New("socket mode must be 0600 or 0660")
 	}
 	t1 := cfg.T1
@@ -162,6 +191,8 @@ func Listen(cfg Config) (*Node, error) {
 		nodes:    ax25.Address{Call: "NODES"},
 		hops:     map[string]*hop{},
 		wake:     make(chan struct{}, 1),
+		kissAddr: kissAddr,
+		kissWait: cfg.KissRetry,
 	}
 	n.user = cfg.Handler
 	if n.user == nil {
@@ -182,7 +213,9 @@ func Listen(cfg Config) (*Node, error) {
 	})
 	if err := n.SetPeers(cfg.Peers); err != nil {
 		n.routes.Close()
-		pc.Close()
+		if pc != nil {
+			pc.Close()
+		}
 		return nil, err
 	}
 	n.sw = ax25.NewSwitch(ax25.Config{
@@ -197,7 +230,12 @@ func Listen(cfg Config) (*Node, error) {
 		Begin:  n.beginSession,
 		End:    n.endSession,
 	})
-	go n.readLoop()
+	if pc != nil {
+		go n.readLoop()
+	}
+	if kissAddr != "" {
+		go n.kissLoop(kissAddr)
+	}
 	go n.routeLoop()
 	go n.maintain()
 	if cfg.TerminalPath != "" {
@@ -217,6 +255,9 @@ func (n *Node) Local() ax25.Address { return n.local }
 
 // LocalAddr returns the bound UDP address.
 func (n *Node) LocalAddr() *net.UDPAddr {
+	if n.pc == nil {
+		return nil
+	}
 	return n.pc.LocalAddr().(*net.UDPAddr)
 }
 
@@ -281,6 +322,13 @@ func (n *Node) listed(call string) (ax25.Address, error) {
 func (n *Node) Close() error {
 	n.once.Do(func() {
 		close(n.quit)
+		n.kissMu.Lock()
+		kconn := n.kissConn
+		n.kissConn = nil
+		n.kissMu.Unlock()
+		if kconn != nil {
+			_ = kconn.Close()
+		}
 		if n.routes != nil {
 			n.routes.Close()
 		}
@@ -344,10 +392,17 @@ func (n *Node) transmit(remote ax25.Address, frame ax25.Frame) {
 	if drop != nil && drop(frame) {
 		return
 	}
-	if addr == nil {
+	// A station that has a UDP route stays on UDP. A closed socket does
+	// not move that station onto the radio.
+	if addr != nil {
+		if n.pc != nil {
+			_, _ = n.pc.WriteToUDP(frame.Encode(), addr)
+		}
 		return
 	}
-	_, _ = n.pc.WriteToUDP(frame.Encode(), addr)
+	if n.kissAddr != "" {
+		n.writeKiss(frame)
+	}
 }
 
 func (n *Node) onNetrom(from ax25.Address, info []byte) {
@@ -854,15 +909,27 @@ func (n *Node) serveTerm(conn net.Conn) {
 		return
 	}
 	var rw io.ReadWriteCloser
-	if _, listedErr := n.listed(call); listedErr == nil {
+	_, listedErr := n.listed(call)
+	routed := false
+	if n.routes != nil {
+		if _, quality, ok := n.routes.Lookup(addr); ok && quality > 0 {
+			routed = true
+		}
+	}
+	switch {
+	case listedErr == nil:
 		ctx, cancel := context.WithTimeout(context.Background(), n.dialFor)
 		rw, err = n.Dial(ctx, call)
 		cancel()
-	} else if n.routes != nil {
+	case routed:
 		ctx, cancel := context.WithTimeout(context.Background(), n.dialFor*3)
 		rw, err = n.routes.Connect(ctx, addr)
 		cancel()
-	} else {
+	case n.kissAddr != "":
+		ctx, cancel := context.WithTimeout(context.Background(), n.dialFor)
+		rw, err = n.dialRadio(ctx, addr)
+		cancel()
+	default:
 		err = fmt.Errorf("%s is not listed", addr)
 	}
 	_ = conn.SetDeadline(time.Now().Add(wait))

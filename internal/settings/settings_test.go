@@ -253,7 +253,7 @@ func TestSettingsDocument(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc := string(text)
-	if len(Schema) != 9 {
+	if len(Schema) != 10 {
 		t.Fatalf("schema has %d keys", len(Schema))
 	}
 	for _, field := range Schema {
@@ -322,6 +322,30 @@ func TestLinkSettings(t *testing.T) {
 	}, false)
 	if err == nil || !strings.Contains(err.Error(), "more than one") {
 		t.Fatalf("multi %v", err)
+	}
+}
+
+func TestKissSetting(t *testing.T) {
+	got, err := Validate(map[string]string{KeyCallsign: "K5LEB", KeyKiss: " 127.0.0.1:6700 "})
+	if err != nil || got[KeyKiss] != "127.0.0.1:6700" {
+		t.Fatalf("%q %v", got[KeyKiss], err)
+	}
+	if got, err = Validate(map[string]string{KeyKiss: "   "}); err != nil || got[KeyKiss] != "" {
+		t.Fatalf("empty %q %v", got[KeyKiss], err)
+	}
+	for _, bad := range []string{"127.0.0.1:0", "0.0.0.0:6700", "224.0.0.1:6700", "127.0.0.1:6700%eth0", "not a port"} {
+		if _, err := Validate(map[string]string{KeyKiss: bad, KeyCallsign: "K5LEB"}); err == nil {
+			t.Fatalf("%s was accepted", bad)
+		}
+	}
+	if _, err := Validate(map[string]string{KeyKiss: "127.0.0.1:6700", KeyCallsign: "not a call"}); err == nil {
+		t.Fatal("bad callsign was accepted")
+	}
+	dial, err := ResolveKiss("tnc.example:6700", func(context.Context, string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("127.0.0.1")}, nil
+	})
+	if err != nil || dial != "127.0.0.1:6700" {
+		t.Fatalf("resolve %s %v", dial, err)
 	}
 }
 

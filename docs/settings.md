@@ -4,13 +4,13 @@ The admin panel and the `crossbeam` command change the same settings. A setting 
 
 The state directory is not a setting either. Pass it as `--state`. The database, the session list, and the TLS certificate live in that directory. The directory is mode `0700`. The database and the private key are mode `0600`.
 
-A change to `admin.listen`, `admin.public`, `link.listen`, or `link.peers` is saved immediately and used the next time `crossbeam serve` starts. The running panel keeps the address it already bound, and the running link keeps the peers it already resolved.
+A change to `admin.listen`, `admin.public`, `link.listen`, `link.peers`, or `kiss.tnc` is saved immediately and used the next time `crossbeam serve` starts. The running panel keeps the address it already bound, and the running link keeps the peers and the TNC address it already resolved.
 
 ## station.callsign
 
-The station callsign. Compose uses it as the article author when the author box is empty. The AX/UDP link uses it as the station address.
+The station callsign. Compose uses it as the article author when the author box is empty. The AX/UDP link and the KISS radio use it as the station address.
 
-One line, at most 64 runes. It may be empty until you set it. When the link is off, the value is not checked against a callsign pattern. When `link.listen` is set, it must be an AX.25 callsign, with an optional SSID such as `K5LEB-1`.
+One line, at most 64 runes. It may be empty until you set it. When the link and the radio are off, the value is not checked against a callsign pattern. When `link.listen` or `kiss.tnc` is set, it must be an AX.25 callsign, with an optional SSID such as `K5LEB-1`.
 
 ## station.name
 
@@ -57,6 +57,14 @@ Each callsign is stored in uppercase. SSID 0 is stored without a suffix. At most
 A listed station is also a NET/ROM neighbor. Routes learned from those neighbors stay in memory until `crossbeam serve` stops. They are described in `docs/netrom.md`.
 
 `--peers` on `crossbeam serve` uses another list for this start and does not change the saved setting.
+
+## kiss.tnc
+
+The TCP address of the KISS TNC, such as 127.0.0.1:6700. Leave this empty to keep the radio off. The radio is 1200 baud. A change takes effect on the next start.
+
+An empty value does not open a connection. The value is `host:port`. Port 0 is rejected. A zone id, such as `%eth0`, is rejected. A multicast address is rejected. `0.0.0.0` and `::` are rejected. This value is the address Crossbeam dials. An IP address is stored in canonical form. A hostname is saved without looking it up. At start it must resolve to one address. The behavior of the port is described in `docs/radio.md`.
+
+`--kiss` on `crossbeam serve` uses another address for this start and does not change the saved setting.
 
 ## bulletin.to
 

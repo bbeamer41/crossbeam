@@ -73,6 +73,120 @@ func FormatPeers(peers []Peer) string {
 	return strings.Join(parts, " ")
 }
 
+// canonicalKiss checks kiss.tnc. Empty keeps the radio off. A hostname
+// is saved without looking it up. Port 0 is rejected.
+func canonicalKiss(text string) (string, error) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "", nil
+	}
+	host, port, err := splitKiss(text)
+	if err != nil {
+		return "", err
+	}
+	if err := checkKissPort(port); err != nil {
+		return "", err
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		ip = canonicalIP(ip)
+		if err := checkKissIP(ip); err != nil {
+			return "", err
+		}
+		return net.JoinHostPort(ip.String(), port), nil
+	}
+	if !hostnameOK(host) {
+		return "", fmt.Errorf("kiss.tnc must be host:port")
+	}
+	return net.JoinHostPort(host, port), nil
+}
+
+// ResolveKiss returns the one address to dial. A hostname must resolve
+// to one address. DNS failure stops the start.
+func ResolveKiss(text string, lookup LookupIP) (string, error) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "", fmt.Errorf("kiss.tnc is empty")
+	}
+	host, port, err := splitKiss(text)
+	if err != nil {
+		return "", err
+	}
+	if err := checkKissPort(port); err != nil {
+		return "", err
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		ip = canonicalIP(ip)
+		if err := checkKissIP(ip); err != nil {
+			return "", err
+		}
+		return net.JoinHostPort(ip.String(), port), nil
+	}
+	if lookup == nil {
+		lookup = defaultLookup
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ips, err := lookup(ctx, host)
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve %s: %w", host, err)
+	}
+	seen := map[string]struct{}{}
+	var chosen net.IP
+	for _, ip := range ips {
+		ip = canonicalIP(ip)
+		if ip == nil {
+			continue
+		}
+		if _, ok := seen[ip.String()]; ok {
+			continue
+		}
+		seen[ip.String()] = struct{}{}
+		if err := checkKissIP(ip); err != nil {
+			return "", err
+		}
+		chosen = ip
+	}
+	if len(seen) == 0 {
+		return "", fmt.Errorf("cannot resolve %s", host)
+	}
+	if len(seen) > 1 {
+		return "", fmt.Errorf("%s resolves to more than one address; set one IP in kiss.tnc", host)
+	}
+	return net.JoinHostPort(chosen.String(), port), nil
+}
+
+func splitKiss(text string) (string, string, error) {
+	if len(text) > 256 {
+		return "", "", fmt.Errorf("kiss.tnc is longer than 256 bytes")
+	}
+	if strings.Contains(text, "%") {
+		return "", "", fmt.Errorf("kiss.tnc must not include a zone id")
+	}
+	host, port, err := net.SplitHostPort(text)
+	if err != nil || host == "" || port == "" {
+		return "", "", fmt.Errorf("kiss.tnc must be host:port")
+	}
+	return host, port, nil
+}
+
+func checkKissPort(port string) error {
+	n, err := strconv.Atoi(port)
+	if err != nil || strconv.Itoa(n) != port || n < 1 || n > 65535 {
+		return fmt.Errorf("kiss.tnc port must be between 1 and 65535")
+	}
+	return nil
+}
+
+func checkKissIP(ip net.IP) error {
+	if ip == nil || ip.IsUnspecified() {
+		return fmt.Errorf("kiss.tnc address is not valid")
+	}
+	if ip.IsMulticast() {
+		return fmt.Errorf("kiss.tnc refuses a multicast address")
+	}
+	return nil
+}
+
 // ValidateLinkListen checks a saved link.listen value. Empty keeps the
 // link off. Port 0 is rejected. A public address is allowed because the
 // link is the packet port, not the admin panel. A hostname is not resolved.

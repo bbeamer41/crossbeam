@@ -20,7 +20,7 @@ With the systemd layout the terminal socket is `/run/crossbeam/terminal.sock`. `
 
 The called station sends a station id, the `Crossbeam CALL` line, and the `CALL>` prompt. The caller sends its own station id and then the proposals. A person can still send `?` or `BYE` if the first line is not a forwarding command.
 
-The station id looks like `[CROSSBEAM-0.6.0-FHM$]`. The version is the program version. `F` is batch forwarding, `H` is a hierarchical address, `M` is a message id, and `$` is a bulletin id. Compressed forwarding is not offered.
+The station id looks like `[CROSSBEAM-0.7.0-FHM$]`. The version is the program version. `F` is batch forwarding, `H` is a hierarchical address, `M` is a message id, and `$` is a bulletin id. Compressed forwarding is not offered.
 
 A proposal is one or more lines, then a checksum line:
 

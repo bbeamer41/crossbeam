@@ -39,6 +39,7 @@ func cmdServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	listen := fs.String("listen", "", "address for this start only; a public address still requires admin.public")
 	linkFlag := fs.String("link", "", "AX/UDP address for this start only; does not change the saved setting")
 	peersFlag := fs.String("peers", "", "peer list for this start only; does not change the saved setting")
+	kissFlag := fs.String("kiss", "", "KISS TNC address for this start only; does not change the saved setting")
 	socket := fs.String("socket", "", "unix socket path")
 	modeText := fs.String("socket-mode", "0600", "0600 or 0660")
 	if err := fs.Parse(args); err != nil {
@@ -84,7 +85,7 @@ func cmdServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		fmt.Fprintf(stderr, "crossbeam: %s\n", err)
 		return 1
 	}
-	node, err := startLink(ctx, st, running.SocketPath, mode, fs, *linkFlag, *peersFlag)
+	node, err := startLink(ctx, st, running.SocketPath, mode, fs, *linkFlag, *peersFlag, *kissFlag)
 	if err != nil {
 		running.Close()
 		fmt.Fprintf(stderr, "crossbeam: %s\n", err)
@@ -95,7 +96,13 @@ func cmdServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	}
 	fmt.Fprintf(stdout, "crossbeam %s\n%s\nunix socket %s\ncertificate sha256 %s\n", version, running.URL, running.SocketPath, running.CertSHA256)
 	if node != nil {
-		fmt.Fprintf(stdout, "ax/udp %s\nterminal socket %s\n", node.LocalAddr(), node.Terminal())
+		if addr := node.LocalAddr(); addr != nil {
+			fmt.Fprintf(stdout, "ax/udp %s\n", addr)
+		}
+		if node.Kiss() != "" {
+			fmt.Fprintf(stdout, "kiss %s\n", node.Kiss())
+		}
+		fmt.Fprintf(stdout, "terminal socket %s\n", node.Terminal())
 	}
 	err = waitServe(ctx, running)
 	if err != nil {
@@ -105,13 +112,14 @@ func cmdServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	return 0
 }
 
-func startLink(ctx context.Context, st *store.Store, socketPath string, mode os.FileMode, fs *flag.FlagSet, linkFlag, peersFlag string) (*link.Node, error) {
+func startLink(ctx context.Context, st *store.Store, socketPath string, mode os.FileMode, fs *flag.FlagSet, linkFlag, peersFlag, kissFlag string) (*link.Node, error) {
 	current, err := st.Settings(ctx)
 	if err != nil {
 		return nil, err
 	}
 	linkText := current[settings.KeyLinkListen]
 	peersText := current[settings.KeyLinkPeers]
+	kissText := current[settings.KeyKiss]
 	allowZero := false
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
@@ -120,21 +128,37 @@ func startLink(ctx context.Context, st *store.Store, socketPath string, mode os.
 			allowZero = true
 		case "peers":
 			peersText = peersFlag
+		case "kiss":
+			kissText = kissFlag
 		}
 	})
-	if strings.TrimSpace(linkText) == "" {
+	if strings.TrimSpace(linkText) == "" && strings.TrimSpace(kissText) == "" {
 		return nil, nil
 	}
-	bind, err := settings.ResolveLink(linkText, nil, allowZero)
-	if err != nil {
-		return nil, err
+	bind := ""
+	if strings.TrimSpace(linkText) != "" {
+		bind, err = settings.ResolveLink(linkText, nil, allowZero)
+		if err != nil {
+			return nil, err
+		}
+	}
+	kissAddr := ""
+	if strings.TrimSpace(kissText) != "" {
+		kissAddr, err = settings.ResolveKiss(kissText, nil)
+		if err != nil {
+			return nil, err
+		}
 	}
 	call, err := ax25.Parse(current[settings.KeyCallsign])
 	if err != nil {
-		return nil, errors.New("station.callsign must be an AX.25 callsign when the link is on")
+		if strings.TrimSpace(linkText) != "" {
+			return nil, errors.New("station.callsign must be an AX.25 callsign when the link is on")
+		}
+		return nil, errors.New("station.callsign must be an AX.25 callsign when the radio is on")
 	}
 	return link.Listen(link.Config{
 		Bind:         bind,
+		Kiss:         kissAddr,
 		Local:        call,
 		Peers:        peersText,
 		TerminalPath: filepath.Join(filepath.Dir(socketPath), "terminal.sock"),

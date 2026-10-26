@@ -94,7 +94,13 @@ type Frame struct {
 // Encode appends the frame check sequence. Flags and bit stuffing are omitted
 // because the datagram already marks the ends, as in RFC 1226.
 func (f Frame) Encode() []byte {
-	buf := make([]byte, 0, 14+2+len(f.Info)+2)
+	return appendFCS(f.EncodeBody())
+}
+
+// EncodeBody returns the frame without the frame check sequence.
+// A KISS TNC carries this form and adds the check sequence itself.
+func (f Frame) EncodeBody() []byte {
+	buf := make([]byte, 0, 14+2+len(f.Info))
 	buf = appendAddress(buf, f.Dest, f.Command, false)
 	last := len(f.Digis) == 0
 	buf = appendAddress(buf, f.Src, !f.Command, last)
@@ -108,7 +114,7 @@ func (f Frame) Encode() []byte {
 	} else if len(f.Info) > 0 {
 		buf = append(buf, f.Info...)
 	}
-	return appendFCS(buf)
+	return buf
 }
 
 // Decode checks the frame check sequence and parses one frame.
@@ -119,7 +125,15 @@ func Decode(packet []byte) (Frame, error) {
 	if !checkFCS(packet) {
 		return Frame{}, errors.New("frame check failed")
 	}
-	body := packet[:len(packet)-2]
+	return DecodeBody(packet[:len(packet)-2])
+}
+
+// DecodeBody parses one AX.25 frame that has no frame check sequence.
+func DecodeBody(packet []byte) (Frame, error) {
+	if len(packet) < 15 {
+		return Frame{}, errors.New("frame is short")
+	}
+	body := packet
 	var addrs []Address
 	var bits []bool
 	i := 0

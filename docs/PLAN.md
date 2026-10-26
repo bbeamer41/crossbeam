@@ -14,9 +14,9 @@ On amateur packet, articles travel as readable text. The bridge does not put Ret
 
 ## Radio
 
-Graywolf is the only supported modem. The mode is 1200 baud AFSK. Crossbeam will speak KISS to Graywolf and will own the node, the mailbox, and the bridge.
+Graywolf is the only supported modem. The mode is 1200 baud AFSK. Crossbeam speaks KISS to Graywolf and owns the node, the mailbox, and the bridge.
 
-9600 baud is not a supported mode. There is no 9600 port profile, test, or setup screen. The KISS port still does not contain a modem, so a different TNC can be attached later without rewriting the node. Until that exists, the documented radio path is Graywolf at 1200 baud.
+9600 baud is not a supported mode. There is no 9600 port profile, test, or setup screen. The KISS port does not contain a modem, so a different TNC can be attached later without rewriting the node. The documented radio path is Graywolf at 1200 baud.
 
 APRS stays in Graywolf and is outside Crossbeam.
 
@@ -28,7 +28,7 @@ The article is the center. The canonical fields and the two renderings are speci
 
 ## Status
 
-Goals 1-6 are in this tree. Goal 7 has not been started.
+Goals 1-7 are in this tree. Goal 8 has not been started.
 
 ## Goals
 

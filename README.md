@@ -8,9 +8,9 @@ The repository is GPL-3.0-or-later. See `LICENSE`.
 
 ## This build
 
-Version 0.6.0 is the admin panel, the article store, an AX/UDP link, ASCII FBB bulletins, NomadNet pages, and NET/ROM routing. It serves HTTPS on a LAN address, with one sysop login and no default password. The same settings can be changed in the browser and with the `crossbeam` command. Compose shows a packet bulletin and a Micron page for one article. When the link is configured, `crossbeam connect` reaches another node's prompt over UDP port 10093, and `crossbeam bulletin send` publishes stored articles and ingests the peer's bulletins. A listed station is dialed directly. A station that a listed neighbor has announced is reached over NET/ROM, across more than one hop. `crossbeam page publish` writes each stored article into a NomadNet pages directory, and `crossbeam page ingest` reads a page back. The article stays in the store when that directory is unavailable.
+Version 0.7.0 is the admin panel, the article store, an AX/UDP link, ASCII FBB bulletins, NomadNet pages, NET/ROM routing, and a KISS radio. It serves HTTPS on a LAN address, with one sysop login and no default password. The same settings can be changed in the browser and with the `crossbeam` command. Compose shows a packet bulletin and a Micron page for one article. When the link is configured, `crossbeam connect` reaches another node's prompt over UDP port 10093, and `crossbeam bulletin send` publishes stored articles and ingests the peer's bulletins. A listed station is dialed directly. A station that a listed neighbor has announced is reached over NET/ROM, across more than one hop. When `kiss.tnc` is set, a station with no listing and no route is dialed over KISS at 1200 baud. `crossbeam page publish` writes each stored article into a NomadNet pages directory, and `crossbeam page ingest` reads a page back. The article stays in the store when that directory is unavailable.
 
-It does not open a radio or start NomadNet. The article format is `docs/article.md`. The link is `docs/link.md`. Routing is `docs/netrom.md`. Bulletins are `docs/bulletin.md`. Pages are `docs/pages.md`. Install steps are `docs/install.md`. Settings are `docs/settings.md`.
+It does not modulate audio, and it does not start NomadNet or Graywolf. The article format is `docs/article.md`. The link is `docs/link.md`. Routing is `docs/netrom.md`. The radio is `docs/radio.md`. Bulletins are `docs/bulletin.md`. Pages are `docs/pages.md`. Install steps are `docs/install.md`. Settings are `docs/settings.md`.
 
 ```bash
 go test ./...
@@ -19,7 +19,7 @@ go run ./cmd/crossbeam version
 
 ## Radio
 
-The radio modem is [Graywolf](https://github.com/chrissnell/graywolf), on 1200 baud AFSK, attached later over KISS. 9600 baud is not a supported mode. Crossbeam does not modulate audio.
+The radio modem is [Graywolf](https://github.com/chrissnell/graywolf), on 1200 baud AFSK, over plain KISS. 9600 baud is not a supported mode. Crossbeam does not modulate audio and does not start Graywolf. Setup is `docs/radio.md`.
 
 ## Status
 

@@ -81,6 +81,17 @@ crossbeam connect W1AW-1 --socket /run/crossbeam/terminal.sock
 
 `?` lists the commands. `BYE` disconnects. The terminal socket is mode `0660`, next to the admin socket, so a user in the `crossbeam` group can connect without reading the state directory.
 
+## Radio
+
+The radio stays off until `kiss.tnc` is set. Crossbeam dials a KISS TNC. It does not modulate audio and it does not start the modem. Graywolf in modem mode is the supported TNC, on 1200 baud AFSK, with its digipeater and iGate off. The usual address on the same machine is `127.0.0.1:6700`. Details are in `docs/radio.md`.
+
+```bash
+sudo -u crossbeam crossbeam settings set kiss.tnc 127.0.0.1:6700 --state /var/lib/crossbeam
+sudo systemctl restart crossbeam
+```
+
+`--kiss` on `crossbeam serve` uses another address for one start and does not change the saved setting.
+
 ## Bulletins
 
 With the link up, forward every stored article to a listed station and take the bulletins that station offers back:
