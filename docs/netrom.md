@@ -4,7 +4,7 @@ A listed neighbor is also a NET/ROM neighbor. This node learns routes from the n
 
 ## Neighbors
 
-`link.peers` is the neighbor list. A broadcast from a station that is not listed is ignored. This node does not add a neighbor from a broadcast, and it sends a route only toward a station it can already call.
+`link.peers` is the neighbor list. A broadcast from a station that is not listed is ignored. A circuit frame, and a frame that would be relayed, is accepted only from a listed neighbor. A frame for a circuit this node is part of is accepted only from the neighbor that circuit uses, and only when the network origin is the station at the other end. This node does not add a neighbor from a broadcast, and it sends a route only toward a station it can already call.
 
 Configured neighbor routes stay until the list changes. Learned routes are kept in memory. They are gone after `crossbeam serve` restarts, and the next broadcast fills them in again. When neighbors are listed, this node sends its own broadcast at startup and then about once an hour. An empty table still sends that broadcast, so neighbors learn this callsign.
 

@@ -14,6 +14,20 @@ import (
 	"github.com/bbeamer41/crossbeam/internal/ax25"
 )
 
+func TestNetromInboxIsBounded(t *testing.T) {
+	n := &Node{wake: make(chan struct{}, 1)}
+	from := mustCall(t, "W1AW-1")
+	for i := 0; i < maxNetromInbox+10; i++ {
+		n.onNetrom(from, []byte{byte(i)})
+	}
+	n.netMu.Lock()
+	got := len(n.inbox)
+	n.netMu.Unlock()
+	if got != maxNetromInbox {
+		t.Fatalf("inbox %d", got)
+	}
+}
+
 func TestConnectionCrossesANeighbor(t *testing.T) {
 	a := startNode(t, "K5LEB", true)
 	b := startNode(t, "W1AW-1", true)

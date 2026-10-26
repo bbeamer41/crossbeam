@@ -104,6 +104,9 @@ const (
 	evAbort
 	evKick
 	evNetrom
+
+	// maxNetromQueue bounds PID CF frames waiting on one AX.25 session.
+	maxNetromQueue = 32
 )
 
 // slot is one sent I-frame. NET/ROM keeps its own PID so a retransmission
@@ -470,6 +473,9 @@ func (s *Switch) enqueueNetrom(remote Address, info []byte) error {
 	}
 	if len(info) > s.paclen {
 		return errors.New("frame is too long")
+	}
+	if len(c.netq) >= maxNetromQueue {
+		return errors.New("routing queue is full")
 	}
 	c.netq = append(c.netq, info)
 	return nil

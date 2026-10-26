@@ -45,7 +45,7 @@ One session is open to a given callsign at a time.
 
 `crossbeam bulletin send` stays on listed AX/UDP stations. It does not use the radio. NET/ROM broadcasts stay on AX/UDP.
 
-When the TNC is down, Crossbeam dials it again. An AX.25 session retries its own frames across that gap.
+When the TNC is down, or a write to it fails, Crossbeam closes that TCP connection and dials again. An AX.25 session retries its own frames across that gap.
 
 ## Settings
 

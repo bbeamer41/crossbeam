@@ -16,6 +16,24 @@ import (
 	"github.com/bbeamer41/crossbeam/internal/kiss"
 )
 
+func TestKissWriteErrorDropsTheConnection(t *testing.T) {
+	a, b := net.Pipe()
+	node := &Node{}
+	node.setKissConn(a)
+	if err := b.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := node.writeKissRaw([]byte{0x01}); err == nil {
+		t.Fatal("write succeeded on a closed pipe")
+	}
+	node.kissMu.Lock()
+	current := node.kissConn
+	node.kissMu.Unlock()
+	if current != nil {
+		t.Fatal("wedged connection was kept")
+	}
+}
+
 func TestRadioPromptCrossesKiss(t *testing.T) {
 	addr := startCable(t)
 	a := startKiss(t, "K5LEB", addr, true)

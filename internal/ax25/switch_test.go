@@ -49,6 +49,44 @@ func TestCanceledDialReleasesTheCall(t *testing.T) {
 	}
 }
 
+func TestSendNetromQueueIsBounded(t *testing.T) {
+	local := Address{Call: "K5LEB"}
+	remote := Address{Call: "W1AW"}
+	sw := NewSwitch(Config{
+		Local: local,
+		T1:    time.Hour,
+		Send:  func(Address, Frame) {},
+	})
+	t.Cleanup(func() { sw.Close() })
+	sw.Inject(Frame{Dest: local, Src: remote, Command: true, Control: SABM | 0x10})
+	var err error
+	deadline := time.Now().Add(time.Second)
+	for {
+		err = sw.SendNetrom(remote, []byte{1})
+		if err == nil || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	sent := 1
+	for sent <= sw.window+maxNetromQueue+5 {
+		err = sw.SendNetrom(remote, []byte{2})
+		if err != nil {
+			break
+		}
+		sent++
+	}
+	if err == nil || !strings.Contains(err.Error(), "routing queue is full") {
+		t.Fatalf("after %d: %v", sent, err)
+	}
+	if sent > sw.window+maxNetromQueue {
+		t.Fatalf("accepted %d", sent)
+	}
+}
+
 func TestIdleSessionDisconnects(t *testing.T) {
 	frames := make(chan Frame, 4)
 	local := Address{Call: "K5LEB"}

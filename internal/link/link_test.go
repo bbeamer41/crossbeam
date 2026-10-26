@@ -20,6 +20,29 @@ import (
 	"github.com/bbeamer41/crossbeam/internal/ax25"
 )
 
+func TestInactiveGuestExpires(t *testing.T) {
+	n := &Node{guests: map[string]*guestRoute{}}
+	old := mustCall(t, "N0CALL")
+	fresh := mustCall(t, "W1AW-1")
+	active := mustCall(t, "K5LEB-1")
+	addr := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 9}
+	n.guests[old.String()] = &guestRoute{addr: addr, seen: time.Now().Add(-3 * time.Second)}
+	n.guests[fresh.String()] = &guestRoute{addr: addr, seen: time.Now()}
+	n.guests[active.String()] = &guestRoute{addr: addr, seen: time.Now().Add(-time.Hour), active: true}
+	n.mu.Lock()
+	n.sweepGuestsLocked(time.Now())
+	n.mu.Unlock()
+	if _, ok := n.guests[old.String()]; ok {
+		t.Fatal("expired guest remains")
+	}
+	if _, ok := n.guests[fresh.String()]; !ok {
+		t.Fatal("fresh guest was removed")
+	}
+	if _, ok := n.guests[active.String()]; !ok {
+		t.Fatal("active guest was removed")
+	}
+}
+
 func TestPromptsBothWays(t *testing.T) {
 	a := startNode(t, "K5LEB", true)
 	b := startNode(t, "W1AW-1", true)

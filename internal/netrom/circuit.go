@@ -250,6 +250,8 @@ func (r *Router) loop() {
 }
 
 // Deliver handles one PID CF information field received from an adjacent node.
+// Frames from a station that is not a listed neighbor are ignored, so a guest
+// cannot use this node as a relay or open a circuit in someone else's name.
 func (r *Router) Deliver(from ax25.Address, frame []byte) {
 	if len(frame) < headerLen {
 		return
@@ -265,6 +267,13 @@ func (r *Router) Deliver(from ax25.Address, frame []byte) {
 	if frame[14] == 0 || origin.Equal(r.local) {
 		return
 	}
+	r.mu.Lock()
+	_, neighbor := r.neighbors[from.String()]
+	stopped := r.stopped
+	r.mu.Unlock()
+	if stopped || !neighbor {
+		return
+	}
 	if !dest.Equal(r.local) {
 		r.relay(from, dest, frame)
 		return
@@ -277,15 +286,15 @@ func (r *Router) Deliver(from ax25.Address, frame []byte) {
 	case OpConnect:
 		r.onConnect(from, msg)
 	case OpAccept:
-		r.onAccept(msg)
+		r.onAccept(from, msg)
 	case OpDisc:
-		r.onDisc(msg)
+		r.onDisc(from, msg)
 	case OpDiscAck:
-		r.onDiscAck(msg)
+		r.onDiscAck(from, msg)
 	case OpInfo:
-		r.onInfo(msg)
+		r.onInfo(from, msg)
 	case OpAck:
-		r.onAck(msg)
+		r.onAck(from, msg)
 	}
 }
 
@@ -379,6 +388,10 @@ func (r *Router) onConnect(from ax25.Address, m Message) {
 		return
 	}
 	if c := r.byPeer[key]; c != nil && len(c.syn) > 0 {
+		if !from.Equal(c.via) {
+			r.mu.Unlock()
+			return
+		}
 		ack := append([]byte(nil), c.syn...)
 		via := c.via
 		send := r.send
@@ -454,10 +467,10 @@ func (r *Router) refuse(from ax25.Address, m Message) {
 	_ = r.send(from, ack)
 }
 
-func (r *Router) onAccept(m Message) {
+func (r *Router) onAccept(from ax25.Address, m Message) {
 	r.mu.Lock()
 	c := r.circuits[localKey(m.Index, m.ID)]
-	if c == nil || !c.origin || c.state != stConnecting {
+	if c == nil || !c.origin || c.state != stConnecting || !arrives(c, from, m) {
 		r.mu.Unlock()
 		return
 	}
@@ -480,10 +493,10 @@ func (r *Router) onAccept(m Message) {
 	r.mu.Unlock()
 }
 
-func (r *Router) onInfo(m Message) {
+func (r *Router) onInfo(from ax25.Address, m Message) {
 	r.mu.Lock()
 	c := r.circuitLocked(m.Index, m.ID)
-	if c == nil {
+	if !arrives(c, from, m) {
 		r.mu.Unlock()
 		return
 	}
@@ -496,10 +509,10 @@ func (r *Router) onInfo(m Message) {
 	r.flush(c)
 }
 
-func (r *Router) onAck(m Message) {
+func (r *Router) onAck(from ax25.Address, m Message) {
 	r.mu.Lock()
 	c := r.circuitLocked(m.Index, m.ID)
-	if c == nil {
+	if !arrives(c, from, m) {
 		r.mu.Unlock()
 		return
 	}
@@ -511,10 +524,10 @@ func (r *Router) onAck(m Message) {
 	r.flush(c)
 }
 
-func (r *Router) onDisc(m Message) {
+func (r *Router) onDisc(from ax25.Address, m Message) {
 	r.mu.Lock()
 	c := r.circuitLocked(m.Index, m.ID)
-	if c == nil {
+	if !arrives(c, from, m) {
 		r.mu.Unlock()
 		return
 	}
@@ -537,15 +550,22 @@ func (r *Router) onDisc(m Message) {
 	r.finish(c, io.EOF)
 }
 
-func (r *Router) onDiscAck(m Message) {
+func (r *Router) onDiscAck(from ax25.Address, m Message) {
 	r.mu.Lock()
 	c := r.circuits[localKey(m.Index, m.ID)]
-	if c == nil || (c.state != stClosing && c.state != stUp) {
+	if c == nil || (c.state != stClosing && c.state != stUp) || !arrives(c, from, m) {
 		r.mu.Unlock()
 		return
 	}
 	r.mu.Unlock()
 	r.finish(c, io.EOF)
+}
+
+// arrives reports that the frame came from the neighbor this circuit uses
+// and names the station at the other end. Another neighbor that guesses
+// the circuit index cannot write into it.
+func arrives(c *circuit, from ax25.Address, m Message) bool {
+	return c != nil && from.Equal(c.via) && m.Origin.Equal(c.far)
 }
 
 func (r *Router) circuitLocked(index, id byte) *circuit {

@@ -83,8 +83,20 @@ func (n *Node) dialKiss(addr string) (net.Conn, error) {
 			}
 			return nil, errors.New("link is closed")
 		}
+		if r.err == nil && r.c != nil {
+			enableKeepalive(r.c)
+		}
 		return r.c, r.err
 	}
+}
+
+func enableKeepalive(conn net.Conn) {
+	tcp, ok := conn.(*net.TCPConn)
+	if !ok {
+		return
+	}
+	_ = tcp.SetKeepAlive(true)
+	_ = tcp.SetKeepAlivePeriod(30 * time.Second)
 }
 
 func (n *Node) waitKiss(d time.Duration) bool {
@@ -142,6 +154,12 @@ func (n *Node) writeKissRaw(p []byte) error {
 	}
 	_ = conn.SetWriteDeadline(time.Now().Add(kissWriteWait))
 	_, err := conn.Write(p)
+	if err != nil {
+		// A wedged TNC must not keep the reader blocked. Closing the
+		// connection lets the dial loop start again.
+		n.clearKissConn(conn)
+		_ = conn.Close()
+	}
 	return err
 }
 

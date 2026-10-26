@@ -35,7 +35,8 @@ const (
 	// hopLinger is how long a relay crosslink stays up after the last
 	// NET/ROM frame. A circuit this node opened keeps its crosslink until
 	// the circuit closes.
-	hopLinger = 15 * time.Second
+	hopLinger      = 15 * time.Second
+	maxNetromInbox = 64
 )
 
 // guestRoute is the return address of a station that is not in the peer list.
@@ -407,7 +408,11 @@ func (n *Node) transmit(remote ax25.Address, frame ax25.Frame) {
 
 func (n *Node) onNetrom(from ax25.Address, info []byte) {
 	n.netMu.Lock()
-	n.inbox = append(n.inbox, netFrame{from: from, info: info})
+	// The AX.25 engine has already accepted the frame. Past this cap the
+	// frame is dropped so a fast neighbor cannot grow memory without bound.
+	if len(n.inbox) < maxNetromInbox {
+		n.inbox = append(n.inbox, netFrame{from: from, info: append([]byte(nil), info...)})
+	}
 	n.netMu.Unlock()
 	select {
 	case n.wake <- struct{}{}:
@@ -534,6 +539,9 @@ func (n *Node) maintain() {
 		case <-n.quit:
 			return
 		case <-sweep.C:
+			n.mu.Lock()
+			n.sweepGuestsLocked(time.Now())
+			n.mu.Unlock()
 			n.sweepHops()
 		case <-hour.C:
 			if n.routes != nil {

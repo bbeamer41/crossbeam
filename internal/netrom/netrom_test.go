@@ -193,6 +193,98 @@ func TestBroadcastPacksElevenDestinations(t *testing.T) {
 	}
 }
 
+func TestUnlistedStationCannotRelayOrConnect(t *testing.T) {
+	a := mustCall(t, "K5LEB")
+	b := mustCall(t, "W1AW-1")
+	c := mustCall(t, "W5BBS")
+	guest := mustCall(t, "N0CALL")
+	var forwarded []byte
+	accepted := make(chan struct{}, 1)
+	router := newTestRouter(t, b, func(_ ax25.Address, info []byte) error {
+		forwarded = append([]byte(nil), info...)
+		return nil
+	}, func(_ ax25.Address, rw io.ReadWriteCloser) {
+		accepted <- struct{}{}
+		_ = rw.Close()
+	})
+	router.SetNeighbors([]ax25.Address{a, c})
+	relay, err := Encode(Message{Origin: guest, Dest: c, TTL: 8, Index: 1, ID: 1, Op: OpDisc})
+	if err != nil {
+		t.Fatal(err)
+	}
+	router.Deliver(guest, relay)
+	if forwarded != nil {
+		t.Fatal("unlisted station relayed a frame")
+	}
+	connect, err := Encode(Message{
+		Origin: guest, Dest: b, TTL: 8, Index: 1, ID: 1,
+		Op: OpConnect, Window: 4, User: a, Node: guest,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	router.Deliver(guest, connect)
+	select {
+	case <-accepted:
+		t.Fatal("unlisted station opened a circuit")
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestCircuitIgnoresTheWrongNeighbor(t *testing.T) {
+	a := mustCall(t, "K5LEB")
+	b := mustCall(t, "W1AW-1")
+	c := mustCall(t, "W5BBS")
+	got := make(chan string, 1)
+	var accept []byte
+	router := newTestRouter(t, b, func(to ax25.Address, info []byte) error {
+		if to.Equal(a) {
+			accept = append([]byte(nil), info...)
+		}
+		return nil
+	}, func(_ ax25.Address, rw io.ReadWriteCloser) {
+		defer rw.Close()
+		buf := make([]byte, 16)
+		n, _ := rw.Read(buf)
+		got <- string(buf[:n])
+	})
+	router.SetNeighbors([]ax25.Address{a, c})
+	connect, err := Encode(Message{
+		Origin: a, Dest: b, TTL: 8, Index: 3, ID: 4,
+		Op: OpConnect, Window: 4, User: a, Node: a,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	router.Deliver(a, connect)
+	ack, err := Decode(accept)
+	if err != nil || ack.Op != OpAccept || ack.Choke {
+		t.Fatalf("accept %+v %v", ack, err)
+	}
+	spoof, err := Encode(Message{
+		Origin: a, Dest: b, TTL: 8, Index: ack.Tx, ID: ack.Rx, Op: OpInfo, Info: []byte("PWN"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	router.Deliver(c, spoof)
+	real, err := Encode(Message{
+		Origin: a, Dest: b, TTL: 8, Index: ack.Tx, ID: ack.Rx, Op: OpInfo, Info: []byte("OK"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	router.Deliver(a, real)
+	select {
+	case text := <-got:
+		if strings.Contains(text, "PWN") || !strings.Contains(text, "OK") {
+			t.Fatalf("payload %q", text)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("circuit did not deliver the real frame")
+	}
+}
+
 func TestRelayDropsAnExpiredFrame(t *testing.T) {
 	a := mustCall(t, "K5LEB")
 	b := mustCall(t, "W1AW-1")
