@@ -479,6 +479,11 @@ func TestHostRules(t *testing.T) {
 	if !hostAllowed(req, named) {
 		t.Fatal("bound address was rejected")
 	}
+	req.Host = "panel.test:8443"
+	req.Header.Set("Origin", "null")
+	if !hostAllowed(req, named) {
+		t.Fatal("null origin was rejected")
+	}
 	req.Host = "panel.test"
 	req.Header.Del("Origin")
 	if hostAllowed(req, named) {

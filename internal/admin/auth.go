@@ -171,7 +171,10 @@ func hostAllowed(r *http.Request, hosts hostSet) bool {
 		return true
 	}
 	origin := r.Header.Get("Origin")
-	if origin == "" {
+	// A browser that has not trusted the self-signed certificate sends
+	// Origin "null" when the sign-in form is posted. The Host check above
+	// still has to match.
+	if origin == "" || origin == "null" {
 		return true
 	}
 	return originMatches(origin, matched)
