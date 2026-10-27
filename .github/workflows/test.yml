@@ -1,0 +1,19 @@
+# Copyright (C) 2026 K5LEB
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Test
+        run: go test ./...
