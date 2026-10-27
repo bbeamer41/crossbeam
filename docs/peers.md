@@ -1,6 +1,6 @@
 # Telnet and FBB TCP
 
-Telnet and FBB TCP are cleartext. They carry the same readable session as an AX.25 connection. Neither one is encrypted, and neither one asks for a password. Leave the address empty to keep the port off. Bind a LAN address. Anyone who can open the port reaches the station prompt.
+Telnet and FBB TCP are cleartext. They carry the same readable session as an AX.25 connection. Neither one is encrypted, and neither one asks for a password. Leave the address empty to keep the port off. Bind a LAN address. Anyone who can open the port can use the station. Telnet shows the prompt. A proposal on either port exchanges bulletins, and the author saved from that proposal is the callsign written in it.
 
 A change to these settings is used the next time `crossbeam serve` starts.
 

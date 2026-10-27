@@ -102,6 +102,70 @@ func TestReplyOnce(t *testing.T) {
 	}
 }
 
+func TestReadAndWriteTogether(t *testing.T) {
+	left, right := net.Pipe()
+	defer left.Close()
+	defer right.Close()
+	wrap := Wrap(left)
+	peer := make(chan error, 1)
+	go func() {
+		buf := make([]byte, 16)
+		if _, err := io.ReadFull(right, buf[:9]); err != nil {
+			peer <- err
+			return
+		}
+		if _, err := right.Write([]byte{iac, will, 0, 'h', 'i', '\r'}); err != nil {
+			peer <- err
+			return
+		}
+		if _, err := io.ReadFull(right, buf[:6]); err != nil {
+			peer <- err
+			return
+		}
+		// The option reply is three bytes and the payload is yo\r.
+		// Either may be written first. Both must arrive intact.
+		got := string(buf[:6])
+		if got != string([]byte{iac, dont, 0, 'y', 'o', '\r'}) && got != "yo\r"+string([]byte{iac, dont, 0}) {
+			peer <- errBad(got)
+			return
+		}
+		peer <- nil
+	}()
+	readDone := make(chan string, 1)
+	go func() {
+		buf := make([]byte, 8)
+		n, err := wrap.Read(buf)
+		if err != nil {
+			readDone <- "err " + err.Error()
+			return
+		}
+		readDone <- string(buf[:n])
+	}()
+	if _, err := wrap.Write([]byte("yo\r")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-readDone:
+		if got != "hi\r" {
+			t.Fatalf("line %q", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("read did not finish")
+	}
+	select {
+	case err := <-peer:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("peer did not finish")
+	}
+}
+
+type errBad string
+
+func (e errBad) Error() string { return "payload " + string(e) }
+
 func TestTwoSidesExchange(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

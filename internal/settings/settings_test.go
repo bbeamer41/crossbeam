@@ -392,6 +392,12 @@ func TestTCPSettings(t *testing.T) {
 	if err != nil || dial != "127.0.0.1:8770" {
 		t.Fatalf("resolve %s %v", dial, err)
 	}
+	if _, err := ResolveListen(KeyTelnetListen, "224.0.0.1:0", nil, true); err == nil {
+		t.Fatal("multicast port 0 was accepted")
+	}
+	if got, err := ResolveListen(KeyFBBListen, "127.0.0.1:0", nil, true); err != nil || got != "127.0.0.1:0" {
+		t.Fatalf("ephemeral %s %v", got, err)
+	}
 }
 
 func TestBulletinSettings(t *testing.T) {

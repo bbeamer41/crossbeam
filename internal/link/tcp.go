@@ -18,6 +18,9 @@ import (
 const (
 	maxTCPSessions = 8
 	tcpIdle        = 15 * time.Minute
+	// tcpBusyWait bounds the rejection line. A peer that does not read
+	// must not stall the accept loop.
+	tcpBusyWait = 2 * time.Second
 )
 
 // Telnet returns the bound telnet address. It is empty when telnet is off.
@@ -64,6 +67,7 @@ func (n *Node) acceptTCP(ln net.Listener, kind string) {
 		}
 		if !n.takeTCP(kind, conn) {
 			if n.alive() {
+				_ = conn.SetWriteDeadline(time.Now().Add(tcpBusyWait))
 				_, _ = conn.Write([]byte("The station is busy.\r"))
 			}
 			_ = conn.Close()

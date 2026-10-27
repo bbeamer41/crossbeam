@@ -11,6 +11,7 @@ import (
 	"bufio"
 	"io"
 	"sync"
+	"sync/atomic"
 )
 
 const (
@@ -44,7 +45,7 @@ type conn struct {
 	doSGA   bool
 	skipNL  bool
 	sent    map[byte]byte
-	pendErr error
+	pend    atomic.Value // error, first failure only
 }
 
 func (c *conn) greet() {
@@ -52,12 +53,27 @@ func (c *conn) greet() {
 		c.willSGA = true
 		c.doSGA = true
 		c.sent[optEcho] = wont
-		c.pendErr = writeFull(c.raw, []byte{
+		c.setPend(writeFull(c.raw, []byte{
 			iac, will, optSGA,
 			iac, wont, optEcho,
 			iac, do, optSGA,
-		})
+		}))
 	})
+}
+
+func (c *conn) getPend() error {
+	v := c.pend.Load()
+	if v == nil {
+		return nil
+	}
+	return v.(error)
+}
+
+func (c *conn) setPend(err error) {
+	if err == nil {
+		return
+	}
+	c.pend.CompareAndSwap(nil, err)
 }
 
 func (c *conn) Read(p []byte) (int, error) {
@@ -85,8 +101,8 @@ func (c *conn) Read(p []byte) (int, error) {
 
 func (c *conn) next() (byte, error) {
 	for {
-		if c.pendErr != nil && c.br.Buffered() == 0 {
-			return 0, c.pendErr
+		if err := c.getPend(); err != nil && c.br.Buffered() == 0 {
+			return 0, err
 		}
 		b, err := c.br.ReadByte()
 		if err != nil {
@@ -108,7 +124,7 @@ func (c *conn) next() (byte, error) {
 			}
 			nxt, err := c.br.ReadByte()
 			if err != nil {
-				c.pendErr = err
+				c.setPend(err)
 				return '\r', nil
 			}
 			if nxt != '\n' && nxt != 0 {
@@ -200,9 +216,7 @@ func (c *conn) reply(cmd, opt byte) {
 	c.mu.Lock()
 	err := writeFull(c.raw, out)
 	c.mu.Unlock()
-	if err != nil && c.pendErr == nil {
-		c.pendErr = err
-	}
+	c.setPend(err)
 }
 
 func (c *conn) mark(opt, cmd byte) bool {
@@ -215,8 +229,8 @@ func (c *conn) mark(opt, cmd byte) bool {
 
 func (c *conn) Write(p []byte) (int, error) {
 	c.greet()
-	if c.pendErr != nil {
-		return 0, c.pendErr
+	if err := c.getPend(); err != nil {
+		return 0, err
 	}
 	buf := make([]byte, 0, len(p))
 	for _, b := range p {

@@ -428,9 +428,6 @@ func splitPacket(key, text string, allowZero bool) (string, string, int, error) 
 }
 
 func joinListen(key, host, port string, n int) (string, error) {
-	if n == 0 {
-		return net.JoinHostPort(host, port), nil
-	}
 	if ip := net.ParseIP(host); ip != nil {
 		ip = canonicalIP(ip)
 		if ip == nil {
@@ -440,6 +437,9 @@ func joinListen(key, host, port string, n int) (string, error) {
 			return "", fmt.Errorf("%s refuses a multicast address", key)
 		}
 		return net.JoinHostPort(ip.String(), port), nil
+	}
+	if n == 0 {
+		return net.JoinHostPort(host, port), nil
 	}
 	if strings.TrimSpace(host) == "" || !hostnameOK(host) {
 		return "", fmt.Errorf("%s must be host:port", key)
