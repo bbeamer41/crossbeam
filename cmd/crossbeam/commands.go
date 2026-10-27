@@ -40,6 +40,10 @@ func cmdServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	linkFlag := fs.String("link", "", "AX/UDP address for this start only; does not change the saved setting")
 	peersFlag := fs.String("peers", "", "peer list for this start only; does not change the saved setting")
 	kissFlag := fs.String("kiss", "", "KISS TNC address for this start only; does not change the saved setting")
+	telnetFlag := fs.String("telnet", "", "telnet address for this start only; does not change the saved setting")
+	telnetPeersFlag := fs.String("telnet-peers", "", "telnet peer list for this start only; does not change the saved setting")
+	fbbFlag := fs.String("fbb", "", "FBB TCP address for this start only; does not change the saved setting")
+	fbbPeersFlag := fs.String("fbb-peers", "", "FBB TCP peer list for this start only; does not change the saved setting")
 	socket := fs.String("socket", "", "unix socket path")
 	modeText := fs.String("socket-mode", "0600", "0600 or 0660")
 	if err := fs.Parse(args); err != nil {
@@ -85,7 +89,7 @@ func cmdServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		fmt.Fprintf(stderr, "crossbeam: %s\n", err)
 		return 1
 	}
-	node, err := startLink(ctx, st, running.SocketPath, mode, fs, *linkFlag, *peersFlag, *kissFlag)
+	node, err := startLink(ctx, st, running.SocketPath, mode, fs, *linkFlag, *peersFlag, *kissFlag, *telnetFlag, *telnetPeersFlag, *fbbFlag, *fbbPeersFlag)
 	if err != nil {
 		running.Close()
 		fmt.Fprintf(stderr, "crossbeam: %s\n", err)
@@ -102,6 +106,12 @@ func cmdServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		if node.Kiss() != "" {
 			fmt.Fprintf(stdout, "kiss %s\n", node.Kiss())
 		}
+		if addr := node.Telnet(); addr != "" {
+			fmt.Fprintf(stdout, "telnet %s\n", addr)
+		}
+		if addr := node.FBB(); addr != "" {
+			fmt.Fprintf(stdout, "fbb %s\n", addr)
+		}
 		fmt.Fprintf(stdout, "terminal socket %s\n", node.Terminal())
 	}
 	err = waitServe(ctx, running)
@@ -112,7 +122,7 @@ func cmdServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	return 0
 }
 
-func startLink(ctx context.Context, st *store.Store, socketPath string, mode os.FileMode, fs *flag.FlagSet, linkFlag, peersFlag, kissFlag string) (*link.Node, error) {
+func startLink(ctx context.Context, st *store.Store, socketPath string, mode os.FileMode, fs *flag.FlagSet, linkFlag, peersFlag, kissFlag, telnetFlag, telnetPeersFlag, fbbFlag, fbbPeersFlag string) (*link.Node, error) {
 	current, err := st.Settings(ctx)
 	if err != nil {
 		return nil, err
@@ -120,7 +130,13 @@ func startLink(ctx context.Context, st *store.Store, socketPath string, mode os.
 	linkText := current[settings.KeyLinkListen]
 	peersText := current[settings.KeyLinkPeers]
 	kissText := current[settings.KeyKiss]
+	telnetText := current[settings.KeyTelnetListen]
+	telnetPeers := current[settings.KeyTelnetPeers]
+	fbbText := current[settings.KeyFBBListen]
+	fbbPeers := current[settings.KeyFBBPeers]
 	allowZero := false
+	telnetZero := false
+	fbbZero := false
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
 		case "link":
@@ -130,9 +146,21 @@ func startLink(ctx context.Context, st *store.Store, socketPath string, mode os.
 			peersText = peersFlag
 		case "kiss":
 			kissText = kissFlag
+		case "telnet":
+			telnetText = telnetFlag
+			telnetZero = true
+		case "telnet-peers":
+			telnetPeers = telnetPeersFlag
+		case "fbb":
+			fbbText = fbbFlag
+			fbbZero = true
+		case "fbb-peers":
+			fbbPeers = fbbPeersFlag
 		}
 	})
-	if strings.TrimSpace(linkText) == "" && strings.TrimSpace(kissText) == "" {
+	if strings.TrimSpace(linkText) == "" && strings.TrimSpace(kissText) == "" &&
+		strings.TrimSpace(telnetText) == "" && strings.TrimSpace(fbbText) == "" &&
+		strings.TrimSpace(telnetPeers) == "" && strings.TrimSpace(fbbPeers) == "" {
 		return nil, nil
 	}
 	bind := ""
@@ -149,16 +177,40 @@ func startLink(ctx context.Context, st *store.Store, socketPath string, mode os.
 			return nil, err
 		}
 	}
+	telnetAddr := ""
+	if strings.TrimSpace(telnetText) != "" {
+		telnetAddr, err = settings.ResolveListen(settings.KeyTelnetListen, telnetText, nil, telnetZero)
+		if err != nil {
+			return nil, err
+		}
+	}
+	fbbAddr := ""
+	if strings.TrimSpace(fbbText) != "" {
+		fbbAddr, err = settings.ResolveListen(settings.KeyFBBListen, fbbText, nil, fbbZero)
+		if err != nil {
+			return nil, err
+		}
+	}
 	call, err := ax25.Parse(current[settings.KeyCallsign])
 	if err != nil {
-		if strings.TrimSpace(linkText) != "" {
+		switch {
+		case strings.TrimSpace(linkText) != "":
 			return nil, errors.New("station.callsign must be an AX.25 callsign when the link is on")
+		case strings.TrimSpace(kissText) != "":
+			return nil, errors.New("station.callsign must be an AX.25 callsign when the radio is on")
+		case strings.TrimSpace(telnetText) != "" || strings.TrimSpace(telnetPeers) != "":
+			return nil, errors.New("station.callsign must be an AX.25 callsign when telnet is on")
+		default:
+			return nil, errors.New("station.callsign must be an AX.25 callsign when FBB TCP is on")
 		}
-		return nil, errors.New("station.callsign must be an AX.25 callsign when the radio is on")
 	}
 	return link.Listen(link.Config{
 		Bind:         bind,
 		Kiss:         kissAddr,
+		Telnet:       telnetAddr,
+		TelnetPeers:  telnetPeers,
+		FBB:          fbbAddr,
+		FBBPeers:     fbbPeers,
 		Local:        call,
 		Peers:        peersText,
 		TerminalPath: filepath.Join(filepath.Dir(socketPath), "terminal.sock"),
@@ -167,7 +219,7 @@ func startLink(ctx context.Context, st *store.Store, socketPath string, mode os.
 		ForwardReady: func(ctx context.Context) error {
 			return bulletin.Check(ctx, st, call)
 		},
-		Forward: func(ctx context.Context, stream *ax25.Stream) (string, error) {
+		Forward: func(ctx context.Context, stream io.ReadWriteCloser) (string, error) {
 			res, err := bulletin.Forward(ctx, st, call, stream)
 			if err != nil {
 				return "", err

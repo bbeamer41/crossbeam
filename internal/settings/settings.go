@@ -31,16 +31,20 @@ const (
 
 // Setting keys. These names are stored and shown as-is.
 const (
-	KeyCallsign   = "station.callsign"
-	KeyName       = "station.name"
-	KeyListen     = "admin.listen"
-	KeyPublic     = "admin.public"
-	KeyLinkListen = "link.listen"
-	KeyLinkPeers  = "link.peers"
-	KeyKiss       = "kiss.tnc"
-	KeyBulletinTo = "bulletin.to"
-	KeyBulletinAt = "bulletin.at"
-	KeyPages      = "nomad.pages"
+	KeyCallsign     = "station.callsign"
+	KeyName         = "station.name"
+	KeyListen       = "admin.listen"
+	KeyPublic       = "admin.public"
+	KeyLinkListen   = "link.listen"
+	KeyLinkPeers    = "link.peers"
+	KeyKiss         = "kiss.tnc"
+	KeyTelnetListen = "telnet.listen"
+	KeyTelnetPeers  = "telnet.peers"
+	KeyFBBListen    = "fbb.listen"
+	KeyFBBPeers     = "fbb.peers"
+	KeyBulletinTo   = "bulletin.to"
+	KeyBulletinAt   = "bulletin.at"
+	KeyPages        = "nomad.pages"
 )
 
 // Field is one setting.
@@ -57,7 +61,7 @@ type Field struct {
 var Schema = []Field{
 	{
 		Key:      KeyCallsign,
-		Help:     "The station callsign. Compose uses it as the article author when the author box is empty. The AX/UDP link and the KISS radio use it as the station address.",
+		Help:     "The station callsign. Compose uses it as the article author when the author box is empty. The AX/UDP link, the KISS radio, telnet, and FBB TCP use it as the station address.",
 		Kind:     KindLine,
 		MaxRunes: article.MaxAuthorRunes,
 	},
@@ -95,6 +99,30 @@ var Schema = []Field{
 		Help:     "The TCP address of the KISS TNC, such as 127.0.0.1:6700. Leave this empty to keep the radio off. The radio is 1200 baud. A change takes effect on the next start.",
 		Kind:     KindLine,
 		MaxRunes: 256,
+	},
+	{
+		Key:      KeyTelnetListen,
+		Help:     "The host and port for telnet sessions, such as 192.168.1.20:8770. Leave this empty to keep telnet off. Telnet is cleartext. A change takes effect on the next start.",
+		Kind:     KindLine,
+		MaxRunes: 256,
+	},
+	{
+		Key:      KeyTelnetPeers,
+		Help:     "Stations this node can call over telnet. Separate entries with spaces or commas. Each entry is CALL@host:port, such as W1AW-1@192.168.1.20:8770. A change takes effect on the next start.",
+		Kind:     KindLine,
+		MaxRunes: 2048,
+	},
+	{
+		Key:      KeyFBBListen,
+		Help:     "The host and port for FBB TCP forwarding, such as 192.168.1.20:6300. Leave this empty to keep FBB TCP off. The session is cleartext ASCII. A change takes effect on the next start.",
+		Kind:     KindLine,
+		MaxRunes: 256,
+	},
+	{
+		Key:      KeyFBBPeers,
+		Help:     "Stations this node can forward to over FBB TCP. Separate entries with spaces or commas. Each entry is CALL@host:port, such as W1AW-1@192.168.1.20:6300. A change takes effect on the next start.",
+		Kind:     KindLine,
+		MaxRunes: 2048,
 	},
 	{
 		Key:      KeyBulletinTo,
@@ -263,6 +291,26 @@ func validateLink(out map[string]string) error {
 	if err := ValidateLinkListen(out[KeyLinkListen]); err != nil {
 		return err
 	}
+	telnetPeers, err := ParsePeerList(KeyTelnetPeers, out[KeyTelnetPeers])
+	if err != nil {
+		return err
+	}
+	out[KeyTelnetPeers] = FormatPeers(telnetPeers)
+	fbbPeers, err := ParsePeerList(KeyFBBPeers, out[KeyFBBPeers])
+	if err != nil {
+		return err
+	}
+	out[KeyFBBPeers] = FormatPeers(fbbPeers)
+	telnetListen, err := CanonicalListen(KeyTelnetListen, out[KeyTelnetListen])
+	if err != nil {
+		return err
+	}
+	out[KeyTelnetListen] = telnetListen
+	fbbListen, err := CanonicalListen(KeyFBBListen, out[KeyFBBListen])
+	if err != nil {
+		return err
+	}
+	out[KeyFBBListen] = fbbListen
 	call, callErr := ax25.Parse(out[KeyCallsign])
 	if out[KeyLinkListen] != "" && callErr != nil {
 		return fmt.Errorf("station.callsign must be an AX.25 callsign when link.listen is set")
@@ -270,11 +318,30 @@ func validateLink(out map[string]string) error {
 	if out[KeyKiss] != "" && callErr != nil {
 		return fmt.Errorf("station.callsign must be an AX.25 callsign when kiss.tnc is set")
 	}
+	if out[KeyTelnetListen] != "" && callErr != nil {
+		return fmt.Errorf("station.callsign must be an AX.25 callsign when telnet.listen is set")
+	}
+	if out[KeyFBBListen] != "" && callErr != nil {
+		return fmt.Errorf("station.callsign must be an AX.25 callsign when fbb.listen is set")
+	}
 	if callErr == nil {
-		for _, peer := range peers {
-			if peer.Call == call.String() {
-				return fmt.Errorf("link.peers cannot list this station")
-			}
+		if err := rejectSelf(call.String(), "link.peers", peers); err != nil {
+			return err
+		}
+		if err := rejectSelf(call.String(), KeyTelnetPeers, telnetPeers); err != nil {
+			return err
+		}
+		if err := rejectSelf(call.String(), KeyFBBPeers, fbbPeers); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func rejectSelf(call, key string, peers []Peer) error {
+	for _, peer := range peers {
+		if peer.Call == call {
+			return fmt.Errorf("%s cannot list this station", key)
 		}
 	}
 	return nil

@@ -253,7 +253,7 @@ func TestSettingsDocument(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc := string(text)
-	if len(Schema) != 10 {
+	if len(Schema) != 14 {
 		t.Fatalf("schema has %d keys", len(Schema))
 	}
 	for _, field := range Schema {
@@ -345,6 +345,51 @@ func TestKissSetting(t *testing.T) {
 		return []net.IP{net.ParseIP("127.0.0.1")}, nil
 	})
 	if err != nil || dial != "127.0.0.1:6700" {
+		t.Fatalf("resolve %s %v", dial, err)
+	}
+}
+
+func TestTCPSettings(t *testing.T) {
+	got, err := Validate(map[string]string{
+		KeyCallsign:     "K5LEB",
+		KeyTelnetListen: " 192.168.1.20:8770 ",
+		KeyTelnetPeers:  "w1aw-1@192.168.1.21:8770",
+		KeyFBBListen:    "192.168.1.20:6300",
+		KeyFBBPeers:     "W1AW-2@node.example:6300",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[KeyTelnetListen] != "192.168.1.20:8770" || got[KeyFBBListen] != "192.168.1.20:6300" {
+		t.Fatalf("listen %q %q", got[KeyTelnetListen], got[KeyFBBListen])
+	}
+	if got[KeyTelnetPeers] != "W1AW-1@192.168.1.21:8770" || got[KeyFBBPeers] != "W1AW-2@node.example:6300" {
+		t.Fatalf("peers %q %q", got[KeyTelnetPeers], got[KeyFBBPeers])
+	}
+	if _, err := Validate(map[string]string{KeyTelnetListen: "0.0.0.0:8770", KeyCallsign: "K5LEB"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"127.0.0.1:0", "224.0.0.1:8770", "192.168.1.20:8770%eth0", "not a port"} {
+		if _, err := Validate(map[string]string{KeyTelnetListen: bad, KeyCallsign: "K5LEB"}); err == nil {
+			t.Fatalf("%s was accepted", bad)
+		}
+		if _, err := Validate(map[string]string{KeyFBBListen: bad, KeyCallsign: "K5LEB"}); err == nil {
+			t.Fatalf("fbb %s was accepted", bad)
+		}
+	}
+	if _, err := Validate(map[string]string{KeyFBBListen: "127.0.0.1:6300", KeyCallsign: "not a call"}); err == nil {
+		t.Fatal("bad callsign was accepted")
+	}
+	if _, err := Validate(map[string]string{KeyCallsign: "K5LEB", KeyFBBPeers: "K5LEB@192.168.1.20:6300"}); err == nil {
+		t.Fatal("self peer was accepted")
+	}
+	if _, err := Validate(map[string]string{KeyTelnetPeers: "W1AW-1@0.0.0.0:8770"}); err == nil {
+		t.Fatal("unspecified peer was accepted")
+	}
+	dial, err := ResolveListen(KeyTelnetListen, "telnet.example:8770", func(context.Context, string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("127.0.0.1")}, nil
+	}, false)
+	if err != nil || dial != "127.0.0.1:8770" {
 		t.Fatalf("resolve %s %v", dial, err)
 	}
 }

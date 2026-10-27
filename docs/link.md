@@ -22,14 +22,14 @@ On a LinBPQ node, the matching piece is an AX/UDP port on UDP 10093 and a `MAP` 
 crossbeam connect W1AW-1 --state /var/lib/crossbeam
 ```
 
-A callsign in `link.peers` is dialed directly. Any other callsign is dialed as a NET/ROM circuit when a route exists. See `docs/netrom.md`. When neither a listing nor a route exists, and `kiss.tnc` is set, the callsign is dialed on the radio. See `docs/radio.md`. A failed direct dial is not tried as a circuit, and a failed circuit is not tried on the radio.
+A callsign in `link.peers` is dialed directly. A callsign in `telnet.peers` is dialed over telnet when it is not in `link.peers`. See `docs/peers.md`. Any other callsign is dialed as a NET/ROM circuit when a route exists. See `docs/netrom.md`. When none of those paths is available, and `kiss.tnc` is set, the callsign is dialed on the radio. See `docs/radio.md`. A failed dial is not tried on the next path.
 
 With the systemd layout the terminal socket is `/run/crossbeam/terminal.sock`. The command prints nothing until the session is up, then it shows the remote bytes. At a keyboard it edits a line locally and sends it when you press Enter. `?` lists the remote commands. `BYE` disconnects. Ctrl-C closes the local terminal.
 
 The prompt from a Crossbeam node looks like this:
 
 ```text
-[CROSSBEAM-0.7.0-FHM$]
+[CROSSBEAM-0.8.0-FHM$]
 Crossbeam K5LEB
 K5LEB>
 ```

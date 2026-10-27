@@ -28,7 +28,7 @@ The article is the center. The canonical fields and the two renderings are speci
 
 ## Status
 
-Goals 1-7 are in this tree. Goal 8 has not been started.
+Goals 1-8 are in this tree. Goal 9 has not been started.
 
 ## Goals
 
@@ -41,5 +41,6 @@ Each goal starts after the one before it is demonstrated.
 5. **NomadNet pages.** Publish the same article as a Micron page to a local NomadNet, and ingest a NomadNet page back. An article waits on disk if NomadNet or the internet is down. A page Crossbeam writes is a normal file, not an executable, so NomadNet does not run it.
 6. **NET/ROM routing.** Quality, node broadcasts, and a connection across more than one hop.
 7. **Radio.** A KISS port aimed at Graywolf on 1200 baud AFSK. Graywolf's digipeater and iGate stay off on that channel.
-8. **Remaining peers.** Telnet and FBB TCP, BPQ chat linking, and a Winlink RMS gateway.
-9. **MCP, the Debian package, and a Pi 3 install.** Record RAM for the node alone and beside Graywolf.
+8. **Telnet and FBB TCP.** A cleartext telnet session to the station prompt, and a raw TCP session that carries the ASCII FBB bulletin exchange.
+9. **Later peers.** BPQ chat linking and a Winlink RMS gateway.
+10. **MCP, the Debian package, and a Pi 3 install.** Record RAM for the node alone and beside Graywolf.

@@ -63,6 +63,55 @@ func TestBothDirections(t *testing.T) {
 	}
 }
 
+func TestForwardOverTCP(t *testing.T) {
+	stA := openStore(t)
+	stB := openStore(t)
+	saveArt(t, stA, "NIGHT", "Net tonight", "K5LEB", "Meet at seven.", time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC))
+	saveArt(t, stB, "DAY", "Day note", "W1AW-1", "Day body.", time.Date(2019, 5, 1, 0, 0, 0, 0, time.UTC))
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	errc := make(chan error, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			errc <- err
+			return
+		}
+		errc <- Serve(context.Background(), stB, mustCall(t, "W1AW-1"), conn)
+	}()
+	conn, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	res, err := Forward(ctx, stA, mustCall(t, "K5LEB"), conn)
+	conn.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Sent != 1 || res.Received != 1 {
+		t.Fatalf("result %+v", res)
+	}
+	select {
+	case err := <-errc:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("answer timed out")
+	}
+	if findArt(t, stB, "Net tonight").Article.Body != "Meet at seven." {
+		t.Fatal("tcp ingest")
+	}
+	if findArt(t, stA, "Day note").Article.ID != "DAY" {
+		t.Fatal("tcp reverse")
+	}
+}
+
 func TestMoreThanOneBlock(t *testing.T) {
 	stA := openStore(t)
 	stB := openStore(t)
@@ -413,7 +462,7 @@ func TestForwardOverAXUDP(t *testing.T) {
 		Bind: "127.0.0.1:0", Local: localA, T1: 150 * time.Millisecond, N2: 6, Paclen: 64,
 		TerminalPath: t.TempDir() + "/terminal.sock", TerminalMode: 0o600,
 		Handler: Answer(stA, localA),
-		Forward: func(ctx context.Context, stream *ax25.Stream) (string, error) {
+		Forward: func(ctx context.Context, stream io.ReadWriteCloser) (string, error) {
 			res, err := Forward(ctx, stA, localA, stream)
 			if err != nil {
 				return "", err

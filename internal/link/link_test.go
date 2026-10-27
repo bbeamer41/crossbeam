@@ -661,7 +661,7 @@ func TestForwardUnlistedSkipsReady(t *testing.T) {
 	node, err := Listen(Config{
 		Bind: "127.0.0.1:0", Local: mustCall(t, "K5LEB"), T1: 150 * time.Millisecond, N2: 4,
 		TerminalPath: filepath.Join(t.TempDir(), "terminal.sock"), TerminalMode: 0o600,
-		Forward: func(context.Context, *ax25.Stream) (string, error) {
+		Forward: func(context.Context, io.ReadWriteCloser) (string, error) {
 			return "sent 0 received 0", nil
 		},
 		ForwardReady: func(context.Context) error {
@@ -706,7 +706,7 @@ func TestForwardClientCloseReleasesTheCall(t *testing.T) {
 	master, err := Listen(Config{
 		Bind: "127.0.0.1:0", Local: mustCall(t, "K5LEB"), T1: 150 * time.Millisecond, N2: 6, Paclen: 128,
 		TerminalPath: filepath.Join(t.TempDir(), "terminal.sock"), TerminalMode: 0o600,
-		Forward: func(_ context.Context, st *ax25.Stream) (string, error) {
+		Forward: func(_ context.Context, st io.ReadWriteCloser) (string, error) {
 			once.Do(func() { close(started) })
 			buf := make([]byte, 1)
 			_, err := st.Read(buf)
@@ -766,7 +766,7 @@ func TestForwardClientCloseDuringDial(t *testing.T) {
 	master, err := Listen(Config{
 		Bind: "127.0.0.1:0", Local: mustCall(t, "K5LEB"), T1: 5 * time.Second, N2: 6, Paclen: 128,
 		TerminalPath: filepath.Join(t.TempDir(), "terminal.sock"), TerminalMode: 0o600,
-		Forward: func(context.Context, *ax25.Stream) (string, error) {
+		Forward: func(context.Context, io.ReadWriteCloser) (string, error) {
 			return "", errors.New("dial should have stopped")
 		},
 	})

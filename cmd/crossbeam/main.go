@@ -63,9 +63,9 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 
 func printHelp(stdout io.Writer) {
 	fmt.Fprintf(stdout, "crossbeam %s\n", version)
-	fmt.Fprintln(stdout, "Admin panel, article store, AX/UDP link, NET/ROM routing, KISS radio, FBB bulletins, NomadNet pages, and article formats. See docs/article.md, docs/link.md, docs/bulletin.md, docs/pages.md, docs/netrom.md, docs/radio.md, and docs/settings.md.")
+	fmt.Fprintln(stdout, "Admin panel, article store, AX/UDP link, NET/ROM routing, KISS radio, telnet, FBB TCP, NomadNet pages, and article formats. See docs/article.md, docs/link.md, docs/bulletin.md, docs/pages.md, docs/netrom.md, docs/radio.md, docs/peers.md, and docs/settings.md.")
 	fmt.Fprintln(stdout)
-	fmt.Fprintln(stdout, "  crossbeam serve [--state DIR] [--listen HOST:PORT] [--link HOST:PORT] [--peers LIST] [--kiss HOST:PORT] [--socket PATH] [--socket-mode 0600|0660]")
+	fmt.Fprintln(stdout, "  crossbeam serve [--state DIR] [--listen HOST:PORT] [--link HOST:PORT] [--peers LIST] [--kiss HOST:PORT] [--telnet HOST:PORT] [--telnet-peers LIST] [--fbb HOST:PORT] [--fbb-peers LIST] [--socket PATH] [--socket-mode 0600|0660]")
 	fmt.Fprintln(stdout, "  crossbeam connect CALL [--state DIR | --socket PATH]")
 	fmt.Fprintln(stdout, "  crossbeam bulletin send CALL [--state DIR | --socket PATH]")
 	fmt.Fprintln(stdout, "  crossbeam sysop password [--state DIR]")

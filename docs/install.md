@@ -92,6 +92,18 @@ sudo systemctl restart crossbeam
 
 `--kiss` on `crossbeam serve` uses another address for one start and does not change the saved setting.
 
+## Telnet and FBB TCP
+
+Both stay off until you set them. Telnet reaches the station prompt. FBB TCP carries the ASCII bulletin exchange on a raw TCP session. The bytes are cleartext. Details are in `docs/peers.md`.
+
+```bash
+sudo -u crossbeam crossbeam settings set telnet.listen 192.168.1.20:8770 --state /var/lib/crossbeam
+sudo -u crossbeam crossbeam settings set telnet.peers W1AW-1@192.168.1.21:8770 --state /var/lib/crossbeam
+sudo -u crossbeam crossbeam settings set fbb.listen 192.168.1.20:6300 --state /var/lib/crossbeam
+sudo -u crossbeam crossbeam settings set fbb.peers W1AW-1@192.168.1.21:6300 --state /var/lib/crossbeam
+sudo systemctl restart crossbeam
+```
+
 ## Bulletins
 
 With the link up, forward every stored article to a listed station and take the bulletins that station offers back:

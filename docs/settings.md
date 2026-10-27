@@ -4,13 +4,13 @@ The admin panel and the `crossbeam` command change the same settings. A setting 
 
 The state directory is not a setting either. Pass it as `--state`. The database, the session list, and the TLS certificate live in that directory. The directory is mode `0700`. The database and the private key are mode `0600`.
 
-A change to `admin.listen`, `admin.public`, `link.listen`, `link.peers`, or `kiss.tnc` is saved immediately and used the next time `crossbeam serve` starts. The running panel keeps the address it already bound, and the running link keeps the peers and the TNC address it already resolved.
+A change to `admin.listen`, `admin.public`, `link.listen`, `link.peers`, `kiss.tnc`, `telnet.listen`, `telnet.peers`, `fbb.listen`, or `fbb.peers` is saved immediately and used the next time `crossbeam serve` starts. The running panel keeps the address it already bound. The running link keeps the peers, the TNC address, and the TCP ports it already resolved.
 
 ## station.callsign
 
-The station callsign. Compose uses it as the article author when the author box is empty. The AX/UDP link and the KISS radio use it as the station address.
+The station callsign. Compose uses it as the article author when the author box is empty. The AX/UDP link, the KISS radio, telnet, and FBB TCP use it as the station address.
 
-One line, at most 64 runes. It may be empty until you set it. When the link and the radio are off, the value is not checked against a callsign pattern. When `link.listen` or `kiss.tnc` is set, it must be an AX.25 callsign, with an optional SSID such as `K5LEB-1`.
+One line, at most 64 runes. It may be empty until you set it. When the link, the radio, telnet, and FBB TCP are off, the value is not checked against a callsign pattern. When `link.listen`, `kiss.tnc`, `telnet.listen`, or `fbb.listen` is set, it must be an AX.25 callsign, with an optional SSID such as `K5LEB-1`.
 
 ## station.name
 
@@ -65,6 +65,40 @@ The TCP address of the KISS TNC, such as 127.0.0.1:6700. Leave this empty to kee
 An empty value does not open a connection. The value is `host:port`. Port 0 is rejected. A zone id, such as `%eth0`, is rejected. A multicast address is rejected. `0.0.0.0` and `::` are rejected. This value is the address Crossbeam dials. An IP address is stored in canonical form. A hostname is saved without looking it up. At start it must resolve to one address. The behavior of the port is described in `docs/radio.md`.
 
 `--kiss` on `crossbeam serve` uses another address for this start and does not change the saved setting.
+
+## telnet.listen
+
+The host and port for telnet sessions, such as 192.168.1.20:8770. Leave this empty to keep telnet off. Telnet is cleartext. A change takes effect on the next start.
+
+An empty value does not open a socket. A saved address may be a public address: this is a packet port, and `admin.public` does not apply to it. `0.0.0.0:8770` listens on every IPv4 interface. The session is described in `docs/peers.md`.
+
+A hostname is saved without looking it up. At start it must resolve to one address. Port 0 is rejected. A zone id, such as `%eth0`, is rejected. A multicast address is rejected.
+
+`--telnet` on `crossbeam serve` binds this start to another address and does not change the saved setting. Port 0 is allowed on that flag so a test can ask for a free port.
+
+## telnet.peers
+
+Stations this node can call over telnet. Separate entries with spaces or commas. Each entry is CALL@host:port, such as W1AW-1@192.168.1.20:8770. A change takes effect on the next start.
+
+Each callsign is stored in uppercase. SSID 0 is stored without a suffix. At most 32 stations. A hostname is resolved when the node starts, and it must resolve to one address. This list is who this node will call. Answering a telnet connection does not require the caller to be listed.
+
+`--telnet-peers` on `crossbeam serve` uses another list for this start and does not change the saved setting.
+
+## fbb.listen
+
+The host and port for FBB TCP forwarding, such as 192.168.1.20:6300. Leave this empty to keep FBB TCP off. The session is cleartext ASCII. A change takes effect on the next start.
+
+An empty value does not open a socket. The address rules match `telnet.listen`. The bytes are the bulletin exchange in `docs/bulletin.md`, with no telnet commands. 6300 is the port FBB documents for a TCP forward.
+
+`--fbb` on `crossbeam serve` binds this start to another address and does not change the saved setting. Port 0 is allowed on that flag so a test can ask for a free port.
+
+## fbb.peers
+
+Stations this node can forward to over FBB TCP. Separate entries with spaces or commas. Each entry is CALL@host:port, such as W1AW-1@192.168.1.20:6300. A change takes effect on the next start.
+
+The entry rules match `telnet.peers`. `crossbeam bulletin send` uses this list only when the station is not in `link.peers`.
+
+`--fbb-peers` on `crossbeam serve` uses another list for this start and does not change the saved setting.
 
 ## bulletin.to
 

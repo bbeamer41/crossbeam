@@ -26,9 +26,9 @@ Up to three routes are kept for one destination, highest quality first, and up t
 
 ## Connect
 
-`crossbeam connect CALL` uses a direct AX.25 session when CALL is listed. Those bytes are the normal text session, including FBB bulletins. When CALL is not listed and a route exists, the command opens a NET/ROM circuit over the next hop. A direct session that fails stays failed. It is not retried as a circuit.
+`crossbeam connect CALL` uses a direct AX.25 session when CALL is listed. Those bytes are the normal text session, including FBB bulletins. A callsign in `telnet.peers` is dialed over telnet before a route is used. When CALL is not listed that way and a route exists, the command opens a NET/ROM circuit over the next hop. A direct session that fails stays failed. It is not retried as a circuit.
 
-`crossbeam bulletin send` stays on a listed station. Bulletins are not forwarded over a NET/ROM circuit.
+`crossbeam bulletin send` stays on a listed AX/UDP station, or on `fbb.peers` when the station is not in `link.peers`. Bulletins are not forwarded over a NET/ROM circuit.
 
 One AX.25 session is open to a neighbor at a time. While a circuit is using that neighbor, a direct connect to the same callsign reports that it is already connected. The direct connect works after the circuit disconnects.
 

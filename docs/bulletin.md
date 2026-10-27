@@ -6,7 +6,7 @@ Private mail and NTS traffic are refused. Only bulletin type `B` is stored.
 
 ## Send
 
-The link has to be running, and the other station has to be listed in `link.peers`.
+The link has to be running. A station in `link.peers` is dialed on AX/UDP. A station that is not in that list is dialed on FBB TCP when it is in `fbb.peers`. See `docs/peers.md`. The radio and NET/ROM are not used.
 
 ```bash
 crossbeam bulletin send W1AW-1 --state /var/lib/crossbeam
@@ -20,7 +20,7 @@ With the systemd layout the terminal socket is `/run/crossbeam/terminal.sock`. `
 
 The called station sends a station id, the `Crossbeam CALL` line, and the `CALL>` prompt. The caller sends its own station id and then the proposals. A person can still send `?` or `BYE` if the first line is not a forwarding command.
 
-The station id looks like `[CROSSBEAM-0.7.0-FHM$]`. The version is the program version. `F` is batch forwarding, `H` is a hierarchical address, `M` is a message id, and `$` is a bulletin id. Compressed forwarding is not offered.
+The station id looks like `[CROSSBEAM-0.8.0-FHM$]`. The version is the program version. `F` is batch forwarding, `H` is a hierarchical address, `M` is a message id, and `$` is a bulletin id. Compressed forwarding is not offered.
 
 A proposal is one or more lines, then a checksum line:
 

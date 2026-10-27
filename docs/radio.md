@@ -39,11 +39,12 @@ One session is open to a given callsign at a time.
 `crossbeam connect CALL` tries these paths in order:
 
 1. A callsign in `link.peers` is dialed on AX/UDP. A failure stays a failure.
-2. Otherwise a NET/ROM route is used when one exists. A failure stays a failure. See `docs/netrom.md`.
-3. Otherwise, when `kiss.tnc` is set, the callsign is dialed on the radio. It does not have to be listed.
-4. Otherwise the command reports that the callsign is not listed.
+2. Otherwise a callsign in `telnet.peers` is dialed over telnet. A failure stays a failure. See `docs/peers.md`.
+3. Otherwise a NET/ROM route is used when one exists. A failure stays a failure. See `docs/netrom.md`.
+4. Otherwise, when `kiss.tnc` is set, the callsign is dialed on the radio. It does not have to be listed.
+5. Otherwise the command reports that the callsign is not listed.
 
-`crossbeam bulletin send` stays on listed AX/UDP stations. It does not use the radio. NET/ROM broadcasts stay on AX/UDP.
+`crossbeam bulletin send` uses a listed AX/UDP station, or else an `fbb.peers` station. It does not use telnet, the radio, or a NET/ROM circuit. NET/ROM broadcasts stay on AX/UDP.
 
 When the TNC is down, or a write to it fails, Crossbeam closes that TCP connection and dials again. An AX.25 session retries its own frames across that gap.
 

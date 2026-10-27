@@ -1,7 +1,8 @@
 // Copyright (C) 2026 K5LEB
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package link is the AX/UDP port and the optional KISS radio port.
+// Package link is the AX/UDP port, the optional KISS radio port, and the
+// optional telnet and FBB TCP ports.
 // Each UDP datagram is one AX.25 frame with its frame check sequence and
 // without HDLC flags, the encapsulation in RFC 1226, carried on UDP.
 // Port 10093 is the port other nodes expect. The bytes are readable text.
@@ -61,13 +62,21 @@ type Config struct {
 	Handler      func(ax25.Address, io.ReadWriteCloser)
 	// Forward runs one FBB exchange on a dialed session. The string is
 	// the OK detail. Nil refuses the FORWARD terminal command.
-	Forward func(context.Context, *ax25.Stream) (string, error)
+	Forward func(context.Context, io.ReadWriteCloser) (string, error)
 	// ForwardReady runs before a FORWARD dial. A non-nil error skips the dial.
 	ForwardReady func(context.Context) error
 	// Kiss is the TCP address of a KISS TNC. Empty keeps the radio off.
 	Kiss string
 	// KissRetry is the pause between TNC dials. Zero uses two seconds.
 	KissRetry time.Duration
+	// Telnet is the TCP address for telnet sessions. Empty keeps telnet off.
+	Telnet string
+	// TelnetPeers is the same text form as link.peers, for telnet calls.
+	TelnetPeers string
+	// FBB is the TCP address for raw FBB forwarding. Empty keeps it off.
+	FBB string
+	// FBBPeers is the same text form as link.peers, for FBB TCP calls.
+	FBBPeers string
 }
 
 // Node is a running AX/UDP station.
@@ -90,7 +99,7 @@ type Node struct {
 	guests   map[string]*guestRoute
 	drop     func(ax25.Frame) bool
 	terms    int
-	forward  func(context.Context, *ax25.Stream) (string, error)
+	forward  func(context.Context, io.ReadWriteCloser) (string, error)
 	ready    func(context.Context) error
 
 	routes *netrom.Router
@@ -108,6 +117,14 @@ type Node struct {
 	kissMu    sync.Mutex
 	kissWrite sync.Mutex
 	kissConn  net.Conn
+
+	telnetLn net.Listener
+	fbbLn    net.Listener
+	telnetTo map[string]string
+	fbbTo    map[string]string
+	tcpLive  map[net.Conn]struct{}
+	telnetN  int
+	fbbN     int
 }
 
 // netFrame is one PID CF information field waiting for the router.
@@ -134,7 +151,10 @@ func Listen(cfg Config) (*Node, error) {
 	}
 	bind := strings.TrimSpace(cfg.Bind)
 	kissAddr := strings.TrimSpace(cfg.Kiss)
-	if bind == "" && kissAddr == "" {
+	telnetListen := strings.TrimSpace(cfg.Telnet)
+	fbbListen := strings.TrimSpace(cfg.FBB)
+	if bind == "" && kissAddr == "" && telnetListen == "" && fbbListen == "" &&
+		strings.TrimSpace(cfg.TelnetPeers) == "" && strings.TrimSpace(cfg.FBBPeers) == "" {
 		return nil, errors.New("link.listen is empty")
 	}
 	var pc *net.UDPConn
@@ -194,6 +214,9 @@ func Listen(cfg Config) (*Node, error) {
 		wake:     make(chan struct{}, 1),
 		kissAddr: kissAddr,
 		kissWait: cfg.KissRetry,
+		telnetTo: map[string]string{},
+		fbbTo:    map[string]string{},
+		tcpLive:  map[net.Conn]struct{}{},
 	}
 	n.user = cfg.Handler
 	if n.user == nil {
@@ -236,6 +259,18 @@ func Listen(cfg Config) (*Node, error) {
 	}
 	if kissAddr != "" {
 		go n.kissLoop(kissAddr)
+	}
+	if err := n.bindTCP(telnetListen, fbbListen); err != nil {
+		n.Close()
+		return nil, err
+	}
+	if err := n.rememberPeers(settings.KeyTelnetPeers, cfg.TelnetPeers, n.telnetTo); err != nil {
+		n.Close()
+		return nil, err
+	}
+	if err := n.rememberPeers(settings.KeyFBBPeers, cfg.FBBPeers, n.fbbTo); err != nil {
+		n.Close()
+		return nil, err
 	}
 	go n.routeLoop()
 	go n.maintain()
@@ -329,6 +364,19 @@ func (n *Node) Close() error {
 		n.kissMu.Unlock()
 		if kconn != nil {
 			_ = kconn.Close()
+		}
+		if n.telnetLn != nil {
+			_ = n.telnetLn.Close()
+		}
+		if n.fbbLn != nil {
+			_ = n.fbbLn.Close()
+		}
+		n.mu.Lock()
+		live := n.tcpLive
+		n.tcpLive = map[net.Conn]struct{}{}
+		n.mu.Unlock()
+		for conn := range live {
+			_ = conn.Close()
 		}
 		if n.routes != nil {
 			n.routes.Close()
@@ -918,6 +966,7 @@ func (n *Node) serveTerm(conn net.Conn) {
 	}
 	var rw io.ReadWriteCloser
 	_, listedErr := n.listed(call)
+	telnetTarget, telnetOK := n.tcpTarget(n.telnetTo, call)
 	routed := false
 	if n.routes != nil {
 		if _, quality, ok := n.routes.Lookup(addr); ok && quality > 0 {
@@ -928,6 +977,10 @@ func (n *Node) serveTerm(conn net.Conn) {
 	case listedErr == nil:
 		ctx, cancel := context.WithTimeout(context.Background(), n.dialFor)
 		rw, err = n.Dial(ctx, call)
+		cancel()
+	case telnetOK:
+		ctx, cancel := context.WithTimeout(context.Background(), n.dialFor)
+		rw, err = n.dialTelnet(ctx, telnetTarget)
 		cancel()
 	case routed:
 		ctx, cancel := context.WithTimeout(context.Background(), n.dialFor*3)
@@ -966,9 +1019,11 @@ func (n *Node) serveTerm(conn net.Conn) {
 // Cancelling the context does not unblock a stream read, so the
 // session itself is closed.
 func (n *Node) serveForward(conn net.Conn, call string, wait time.Duration) {
-	if _, err := n.listed(call); err != nil {
+	_, listedErr := n.listed(call)
+	fbbTarget, fbbOK := n.tcpTarget(n.fbbTo, call)
+	if listedErr != nil && !fbbOK {
 		_ = conn.SetDeadline(time.Now().Add(wait))
-		fmt.Fprintf(conn, "ERR %s\n", termErr(err))
+		fmt.Fprintf(conn, "ERR %s\n", termErr(listedErr))
 		return
 	}
 	fctx, cancel := context.WithCancel(context.Background())
@@ -994,7 +1049,13 @@ func (n *Node) serveForward(conn net.Conn, call string, wait time.Duration) {
 	// fctx ends when the terminal client goes away, so a dial still in
 	// setup releases the callsign instead of running out its timer.
 	dctx, dcancel := context.WithTimeout(fctx, n.dialFor)
-	stream, err := n.Dial(dctx, call)
+	var stream io.ReadWriteCloser
+	var err error
+	if listedErr == nil {
+		stream, err = n.Dial(dctx, call)
+	} else {
+		stream, err = n.dialFBB(dctx, fbbTarget)
+	}
 	dcancel()
 	_ = conn.SetDeadline(time.Now().Add(wait))
 	if err != nil {
