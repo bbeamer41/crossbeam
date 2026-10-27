@@ -28,11 +28,11 @@ The article is the center. The canonical fields and the two renderings are speci
 
 ## Status
 
-Goals 1-8 are in this tree. Goal 9 has not been started.
+Goals 1-8 are in this tree. The work for now stays on the BBS and the Reticulum bridge. BPQ chat linking and a Winlink RMS gateway are deferred.
 
 ## Goals
 
-Each goal starts after the one before it is demonstrated.
+Each goal starts after the one before it is demonstrated. Goal 9 waits. It does not come ahead of the BBS and the Reticulum bridge.
 
 1. **Article bridge, on disk.** License, README, Go module. One article renders to a wrapped packet bulletin and to a Micron page, and both renderings import back to the same article. Tests cover that. No radio and no NomadNet process.
 2. **Admin program.** A Debian service. HTTPS on the LAN, one sysop login, and the same settings from the browser and the command. A compose screen shows both previews.
@@ -42,5 +42,5 @@ Each goal starts after the one before it is demonstrated.
 6. **NET/ROM routing.** Quality, node broadcasts, and a connection across more than one hop.
 7. **Radio.** A KISS port aimed at Graywolf on 1200 baud AFSK. Graywolf's digipeater and iGate stay off on that channel.
 8. **Telnet and FBB TCP.** A cleartext telnet session to the station prompt, and a raw TCP session that carries the ASCII FBB bulletin exchange.
-9. **Later peers.** BPQ chat linking and a Winlink RMS gateway.
+9. **Later peers.** BPQ chat linking and a Winlink RMS gateway. Deferred while the program stays a BBS and a Reticulum bridge.
 10. **MCP, the Debian package, and a Pi 3 install.** Record RAM for the node alone and beside Graywolf.
