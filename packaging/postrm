@@ -1,0 +1,11 @@
+#!/bin/sh
+# Copyright (C) 2026 K5LEB
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -e
+
+# The state directory holds articles and the sysop password. Leave it in place.
+if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+	systemctl daemon-reload || true
+fi
+exit 0

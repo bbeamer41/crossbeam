@@ -1,0 +1,25 @@
+[Unit]
+Description=Crossbeam packet node
+After=network.target
+
+[Service]
+Type=simple
+User=crossbeam
+Group=crossbeam
+StateDirectory=crossbeam
+StateDirectoryMode=0700
+RuntimeDirectory=crossbeam
+RuntimeDirectoryMode=0750
+UMask=0077
+ExecStart=/usr/bin/crossbeam serve --state /var/lib/crossbeam --socket /run/crossbeam/crossbeam.sock --socket-mode 0660
+Restart=on-failure
+RestartSec=2
+RestartPreventExitStatus=78
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/crossbeam
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,9 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: crossbeam
+Upstream-Contact: K5LEB
+Source: https://github.com/bbeamer41/crossbeam
+
+Files: *
+Copyright: 2026 K5LEB
+License: GPL-3.0-or-later
+ The full text of the license is in /usr/share/common-licenses/GPL-3.

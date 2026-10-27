@@ -1,0 +1,25 @@
+#!/bin/sh
+# Copyright (C) 2026 K5LEB
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -e
+
+if ! getent group crossbeam >/dev/null 2>&1; then
+	groupadd --system crossbeam
+fi
+if ! getent passwd crossbeam >/dev/null 2>&1; then
+	useradd --system --home /var/lib/crossbeam --shell /usr/sbin/nologin --gid crossbeam crossbeam
+fi
+if [ -L /var/lib/crossbeam ]; then
+	echo "crossbeam: state directory is a symlink" >&2
+	exit 1
+fi
+if [ -e /var/lib/crossbeam ] && [ ! -d /var/lib/crossbeam ]; then
+	echo "crossbeam: state path is not a directory" >&2
+	exit 1
+fi
+install -d -o crossbeam -g crossbeam -m 0700 /var/lib/crossbeam
+if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+	systemctl daemon-reload || true
+fi
+exit 0

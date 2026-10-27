@@ -4,6 +4,8 @@
 *.test
 *.out
 /crossbeam-state/
+/dist/
+/.vm-cache/
 *.db
 *.db-wal
 *.db-shm

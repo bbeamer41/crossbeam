@@ -1,25 +1,32 @@
 # Install
 
-Crossbeam runs as one program on Debian. This installs the admin panel. It does not install a modem, and it does not change any other packet service on the machine.
+Crossbeam runs as one program on Debian. The package installs the admin panel. It does not install a modem, and it does not change any other packet service on the machine.
 
-The commands below use `sudo`. Run them from a checkout of this repository.
+The archive is amd64. `apt update` reads it. `apt upgrade` installs a newer Crossbeam when one is published.
 
-## Build
+## Package
 
 ```bash
-go build -o crossbeam ./cmd/crossbeam
-sudo install -m 0755 crossbeam /usr/local/bin/crossbeam
+sudo install -d -m 0755 /etc/apt/keyrings
+wget -O /tmp/crossbeam.asc https://raw.githubusercontent.com/bbeamer41/crossbeam/main/apt/crossbeam-archive-key.asc
+wget -O /tmp/crossbeam.list https://raw.githubusercontent.com/bbeamer41/crossbeam/main/apt/crossbeam.list
+sudo install -m 0644 /tmp/crossbeam.asc /etc/apt/keyrings/crossbeam.asc
+sudo install -m 0644 /tmp/crossbeam.list /etc/apt/sources.list.d/crossbeam.list
+sudo apt update
+sudo apt install crossbeam
 ```
 
-A later goal packages this for Debian. Until then, `/usr/local/bin/crossbeam` is the path the service file expects.
+The signing key fingerprint is `E6B7A9B54B63A15E37C0979FC4B7FFE1AB0D6034`.
 
-## User and directories
+The package adds the `crossbeam` user, creates `/var/lib/crossbeam` at mode `0700`, and installs `/usr/lib/systemd/system/crossbeam.service`. It does not enable the service and it does not start it. Set the sysop password before you start it. Removing the package leaves the state directory in place.
+
+The unit in the package uses `/usr/bin/crossbeam`. Do not also copy `deploy/crossbeam.service` to `/etc/systemd/system`, because that file would override the packaged unit and would still expect `/usr/local/bin/crossbeam`.
+
+When a newer package is in the archive:
 
 ```bash
-sudo useradd --system --home /var/lib/crossbeam --shell /usr/sbin/nologin crossbeam
-sudo mkdir -p /var/lib/crossbeam
-sudo chown crossbeam:crossbeam /var/lib/crossbeam
-sudo chmod 0700 /var/lib/crossbeam
+sudo apt update
+sudo apt upgrade
 ```
 
 ## Password
@@ -35,7 +42,6 @@ If the service starts without a password, it exits and tells you to run that com
 ## Service
 
 ```bash
-sudo cp deploy/crossbeam.service /etc/systemd/system/crossbeam.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now crossbeam
 ```
@@ -126,19 +132,47 @@ sudo -u crossbeam crossbeam page ingest --state /var/lib/crossbeam
 
 Details are in `docs/pages.md`.
 
+## MCP
+
+`crossbeam mcp` reads and writes the article store, and it publishes and ingests NomadNet pages. The session is standard input and standard output. It does not open a port. The state directory is mode `0700`, so run it as the user who owns that directory. Details are in `docs/mcp.md`.
+
+```bash
+sudo -u crossbeam crossbeam mcp --state /var/lib/crossbeam
+```
+
 ## Offline
 
 The article store, the settings, and the admin panel on the LAN do not need a default route. A hostname in `admin.listen` is resolved once when the service starts, and the panel binds those addresses. If that lookup fails, the service does not start. Use an IP address when the machine must boot with no DNS.
+
+## From a checkout
+
+These steps install a binary you built yourself. They do not add the apt archive, so `apt upgrade` will not move that binary forward.
+
+```bash
+go build -o crossbeam ./cmd/crossbeam
+sudo install -m 0755 crossbeam /usr/local/bin/crossbeam
+sudo useradd --system --home /var/lib/crossbeam --shell /usr/sbin/nologin crossbeam
+sudo mkdir -p /var/lib/crossbeam
+sudo chown crossbeam:crossbeam /var/lib/crossbeam
+sudo chmod 0700 /var/lib/crossbeam
+sudo cp deploy/crossbeam.service /etc/systemd/system/crossbeam.service
+```
+
+`deploy/crossbeam.service` expects `/usr/local/bin/crossbeam`. Set the password, then start the service with the commands above.
 
 ## Files
 
 | Path | What it is |
 | --- | --- |
-| `/usr/local/bin/crossbeam` | The program |
+| `/usr/local/bin/crossbeam` | The program, for the manual install |
+| `/usr/bin/crossbeam` | The program, for the Debian package |
+| `/etc/apt/keyrings/crossbeam.asc` | The apt signing key |
+| `/etc/apt/sources.list.d/crossbeam.list` | The apt archive |
 | `/var/lib/crossbeam` | State directory, mode `0700` |
 | `/var/lib/crossbeam/crossbeam.db` | Articles, settings, and the password hash |
 | `/var/lib/crossbeam/tls/` | The panel certificate and private key |
 | `/run/crossbeam/crossbeam.sock` | Local command socket |
-| `/etc/systemd/system/crossbeam.service` | The service |
+| `/etc/systemd/system/crossbeam.service` | The service, for the manual install |
+| `/usr/lib/systemd/system/crossbeam.service` | The service, for the Debian package |
 
 Settings are listed in `docs/settings.md`. Article text is described in `docs/article.md`.

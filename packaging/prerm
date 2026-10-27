@@ -1,0 +1,11 @@
+#!/bin/sh
+# Copyright (C) 2026 K5LEB
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -e
+
+if [ "$1" = "remove" ] && [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+	systemctl stop crossbeam.service || true
+	systemctl disable crossbeam.service || true
+fi
+exit 0

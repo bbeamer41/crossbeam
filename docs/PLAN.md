@@ -28,11 +28,11 @@ The article is the center. The canonical fields and the two renderings are speci
 
 ## Status
 
-Goals 1-8 are in this tree. The work for now stays on the BBS and the Reticulum bridge. BPQ chat linking and a Winlink RMS gateway are deferred.
+Goals 1-8 and 10 are in this tree. Goal 9 waits. BPQ chat linking and a Winlink RMS gateway stay deferred. The work stays on the BBS and the Reticulum bridge.
 
 ## Goals
 
-Each goal starts after the one before it is demonstrated. Goal 9 waits. It does not come ahead of the BBS and the Reticulum bridge.
+Each goal starts after the one before it is demonstrated. Goal 9 waits. Goal 10 is in this tree while goal 9 is not.
 
 1. **Article bridge, on disk.** License, README, Go module. One article renders to a wrapped packet bulletin and to a Micron page, and both renderings import back to the same article. Tests cover that. No radio and no NomadNet process.
 2. **Admin program.** A Debian service. HTTPS on the LAN, one sysop login, and the same settings from the browser and the command. A compose screen shows both previews.
@@ -43,4 +43,4 @@ Each goal starts after the one before it is demonstrated. Goal 9 waits. It does 
 7. **Radio.** A KISS port aimed at Graywolf on 1200 baud AFSK. Graywolf's digipeater and iGate stay off on that channel.
 8. **Telnet and FBB TCP.** A cleartext telnet session to the station prompt, and a raw TCP session that carries the ASCII FBB bulletin exchange.
 9. **Later peers.** BPQ chat linking and a Winlink RMS gateway. Deferred while the program stays a BBS and a Reticulum bridge.
-10. **MCP, the Debian package, and a Pi 3 install.** Record RAM for the node alone and beside Graywolf.
+10. **MCP and the Debian archive.** A local MCP server for the article store and NomadNet pages. A signed apt archive. `apt update` fetches it, `apt install crossbeam` installs it, and `apt upgrade` moves an installed package forward. The package does not enable the service.

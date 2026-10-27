@@ -1,0 +1,1 @@
+deb [signed-by=/etc/apt/keyrings/crossbeam.asc] https://raw.githubusercontent.com/bbeamer41/crossbeam/main/apt stable main

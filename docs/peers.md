@@ -19,7 +19,7 @@ crossbeam settings set telnet.peers W1AW-1@192.168.1.21:8770 --state /var/lib/cr
 The remote prompt looks the same as an AX.25 session:
 
 ```text
-[CROSSBEAM-0.8.0-FHM$]
+[CROSSBEAM-0.9.0-FHM$]
 Crossbeam K5LEB
 K5LEB>
 ```

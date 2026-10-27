@@ -1,0 +1,17 @@
+Package: crossbeam
+Version: 0.9.0
+Architecture: amd64
+Maintainer: K5LEB <75401887+bbeamer41@users.noreply.github.com>
+Depends: systemd
+Filename: pool/main/crossbeam_0.9.0_amd64.deb
+Size: 5579314
+MD5sum: a74092f82f167ce73b865cfa7e3fd92c
+SHA1: 33f98175fad8ec8c47ba511850c058174b9d95cb
+SHA256: 319b5f1e8ba6be9f95c2b8ca95752c79f6beca5dac1bb270f45e1bb91909dd2a
+Section: hamradio
+Priority: optional
+Homepage: https://github.com/bbeamer41/crossbeam
+Description: packet-radio node and bulletin bridge
+ Crossbeam stores one article and can post it as a packet bulletin
+ and as a NomadNet page. The package does not enable the service.
+
