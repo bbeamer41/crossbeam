@@ -9,20 +9,22 @@
 <title>{{.Title}} — {{.Station}}</title>
 <link rel="stylesheet" href="/app.css">
 </head>
-<body>
+<body class="kind-{{.Kind}}">
 <header>
+<div class="bar">
 <p class="brand">{{.Station}}</p>
 {{if .Authed}}
 <nav>
-<a href="/settings">Settings</a>
-<a href="/compose">Compose</a>
-<a href="/articles">Articles</a>
+<a href="/settings"{{if eq .Kind "settings"}} aria-current="page"{{end}}>Settings</a>
+<a href="/compose"{{if eq .Kind "compose"}} aria-current="page"{{end}}>Compose</a>
+<a href="/articles"{{if eq .Kind "articles"}} aria-current="page"{{end}}>Articles</a>
 <form method="post" action="/logout">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
-<button type="submit">Log out</button>
+<button type="submit" class="quiet">Log out</button>
 </form>
 </nav>
 {{end}}
+</div>
 </header>
 <main>
 {{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
@@ -39,7 +41,15 @@
 <form method="post" action="/settings">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
 {{range .Fields}}
-<div class="field">
+{{if eq .Key "station.callsign"}}<h2 class="group">Station</h2>{{end}}
+{{if eq .Key "admin.listen"}}<h2 class="group">Admin panel</h2>{{end}}
+{{if eq .Key "link.listen"}}<h2 class="group">AX/UDP link</h2>{{end}}
+{{if eq .Key "kiss.tnc"}}<h2 class="group">KISS radio</h2>{{end}}
+{{if eq .Key "telnet.listen"}}<h2 class="group">Telnet</h2>{{end}}
+{{if eq .Key "fbb.listen"}}<h2 class="group">FBB forwarding</h2>{{end}}
+{{if eq .Key "bulletin.to"}}<h2 class="group">Bulletins</h2>{{end}}
+{{if eq .Key "nomad.pages"}}<h2 class="group">NomadNet pages</h2>{{end}}
+<div class="field{{if eq .Kind "bool"}} check{{end}}">
 <label for="field-{{.Key}}">{{.Key}}</label>
 <p class="help">{{.Help}}</p>
 {{if eq .Kind "bool"}}
@@ -58,7 +68,7 @@
 <form id="compose" method="post" action="/compose" accept-charset="utf-8">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
 <input type="hidden" name="row_id" value="{{.RowID}}">
-<div class="field">
+<div class="field wide">
 <label for="title">Title</label>
 <input id="title" name="title" type="text" value="{{.ArtTitle}}" required maxlength="200" autocomplete="off">
 </div>
@@ -71,17 +81,19 @@
 <label for="bulletin-id">ID</label>
 <input id="bulletin-id" name="id" type="text" value="{{.ArtID}}" maxlength="80" autocomplete="off">
 </div>
-<div class="field">
+<div class="field wide">
 <label for="created">Created</label>
 <p class="help">RFC3339, such as 2026-10-18T15:04:05Z. Leave this empty to use the current time.</p>
 <input id="created" name="created" type="text" value="{{.Created}}" autocomplete="off">
 </div>
-<div class="field">
+<div class="field wide">
 <label for="body">Body</label>
 <textarea id="body" name="body" rows="12">{{.Body}}</textarea>
 </div>
-<button type="submit" name="action" value="preview">Preview</button>
+<div class="actions">
+<button type="submit" name="action" value="preview" class="quiet">Preview</button>
 <button type="submit" name="action" value="save">Save</button>
+</div>
 </form>
 <p id="preview-status" class="error" role="status"></p>
 <div class="previews">
@@ -98,7 +110,8 @@
 {{end}}
 {{if eq .Kind "articles"}}
 <h1>Articles</h1>
-<p><a href="/compose">New article</a></p>
+<p class="toolbar"><a class="button-link" href="/compose">New article</a></p>
+<div class="table-wrap">
 <table>
 <thead><tr><th>Title</th><th>Author</th><th>Created</th></tr></thead>
 <tbody>
@@ -109,10 +122,11 @@
 <td>{{.Created}}</td>
 </tr>
 {{else}}
-<tr><td colspan="3">No articles yet.</td></tr>
+<tr class="empty"><td colspan="3">No articles yet.</td></tr>
 {{end}}
 </tbody>
 </table>
+</div>
 {{end}}
 </main>
 <footer><p>Crossbeam {{.Version}}</p></footer>
