@@ -484,6 +484,22 @@ func TestHostRules(t *testing.T) {
 	if !hostAllowed(req, named) {
 		t.Fatal("null origin was rejected")
 	}
+	api := httptest.NewRequest(http.MethodPost, "https://panel.test:8443/api/login", nil)
+	api.Host = "panel.test:8443"
+	api.Header.Set("Origin", "null")
+	if !hostAllowed(api, named) {
+		t.Fatal("null origin was rejected on api login")
+	}
+	off := httptest.NewRequest(http.MethodPost, "https://panel.test:8443/settings", nil)
+	off.Host = "panel.test:8443"
+	off.Header.Set("Origin", "null")
+	if hostAllowed(off, named) {
+		t.Fatal("null origin was accepted off the sign-in form")
+	}
+	off.Header.Del("Origin")
+	if !hostAllowed(off, named) {
+		t.Fatal("empty origin was rejected")
+	}
 	req.Host = "panel.test"
 	req.Header.Del("Origin")
 	if hostAllowed(req, named) {

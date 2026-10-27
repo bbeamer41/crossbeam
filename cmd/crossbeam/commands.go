@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/bbeamer41/crossbeam/internal/admin"
@@ -46,7 +47,7 @@ func cmdServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	fbbPeersFlag := fs.String("fbb-peers", "", "FBB TCP peer list for this start only; does not change the saved setting")
 	socket := fs.String("socket", "", "unix socket path")
 	modeText := fs.String("socket-mode", "0600", "0600 or 0660")
-	if err := fs.Parse(args); err != nil {
+	if err := parseArgs(fs, args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
@@ -234,7 +235,7 @@ func cmdConnect(ctx context.Context, args []string, stdin io.Reader, stdout, std
 	fs.SetOutput(stderr)
 	state := fs.String("state", defaultState, "state directory")
 	socket := fs.String("socket", "", "terminal socket path")
-	if err := fs.Parse(args); err != nil {
+	if err := parseArgs(fs, args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
@@ -309,7 +310,7 @@ func cmdBulletin(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	fs.SetOutput(stderr)
 	state := fs.String("state", defaultState, "state directory")
 	socket := fs.String("socket", "", "terminal socket path")
-	if err := fs.Parse(args[1:]); err != nil {
+	if err := parseArgs(fs, args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
@@ -477,7 +478,7 @@ func cmdSysop(ctx context.Context, args []string, stdin io.Reader, stdout, stder
 	fs := flag.NewFlagSet("sysop", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	state := fs.String("state", defaultState, "state directory")
-	if err := fs.Parse(args[1:]); err != nil {
+	if err := parseArgs(fs, args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
@@ -507,7 +508,22 @@ func cmdSysop(ctx context.Context, args []string, stdin io.Reader, stdout, stder
 }
 
 func readPassword(stdin io.Reader, stderr io.Writer) (string, error) {
-	fmt.Fprint(stderr, "Sysop password: ")
+	first, err := readPasswordLine(stdin, stderr, "Sysop password: ")
+	if err != nil {
+		return "", err
+	}
+	second, err := readPasswordLine(stdin, stderr, "Repeat sysop password: ")
+	if err != nil {
+		return "", err
+	}
+	if first != second {
+		return "", errors.New("passwords do not match")
+	}
+	return first, nil
+}
+
+func readPasswordLine(stdin io.Reader, stderr io.Writer, prompt string) (string, error) {
+	fmt.Fprint(stderr, prompt)
 	if file, ok := stdin.(*os.File); ok && term.IsTerminal(int(file.Fd())) {
 		password, err := term.ReadPassword(int(file.Fd()))
 		fmt.Fprintln(stderr)
@@ -519,14 +535,28 @@ func readPassword(stdin io.Reader, stderr io.Writer) (string, error) {
 		}
 		return trimCRLF(string(password)), nil
 	}
-	raw, err := io.ReadAll(io.LimitReader(stdin, 257))
-	if err != nil {
-		return "", err
+	var buf []byte
+	one := []byte{0}
+	for {
+		n, err := stdin.Read(one)
+		if n == 1 {
+			if one[0] == '\n' {
+				break
+			}
+			buf = append(buf, one[0])
+			if len(buf) > 256 {
+				return "", errors.New("password is too long")
+			}
+			continue
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return "", err
+		}
 	}
-	if len(raw) > 256 {
-		return "", errors.New("password is too long")
-	}
-	return trimCRLF(string(raw)), nil
+	return trimCRLF(string(buf)), nil
 }
 
 func trimCRLF(value string) string {
@@ -546,10 +576,30 @@ func cmdSettings(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	fs.SetOutput(stderr)
 	state := fs.String("state", defaultState, "state directory")
 	socket := fs.String("socket", "", "unix socket path")
-	if err := fs.Parse(rest); err != nil {
+	if err := parseArgs(fs, rest); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
+		return 2
+	}
+	switch sub {
+	case "":
+		if fs.NArg() != 0 {
+			fmt.Fprintln(stderr, "crossbeam: usage: crossbeam settings [--state DIR | --socket PATH]")
+			return 2
+		}
+	case "get":
+		if fs.NArg() != 1 {
+			fmt.Fprintln(stderr, "crossbeam: usage: crossbeam settings get KEY [--state DIR | --socket PATH]")
+			return 2
+		}
+	case "set":
+		if fs.NArg() != 2 {
+			fmt.Fprintln(stderr, "crossbeam: usage: crossbeam settings set KEY VALUE [--state DIR | --socket PATH]")
+			return 2
+		}
+	default:
+		fmt.Fprintln(stderr, "crossbeam: usage: crossbeam settings [get KEY | set KEY VALUE]")
 		return 2
 	}
 	back, code := openBackend(fs, *state, *socket, stderr)
@@ -559,10 +609,6 @@ func cmdSettings(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	defer back.close()
 	switch sub {
 	case "":
-		if fs.NArg() != 0 {
-			fmt.Fprintln(stderr, "crossbeam: usage: crossbeam settings [--state DIR | --socket PATH]")
-			return 2
-		}
 		current, err := back.settings(ctx)
 		if err != nil {
 			fmt.Fprintf(stderr, "crossbeam: %s\n", err)
@@ -573,10 +619,6 @@ func cmdSettings(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		}
 		return 0
 	case "get":
-		if fs.NArg() != 1 {
-			fmt.Fprintln(stderr, "crossbeam: usage: crossbeam settings get KEY")
-			return 2
-		}
 		key := fs.Arg(0)
 		if _, ok := settings.ByKey(key); !ok {
 			fmt.Fprintf(stderr, "crossbeam: unknown setting %q\n", key)
@@ -590,10 +632,6 @@ func cmdSettings(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		fmt.Fprintln(stdout, current[key])
 		return 0
 	case "set":
-		if fs.NArg() != 2 {
-			fmt.Fprintln(stderr, "crossbeam: usage: crossbeam settings set KEY VALUE")
-			return 2
-		}
 		if _, err := back.apply(ctx, map[string]string{fs.Arg(0): fs.Arg(1)}); err != nil {
 			fmt.Fprintf(stderr, "crossbeam: %s\n", err)
 			return 1
@@ -610,7 +648,7 @@ func cmdStatus(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	fs.SetOutput(stderr)
 	state := fs.String("state", defaultState, "state directory")
 	socket := fs.String("socket", "", "unix socket path")
-	if err := fs.Parse(args); err != nil {
+	if err := parseArgs(fs, args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
@@ -690,7 +728,7 @@ func cmdDelete(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	fs := flag.NewFlagSet("delete", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	state := fs.String("state", defaultState, "state directory")
-	if err := fs.Parse(args); err != nil {
+	if err := parseArgs(fs, args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
@@ -748,7 +786,7 @@ func cmdPageRun(ctx context.Context, args []string, stdout, stderr io.Writer, pu
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	state := fs.String("state", defaultState, "state directory")
-	if err := fs.Parse(args); err != nil {
+	if err := parseArgs(fs, args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
@@ -868,7 +906,7 @@ func (a *articleFlags) text(stderr io.Writer) (string, int) {
 
 func cmdPreview(args []string, stdout, stderr io.Writer) int {
 	flags := newArticleFlags("preview", false, stderr)
-	if err := flags.fs.Parse(args); err != nil {
+	if err := parseArgs(flags.fs, args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
@@ -904,7 +942,7 @@ func cmdPreview(args []string, stdout, stderr io.Writer) int {
 
 func cmdSave(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags := newArticleFlags("save", true, stderr)
-	if err := flags.fs.Parse(args); err != nil {
+	if err := parseArgs(flags.fs, args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
@@ -941,7 +979,7 @@ func cmdList(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	state := fs.String("state", defaultState, "state directory")
 	socket := fs.String("socket", "", "unix socket path")
-	if err := fs.Parse(args); err != nil {
+	if err := parseArgs(fs, args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
@@ -1000,16 +1038,21 @@ func openBackend(fs *flag.FlagSet, state, socket string, stderr io.Writer) (*bac
 		if socket == "" {
 			socket = filepath.Join(state, "crossbeam.sock")
 		}
-		if !unixAlive(socket) {
-			fmt.Fprintln(stderr, "crossbeam: socket is not running")
+		if err := dialSocket(socket); err != nil {
+			fmt.Fprintln(stderr, "crossbeam:", socketMessage(err))
 			return nil, 1
 		}
 		return &backend{state: state, client: socketClient(socket)}, 0
 	}
 	if !stateSet {
 		path := filepath.Join(state, "crossbeam.sock")
-		if unixAlive(path) {
+		err := dialSocket(path)
+		if err == nil {
 			return &backend{state: state, client: socketClient(path)}, 0
+		}
+		if !socketMissing(err) {
+			fmt.Fprintf(stderr, "crossbeam: %s\n", err)
+			return nil, 1
 		}
 	}
 	st, err := store.Open(state)
@@ -1020,13 +1063,91 @@ func openBackend(fs *flag.FlagSet, state, socket string, stderr io.Writer) (*bac
 	return &backend{state: state, st: st}, 0
 }
 
-func unixAlive(path string) bool {
+func dialSocket(path string) error {
 	conn, err := net.DialTimeout("unix", path, 200*time.Millisecond)
 	if err != nil {
-		return false
+		return err
 	}
 	conn.Close()
-	return true
+	return nil
+}
+
+func socketMessage(err error) string {
+	if socketMissing(err) {
+		return "socket is not running"
+	}
+	if err == nil {
+		return "socket is not running"
+	}
+	return err.Error()
+}
+
+func socketMissing(err error) bool {
+	return errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ECONNREFUSED)
+}
+
+func parseArgs(fs *flag.FlagSet, args []string) error {
+	return fs.Parse(flagsFirst(fs, args))
+}
+
+// flagsFirst moves flags in front of positional arguments so a documented
+// command such as `settings set KEY VALUE --state DIR` parses.
+func flagsFirst(fs *flag.FlagSet, args []string) []string {
+	var flags, pos []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			pos = append(pos, args[i+1:]...)
+			break
+		}
+		name, attached, ok := flagName(arg)
+		if !ok {
+			pos = append(pos, arg)
+			continue
+		}
+		flags = append(flags, arg)
+		if attached || name == "h" || name == "help" {
+			continue
+		}
+		f := fs.Lookup(name)
+		if f != nil && !takesValue(f) {
+			continue
+		}
+		if i+1 >= len(args) {
+			continue
+		}
+		if f == nil && isFlagArg(args[i+1]) {
+			continue
+		}
+		i++
+		flags = append(flags, args[i])
+	}
+	return append(flags, pos...)
+}
+
+func flagName(arg string) (string, bool, bool) {
+	if len(arg) < 2 || arg[0] != '-' {
+		return "", false, false
+	}
+	raw := strings.TrimLeft(arg, "-")
+	if raw == "" {
+		return "", false, false
+	}
+	name, _, attached := strings.Cut(raw, "=")
+	if name == "" {
+		return "", false, false
+	}
+	return name, attached, true
+}
+
+func isFlagArg(arg string) bool {
+	return len(arg) > 1 && arg[0] == '-'
+}
+
+func takesValue(f *flag.Flag) bool {
+	type boolFlag interface{ IsBoolFlag() bool }
+	bf, ok := f.Value.(boolFlag)
+	return !ok || !bf.IsBoolFlag()
 }
 
 func socketClient(path string) *http.Client {

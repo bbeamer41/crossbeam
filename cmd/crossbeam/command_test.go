@@ -152,13 +152,21 @@ func TestBulletinSendWaitsUntilStopped(t *testing.T) {
 
 func TestSysopPassword(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "state")
-	stdout, stderr, code := captureIn(context.Background(), []string{"sysop", "password", "--state", dir}, strings.NewReader(strings.Repeat("a", 11)+"\n"))
+	stdout, stderr, code := captureIn(context.Background(), []string{"sysop", "password", "--state", dir}, strings.NewReader(strings.Repeat("a", 11)+"\n"+strings.Repeat("a", 11)+"\n"))
 	if code != 1 || !strings.Contains(stderr, "12") {
 		t.Fatalf("short code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	stdout, stderr, code = captureIn(context.Background(), []string{"sysop", "password", "--state", dir}, strings.NewReader("  test-password-1  \r\n"))
+	stdout, stderr, code = captureIn(context.Background(), []string{"sysop", "password", "--state", dir}, strings.NewReader("  test-password-1  \r\n  test-password-1  \r\n"))
 	if code != 0 || !strings.Contains(stdout, "saved") {
 		t.Fatalf("set code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	mismatch := filepath.Join(t.TempDir(), "mismatch")
+	stdout, stderr, code = captureIn(context.Background(), []string{"sysop", "password", "--state", mismatch}, strings.NewReader("test-password-1\ntest-password-2\n"))
+	if code != 1 || !strings.Contains(stderr, "do not match") {
+		t.Fatalf("mismatch code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	if _, err := os.Stat(mismatch); !os.IsNotExist(err) {
+		t.Fatal("mismatch created a state directory")
 	}
 	st, err := store.Open(dir)
 	if err != nil {
@@ -207,7 +215,7 @@ func TestConnectCommand(t *testing.T) {
 	}
 	defer remote.Close()
 	dir := filepath.Join(t.TempDir(), "state")
-	stdout, stderr, code := captureIn(context.Background(), []string{"sysop", "password", "--state", dir}, strings.NewReader("test-password-1\n"))
+	stdout, stderr, code := captureIn(context.Background(), []string{"sysop", "password", "--state", dir}, strings.NewReader("test-password-1\ntest-password-1\n"))
 	if code != 0 {
 		t.Fatalf("password %d %s %s", code, stdout, stderr)
 	}
@@ -256,7 +264,7 @@ func TestConnectCommand(t *testing.T) {
 
 func TestSocketSettings(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "state")
-	stdout, stderr, code := captureIn(context.Background(), []string{"sysop", "password", "--state", dir}, strings.NewReader("test-password-1\n"))
+	stdout, stderr, code := captureIn(context.Background(), []string{"sysop", "password", "--state", dir}, strings.NewReader("test-password-1\ntest-password-1\n"))
 	if code != 0 {
 		t.Fatalf("password %d %s %s", code, stdout, stderr)
 	}
@@ -349,7 +357,7 @@ func TestBulletinCommand(t *testing.T) {
 	defer remote.Close()
 
 	dir := filepath.Join(t.TempDir(), "state")
-	stdout, stderr, code := captureIn(context.Background(), []string{"sysop", "password", "--state", dir}, strings.NewReader("test-password-1\n"))
+	stdout, stderr, code := captureIn(context.Background(), []string{"sysop", "password", "--state", dir}, strings.NewReader("test-password-1\ntest-password-1\n"))
 	if code != 0 {
 		t.Fatalf("password %d %s %s", code, stdout, stderr)
 	}
@@ -381,6 +389,9 @@ func TestBulletinCommand(t *testing.T) {
 			t.Fatalf("serve did not start the link: %s %s", out.String(), errb.String())
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+	if err := remote.SetPeers("K5LEB@" + axudpAddr(out.String())); err != nil {
+		t.Fatal(err)
 	}
 	sendCtx, sendCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer sendCancel()
@@ -449,6 +460,97 @@ type storeArticle struct {
 	Author  string
 	Body    string
 	Created time.Time
+}
+
+func TestDocumentedFlagOrder(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "state")
+	stdout, stderr, code := captureIn(context.Background(), []string{"sysop", "password", "--state", dir}, strings.NewReader("test-password-1\ntest-password-1\n"))
+	if code != 0 {
+		t.Fatalf("password %d %s %s", code, stdout, stderr)
+	}
+	stdout, stderr, code = capture([]string{"settings", "set", "station.name", "Home", "--state", dir})
+	if code != 0 {
+		t.Fatalf("trailing state %d %s %s", code, stdout, stderr)
+	}
+	stdout, stderr, code = capture([]string{"settings", "get", "station.name", "--state", dir})
+	if code != 0 || strings.TrimSpace(stdout) != "Home" {
+		t.Fatalf("get %d %q %s", code, stdout, stderr)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel, err := filepath.Rel(cwd, dir)
+	if err != nil || filepath.IsAbs(rel) {
+		t.Fatalf("relative %q %v", rel, err)
+	}
+	stdout, stderr, code = capture([]string{"settings", "set", "station.name", "Field", "--state", rel})
+	if code != 0 {
+		t.Fatalf("relative state %d %s %s", code, stdout, stderr)
+	}
+	stdout, stderr, code = capture([]string{"settings", "get", "station.name", "--state", dir})
+	if code != 0 || strings.TrimSpace(stdout) != "Field" {
+		t.Fatalf("relative get %d %q %s", code, stdout, stderr)
+	}
+	missing := filepath.Join(t.TempDir(), "missing.sock")
+	_, stderr, code = capture([]string{"connect", "W1AW-1", "--socket", missing})
+	if code != 1 || !strings.Contains(stderr, "not running") {
+		t.Fatalf("connect %d %s", code, stderr)
+	}
+	_, stderr, code = capture([]string{"bulletin", "send", "W1AW-1", "--socket", missing})
+	if code != 1 || !strings.Contains(stderr, "not running") {
+		t.Fatalf("bulletin %d %s", code, stderr)
+	}
+	stray := filepath.Join(cwd, "crossbeam-state")
+	if _, err := os.Stat(stray); err == nil {
+		t.Fatal("crossbeam-state already exists")
+	}
+	_, stderr, code = capture([]string{"settings", "set", "station.name"})
+	if code != 2 || !strings.Contains(stderr, "usage") {
+		t.Fatalf("usage %d %s", code, stderr)
+	}
+	if _, err := os.Stat(stray); !os.IsNotExist(err) {
+		_ = os.RemoveAll(stray)
+		t.Fatal("usage created crossbeam-state")
+	}
+}
+
+func TestSocketPermission(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "locked")
+	if err := os.Mkdir(parent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(parent, "sock")
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	if err := os.Chmod(parent, 0); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(parent, 0o700)
+	_, stderr, code := capture([]string{"settings", "--socket", path})
+	if code != 1 || strings.Contains(stderr, "socket is not running") || !strings.Contains(stderr, "permission denied") {
+		t.Fatalf("permission %d %q", code, stderr)
+	}
+	_, stderr, code = capture([]string{"settings", "--socket", filepath.Join(t.TempDir(), "missing.sock")})
+	if code != 1 || !strings.Contains(stderr, "socket is not running") {
+		t.Fatalf("missing %d %q", code, stderr)
+	}
+}
+
+func axudpAddr(banner string) string {
+	const mark = "ax/udp "
+	i := strings.Index(banner, mark)
+	if i < 0 {
+		return ""
+	}
+	rest := banner[i+len(mark):]
+	if nl := strings.IndexByte(rest, '\n'); nl >= 0 {
+		rest = rest[:nl]
+	}
+	return strings.TrimSpace(rest)
 }
 
 func dialUnix(path string) bool {

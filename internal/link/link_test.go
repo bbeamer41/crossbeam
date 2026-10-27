@@ -20,6 +20,61 @@ import (
 	"github.com/bbeamer41/crossbeam/internal/ax25"
 )
 
+func TestForwardPolicy(t *testing.T) {
+	call := mustCall(t, "K5LEB")
+	n := &Node{
+		peers:    map[string]*net.UDPAddr{},
+		peerPort: map[string]int{},
+		guests:   map[string]*guestRoute{},
+		kissAddr: "127.0.0.1:6700",
+	}
+	ok, label := n.forwardPolicy(call)
+	if !ok || label != "K5LEB radio" {
+		t.Fatalf("radio %v %q", ok, label)
+	}
+	n.kissAddr = ""
+	ok, label = n.forwardPolicy(call)
+	if ok || label != "K5LEB" {
+		t.Fatalf("no route %v %q", ok, label)
+	}
+	n.peers[call.String()] = &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 10093}
+	ok, label = n.forwardPolicy(call)
+	if !ok || !strings.Contains(label, "127.0.0.1:10093") {
+		t.Fatalf("peer %v %q", ok, label)
+	}
+	delete(n.peers, call.String())
+	n.kissAddr = "127.0.0.1:6700"
+	n.guests[call.String()] = &guestRoute{addr: &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 9}}
+	ok, label = n.forwardPolicy(call)
+	if ok || !strings.Contains(label, "127.0.0.1:9") {
+		t.Fatalf("guest %v %q", ok, label)
+	}
+}
+
+func TestNetromForwardRefused(t *testing.T) {
+	got := make(chan bool, 1)
+	n := &Node{user: func(_ ax25.Address, rw io.ReadWriteCloser) {
+		type info interface {
+			ForwardAllowed() bool
+			PeerLabel() string
+		}
+		gate, ok := rw.(info)
+		got <- ok && gate != nil && !gate.ForwardAllowed() && strings.Contains(gate.PeerLabel(), "netrom")
+		_ = rw.Close()
+	}}
+	a, b := net.Pipe()
+	defer a.Close()
+	n.acceptCircuit(mustCall(t, "W1AW-1"), b)
+	select {
+	case ok := <-got:
+		if !ok {
+			t.Fatal("netrom circuit was allowed to forward")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("handler did not run")
+	}
+}
+
 func TestInactiveGuestExpires(t *testing.T) {
 	n := &Node{guests: map[string]*guestRoute{}}
 	old := mustCall(t, "N0CALL")

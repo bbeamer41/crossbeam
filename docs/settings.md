@@ -52,7 +52,7 @@ A hostname is saved without looking it up. At start it must resolve to one addre
 
 Stations this node can call. Separate entries with spaces or commas. Each entry is CALL@host:port, such as W1AW-1@192.168.1.20:10093. A change takes effect on the next start.
 
-Each callsign is stored in uppercase. SSID 0 is stored without a suffix. At most 32 stations. A hostname in an entry is resolved when the link starts, and it must resolve to one address. This node can answer a station that is not listed; the list is who this node is willing to call. The reply goes to the address the request came from.
+Each callsign is stored in uppercase. SSID 0 is stored without a suffix. At most 32 stations. A hostname in an entry is resolved when the link starts, and it must resolve to one address. This node answers the prompt for a station that is not listed. Bulletin forwarding on AX/UDP is accepted only from a station in this list. The list is also who this node will call. The reply goes to the address the request came from.
 
 A listed station is also a NET/ROM neighbor. Routes learned from those neighbors stay in memory until `crossbeam serve` stops. They are described in `docs/netrom.md`.
 
@@ -70,7 +70,7 @@ An empty value does not open a connection. The value is `host:port`. Port 0 is r
 
 The host and port for telnet sessions, such as 192.168.1.20:8770. Leave this empty to keep telnet off. Telnet is cleartext. A change takes effect on the next start.
 
-An empty value does not open a socket. A saved address may be a public address: this is a packet port, and `admin.public` does not apply to it. `0.0.0.0:8770` listens on every IPv4 interface. The session is described in `docs/peers.md`. A proposal on this session exchanges bulletins.
+An empty value does not open a socket. A saved address may be a public address: this is a packet port, and `admin.public` does not apply to it. `0.0.0.0:8770` listens on every IPv4 interface. The session is described in `docs/peers.md`. A proposal on this session exchanges bulletins only when the caller address is listed in `telnet.peers`.
 
 A hostname is saved without looking it up. At start it must resolve to one address. Port 0 is rejected. A zone id, such as `%eth0`, is rejected. A multicast address is rejected.
 
@@ -80,7 +80,7 @@ A hostname is saved without looking it up. At start it must resolve to one addre
 
 Stations this node can call over telnet. Separate entries with spaces or commas. Each entry is CALL@host:port, such as W1AW-1@192.168.1.20:8770. A change takes effect on the next start.
 
-Each callsign is stored in uppercase. SSID 0 is stored without a suffix. At most 32 stations. A hostname is resolved when the node starts, and it must resolve to one address. This list is who this node will call. Answering a telnet connection does not require the caller to be listed.
+Each callsign is stored in uppercase. SSID 0 is stored without a suffix. At most 32 stations. A hostname is resolved when the node starts, and it must resolve to one address. This list is who this node will call. Answering the telnet prompt does not require the caller to be listed. Bulletin forwarding is accepted only from an address in this list.
 
 `--telnet-peers` on `crossbeam serve` uses another list for this start and does not change the saved setting.
 
@@ -96,7 +96,7 @@ An empty value does not open a socket. The address rules match `telnet.listen`. 
 
 Stations this node can forward to over FBB TCP. Separate entries with spaces or commas. Each entry is CALL@host:port, such as W1AW-1@192.168.1.20:6300. A change takes effect on the next start.
 
-The entry rules match `telnet.peers`. `crossbeam bulletin send` uses this list only when the station is not in `link.peers`.
+The entry rules match `telnet.peers`. `crossbeam bulletin send` uses this list only when the station is not in `link.peers`. An incoming forward is accepted only from an address in this list. The author stored from an accepted proposal is still the callsign written in the proposal.
 
 `--fbb-peers` on `crossbeam serve` uses another list for this start and does not change the saved setting.
 
@@ -120,7 +120,7 @@ The directory must already exist. An empty value leaves every article in the sto
 
 ## Command
 
-Flags come before the key.
+Flags may come before or after the key.
 
 ```bash
 crossbeam settings --state /var/lib/crossbeam

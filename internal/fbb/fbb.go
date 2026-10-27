@@ -64,9 +64,11 @@ func (p Proposal) Line() string {
 	return fmt.Sprintf("FB %s %s %s %s %s %d", p.Type, p.From, p.At, p.To, p.BID, p.Size)
 }
 
-// Checksum is the 8-bit sum of the proposal lines. Each line contributes
-// its bytes and the carriage return that ends it. The F> line is not
-// included. The receiver prints this as two uppercase hex digits.
+// Checksum is the ASCII proposal checksum published for F6FBB. Each
+// proposal line contributes its bytes and the carriage return that ends
+// it. The F> line is not included. The value is the two's complement of
+// that 8-bit sum, printed as two uppercase hex digits. The checksum on a
+// compressed binary block is a different sum and is not implemented.
 func Checksum(lines []string) byte {
 	var sum byte
 	for _, line := range lines {
@@ -75,7 +77,7 @@ func Checksum(lines []string) byte {
 		}
 		sum += '\r'
 	}
-	return sum
+	return -sum
 }
 
 // EncodeProposals writes the FB lines and the F> checksum line.

@@ -15,6 +15,33 @@ import (
 	"github.com/bbeamer41/crossbeam/internal/settings"
 )
 
+func TestRelativeStatePath(t *testing.T) {
+	parent := t.TempDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel, err := filepath.Rel(cwd, filepath.Join(parent, "state"))
+	if err != nil || filepath.IsAbs(rel) {
+		t.Fatalf("relative %q %v", rel, err)
+	}
+	s, err := Open(rel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, err := os.Stat(filepath.Join(parent, "state", "crossbeam.db")); err != nil {
+		t.Fatal(err)
+	}
+	text, err := dsn(filepath.Join(rel, "crossbeam.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(text, "file:///") || strings.Contains(strings.TrimPrefix(text, "file:"), "//.") {
+		t.Fatalf("dsn %s", text)
+	}
+}
+
 func TestPasswordAndModes(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "state")
 	s := openStore(t, dir)

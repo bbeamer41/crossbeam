@@ -274,6 +274,58 @@ func TestNinthTelnetSessionIsBusy(t *testing.T) {
 	}
 }
 
+func TestTCPForwardPolicy(t *testing.T) {
+	type info interface {
+		ForwardAllowed() bool
+		PeerLabel() string
+	}
+	got := make(chan info, 1)
+	handler := func(_ ax25.Address, rw io.ReadWriteCloser) {
+		gate, _ := rw.(info)
+		got <- gate
+		_ = rw.Close()
+	}
+	guest := listenTelnet(t, handler)
+	conn, err := net.Dial("tcp", guest.Telnet())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	select {
+	case gate := <-got:
+		if gate == nil || gate.ForwardAllowed() || !strings.Contains(gate.PeerLabel(), "127.0.0.1") {
+			t.Fatalf("guest telnet %+v", gate)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("guest telnet did not start")
+	}
+	listed, err := Listen(Config{
+		Telnet:      "127.0.0.1:0",
+		TelnetPeers: "W1AW-1@127.0.0.1:8770",
+		Local:       mustCall(t, "K5LEB"),
+		Handler:     handler,
+		T1:          100 * time.Millisecond,
+		N2:          2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listed.Close()
+	conn2, err := net.Dial("tcp", listed.Telnet())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn2.Close()
+	select {
+	case gate := <-got:
+		if gate == nil || !gate.ForwardAllowed() || !strings.Contains(gate.PeerLabel(), "W1AW-1") {
+			t.Fatalf("listed telnet %+v", gate)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("listed telnet did not start")
+	}
+}
+
 func listenTelnet(t *testing.T, handler func(ax25.Address, io.ReadWriteCloser)) *Node {
 	t.Helper()
 	node, err := Listen(Config{

@@ -59,6 +59,11 @@ type Store struct {
 // Open creates the state directory and the database. The directory is
 // mode 0700 and the database file is mode 0600.
 func Open(dir string) (*Store, error) {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, err
+	}
+	dir = abs
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
@@ -66,7 +71,11 @@ func Open(dir string) (*Store, error) {
 		return nil, err
 	}
 	path := filepath.Join(dir, "crossbeam.db")
-	db, err := sql.Open("sqlite", dsn(path))
+	dsnText, err := dsn(path)
+	if err != nil {
+		return nil, err
+	}
+	db, err := sql.Open("sqlite", dsnText)
 	if err != nil {
 		return nil, err
 	}
@@ -90,15 +99,25 @@ func (s *Store) Close() error {
 // Dir is the state directory.
 func (s *Store) Dir() string { return s.dir }
 
-func dsn(path string) string {
+func dsn(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	// A relative path becomes a file URL whose first directory is the host.
+	// The driver then opens the wrong file. An absolute path stays a path.
+	slash := filepath.ToSlash(abs)
+	if !strings.HasPrefix(slash, "/") {
+		slash = "/" + slash
+	}
 	// RawQuery is used as written. Encoding the parentheses would hide
 	// the pragma from the driver.
 	u := url.URL{
 		Scheme:   "file",
-		Path:     filepath.ToSlash(path),
+		Path:     slash,
 		RawQuery: "_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_txlock=immediate",
 	}
-	return u.String()
+	return u.String(), nil
 }
 
 func (s *Store) tighten() {

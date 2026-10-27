@@ -26,7 +26,7 @@ func TestChecksumAndSID(t *testing.T) {
 	if sum != 0x27 {
 		t.Fatalf("frozen sum %02X", sum)
 	}
-	if Checksum([]string{line}) != sum {
+	if Checksum([]string{line}) != -sum {
 		t.Fatal("checksum drifted")
 	}
 	raw, err := EncodeProposals([]Proposal{{
@@ -35,8 +35,37 @@ func TestChecksumAndSID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "FB B K5LEB WW ALL AB 3\rF> 27\r"
+	want := "FB B K5LEB WW ALL AB 3\rF> D9\r"
 	if string(raw) != want {
+		t.Fatalf("block %q", raw)
+	}
+}
+
+// TestFBBASCIIChecksum locks the published F6FBB ASCII proposal checksum.
+// It is the two's complement of the 8-bit sum, not the plain sum and not
+// the one's complement. The compressed binary block uses another sum and
+// stays unimplemented. A real LinBPQ node was not available to run this.
+func TestFBBASCIIChecksum(t *testing.T) {
+	line := "FB B K5LEB WW ALL NIGHT 23"
+	var sum byte
+	for i := 0; i < len(line); i++ {
+		sum += line[i]
+	}
+	sum += '\r'
+	if sum != 0x50 {
+		t.Fatalf("plain sum %02X", sum)
+	}
+	got := Checksum([]string{line})
+	if got != -sum || got == sum || got == sum^0xFF {
+		t.Fatalf("checksum %02X plain %02X", got, sum)
+	}
+	raw, err := EncodeProposals([]Proposal{{
+		Type: "B", From: "K5LEB", At: "WW", To: "ALL", BID: "NIGHT", Size: 23,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(raw, []byte("F> B0\r")) {
 		t.Fatalf("block %q", raw)
 	}
 }

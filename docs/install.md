@@ -31,7 +31,7 @@ sudo apt upgrade
 
 ## Password
 
-Set a sysop password before the service starts. There is no default. The password is at least 12 characters, it is read from the terminal, and it is not stored in the command line.
+Set a sysop password before the service starts. There is no default. The password is at least 12 characters, it is read from the terminal, and it is not stored in the command line. The command asks for it a second time and does not save it when the two entries differ.
 
 ```bash
 sudo -u crossbeam crossbeam sysop password --state /var/lib/crossbeam

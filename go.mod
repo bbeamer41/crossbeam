@@ -2,6 +2,8 @@ module github.com/bbeamer41/crossbeam
 
 go 1.22
 
+toolchain go1.26.8
+
 require (
 	golang.org/x/crypto v0.31.0
 	golang.org/x/term v0.28.0

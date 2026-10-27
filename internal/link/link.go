@@ -249,7 +249,7 @@ func Listen(cfg Config) (*Node, error) {
 		N2:     cfg.N2,
 		T1:     cfg.T1,
 		Send:   n.transmit,
-		Accept: func(addr ax25.Address, st *ax25.Stream) { n.user(addr, st) },
+		Accept: func(addr ax25.Address, st *ax25.Stream) { n.user(addr, n.gateStream(addr, st)) },
 		Netrom: n.onNetrom,
 		Begin:  n.beginSession,
 		End:    n.endSession,
@@ -260,15 +260,15 @@ func Listen(cfg Config) (*Node, error) {
 	if kissAddr != "" {
 		go n.kissLoop(kissAddr)
 	}
-	if err := n.bindTCP(telnetListen, fbbListen); err != nil {
-		n.Close()
-		return nil, err
-	}
 	if err := n.rememberPeers(settings.KeyTelnetPeers, cfg.TelnetPeers, n.telnetTo); err != nil {
 		n.Close()
 		return nil, err
 	}
 	if err := n.rememberPeers(settings.KeyFBBPeers, cfg.FBBPeers, n.fbbTo); err != nil {
+		n.Close()
+		return nil, err
+	}
+	if err := n.bindTCP(telnetListen, fbbListen); err != nil {
 		n.Close()
 		return nil, err
 	}
@@ -509,7 +509,58 @@ func (n *Node) acceptCircuit(user ax25.Address, rw io.ReadWriteCloser) {
 		_ = rw.Close()
 		return
 	}
-	n.user(user, rw)
+	// A NET/ROM circuit is not a bulletin forward. The prompt still runs.
+	call := user.String()
+	if call == "" {
+		call = "unknown"
+	}
+	n.user(user, &sessionGate{ReadWriteCloser: rw, allow: false, label: call + " netrom"})
+}
+
+// sessionGate is the optional caller mark read by bulletin.Serve.
+// ForwardAllowed is false for an unlisted AX/UDP guest, an unlisted TCP
+// address, and a NET/ROM circuit. A stream without these methods is left
+// alone so a raw pipe in a test can still exchange bulletins.
+type sessionGate struct {
+	io.ReadWriteCloser
+	allow bool
+	label string
+}
+
+func (g *sessionGate) ForwardAllowed() bool { return g.allow }
+
+func (g *sessionGate) PeerLabel() string { return g.label }
+
+func (n *Node) gateStream(addr ax25.Address, st io.ReadWriteCloser) io.ReadWriteCloser {
+	allow, label := n.forwardPolicy(addr)
+	return &sessionGate{ReadWriteCloser: st, allow: allow, label: label}
+}
+
+// forwardPolicy accepts an AX/UDP forward from a listed station. A guest
+// route is refused. A station with no UDP route is on the radio when the
+// TNC is configured, and that session may still forward.
+func (n *Node) forwardPolicy(addr ax25.Address) (bool, string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	call := addr.String()
+	if call == "" {
+		call = "unknown"
+	}
+	udp := n.lookupAddr(addr)
+	where := ""
+	if udp != nil {
+		where = " " + udp.String()
+	}
+	if _, ok := n.peers[addr.String()]; ok {
+		return true, call + where
+	}
+	if _, ok := n.guests[addr.String()]; ok {
+		return false, call + where
+	}
+	if n.kissAddr != "" && udp == nil {
+		return true, call + " radio"
+	}
+	return false, call + where
 }
 
 func (n *Node) syncNeighbors() {

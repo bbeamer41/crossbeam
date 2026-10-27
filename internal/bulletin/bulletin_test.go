@@ -477,6 +477,9 @@ func TestForwardOverAXUDP(t *testing.T) {
 	if err := master.SetPeers(localB.String() + "@" + slave.LocalAddr().String()); err != nil {
 		t.Fatal(err)
 	}
+	if err := slave.SetPeers(localA.String() + "@" + master.LocalAddr().String()); err != nil {
+		t.Fatal(err)
+	}
 	conn, err := net.Dial("unix", master.Terminal())
 	if err != nil {
 		t.Fatal(err)
@@ -500,6 +503,190 @@ func TestForwardOverAXUDP(t *testing.T) {
 	back := findArt(t, stA, "Day note")
 	if back.Article.ID != "DAY" || back.Article.Author != "W1AW-1" || back.Article.Body != "From the far node." {
 		t.Fatalf("master %+v", back.Article)
+	}
+}
+
+type denyCaller struct {
+	io.ReadWriteCloser
+}
+
+func (denyCaller) ForwardAllowed() bool { return false }
+
+func (denyCaller) PeerLabel() string { return "N0BODY 127.0.0.1:9" }
+
+func TestUnlistedPromptStillWorks(t *testing.T) {
+	st := openStore(t)
+	a, b := net.Pipe()
+	defer a.Close()
+	errc := make(chan error, 1)
+	go func() {
+		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), &denyCaller{b})
+	}()
+	rd := bufio.NewReader(a)
+	if err := readUntilPrompt(rd); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(a, "?\r"); err != nil {
+		t.Fatal(err)
+	}
+	var help string
+	for {
+		line, err := readCR(rd)
+		if err != nil {
+			t.Fatal(err)
+		}
+		help += line + "\n"
+		if strings.HasSuffix(line, ">") {
+			break
+		}
+	}
+	if !strings.Contains(help, "Commands:") || !strings.Contains(help, "BYE") {
+		t.Fatalf("help %q", help)
+	}
+	if _, err := io.WriteString(a, "BYE\r"); err != nil {
+		t.Fatal(err)
+	}
+	bye, err := readCR(rd)
+	if err != nil || bye != "Bye" {
+		t.Fatalf("bye %q %v", bye, err)
+	}
+	a.Close()
+	if err := <-errc; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUnlistedAXUDPForwardIsRefused(t *testing.T) {
+	stA := openStore(t)
+	stB := openStore(t)
+	saveArt(t, stA, "INJECT", "UNLISTED INJECT", "N0BODY", "nope", time.Now().UTC())
+	localA := mustCall(t, "N0BODY")
+	localB := mustCall(t, "K5LEB")
+	slave, err := link.Listen(link.Config{
+		Bind: "127.0.0.1:0", Local: localB, T1: 150 * time.Millisecond, N2: 6, Paclen: 64,
+		Handler: Answer(stB, localB),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer slave.Close()
+	master, err := link.Listen(link.Config{
+		Bind: "127.0.0.1:0", Local: localA, T1: 150 * time.Millisecond, N2: 6, Paclen: 64,
+		TerminalPath: t.TempDir() + "/terminal.sock", TerminalMode: 0o600,
+		Forward: func(ctx context.Context, stream io.ReadWriteCloser) (string, error) {
+			res, err := Forward(ctx, stA, localA, stream)
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("sent %d received %d", res.Sent, res.Received), nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer master.Close()
+	if err := master.SetPeers(localB.String() + "@" + slave.LocalAddr().String()); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := net.Dial("unix", master.Terminal())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(8 * time.Second))
+	if _, err := fmt.Fprintf(conn, "FORWARD %s\n", localB); err != nil {
+		t.Fatal(err)
+	}
+	reply, err := bufio.NewReader(conn).ReadString('\n')
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.HasPrefix(reply, "OK ") {
+		t.Fatalf("unlisted forward accepted %q", reply)
+	}
+	if countArt(t, stB) != 0 {
+		t.Fatal("unlisted forward stored a bulletin")
+	}
+}
+
+func TestUnlistedFBBForwardIsRefused(t *testing.T) {
+	st := openStore(t)
+	node, err := link.Listen(link.Config{
+		FBB: "127.0.0.1:0", Local: mustCall(t, "K5LEB"), T1: 150 * time.Millisecond, N2: 4,
+		Handler: Answer(st, mustCall(t, "K5LEB")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer node.Close()
+	conn, err := net.Dial("tcp", node.FBB())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(4 * time.Second))
+	rd := bufio.NewReader(conn)
+	if err := readUntilPrompt(rd); err != nil {
+		t.Fatal(err)
+	}
+	line := "FB B W0TCP WW ALL TCP001 12"
+	if _, err := fmt.Fprintf(conn, "%s\rF> %02X\r", line, fbb.Checksum([]string{line})); err != nil {
+		t.Fatal(err)
+	}
+	sawFQ := false
+	for i := 0; i < 6; i++ {
+		next, err := readCR(rd)
+		if err != nil {
+			break
+		}
+		trim := strings.TrimSpace(next)
+		if strings.HasPrefix(trim, "FS +") {
+			t.Fatalf("accepted %q", trim)
+		}
+		if trim == "FQ" {
+			sawFQ = true
+			break
+		}
+	}
+	if !sawFQ {
+		t.Fatal("unlisted FBB forward was not refused")
+	}
+	if countArt(t, st) != 0 {
+		t.Fatal("unlisted FBB forward stored a bulletin")
+	}
+}
+
+func TestListedFBBForwardStores(t *testing.T) {
+	st := openStore(t)
+	local := mustCall(t, "K5LEB")
+	node, err := link.Listen(link.Config{
+		FBB: "127.0.0.1:0", FBBPeers: "W1AW-1@127.0.0.1:6300", Local: local,
+		T1: 150 * time.Millisecond, N2: 4, Handler: Answer(st, local),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer node.Close()
+	client := openStore(t)
+	saveArt(t, client, "NIGHT", "Net tonight", "W1AW-1", "Meet at 7.", time.Now().UTC())
+	conn, err := net.Dial("tcp", node.FBB())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(4 * time.Second))
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	res, err := Forward(ctx, client, mustCall(t, "W1AW-1"), conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Sent != 1 {
+		t.Fatalf("sent %+v", res)
+	}
+	got := findArt(t, st, "Net tonight")
+	if got.Article.Author != "W1AW-1" || got.Article.Body != "Meet at 7." {
+		t.Fatalf("%+v", got.Article)
 	}
 }
 

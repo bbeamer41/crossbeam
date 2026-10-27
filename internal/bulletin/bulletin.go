@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -62,6 +63,8 @@ func Serve(ctx context.Context, st *store.Store, local ax25.Address, rw io.ReadW
 	if err != nil {
 		return err
 	}
+	label, allowed := sessionCaller(rw)
+	noteSession("session", label)
 	rd := newReader(rw)
 	if err := writeAll(rw, sid+"\rCrossbeam "+name+"\r"+name+">\r"); err != nil {
 		return peerGone(err)
@@ -94,7 +97,20 @@ func Serve(ctx context.Context, st *store.Store, local ax25.Address, rw io.ReadW
 			continue
 		}
 		if isForwardStart(trim) {
-			return serveForward(ctx, st, local, rw, rd, line)
+			if !allowed {
+				who := label
+				if from := proposalFrom(trim); from != "" {
+					who = from + " " + label
+				}
+				noteSession("forward refused", who)
+				// FQ before any FS tells a forwarder to stop without sending bodies.
+				if err := writeAll(rw, "FQ\r"); err != nil {
+					return peerGone(err)
+				}
+				return nil
+			}
+			noteSession("forward", label)
+			return serveForward(ctx, st, local, rw, rd, line, label)
 		}
 		return human(rw, rd, name, line)
 	}
@@ -129,7 +145,7 @@ func Forward(ctx context.Context, st *store.Store, local ax25.Address, rw io.Rea
 	return sess.result(), peerGone(err)
 }
 
-func serveForward(ctx context.Context, st *store.Store, local ax25.Address, w io.Writer, rd *reader, first string) error {
+func serveForward(ctx context.Context, st *store.Store, local ax25.Address, w io.Writer, rd *reader, first, label string) error {
 	queue, err := prepare(ctx, st, local)
 	if err != nil {
 		// Read the caller's offer before deciding we have nothing to send.
@@ -142,7 +158,47 @@ func serveForward(ctx context.Context, st *store.Store, local ax25.Address, w io
 		sess.held = true
 		sess.hold = first
 	}
-	return peerGone(sess.run(false))
+	runErr := sess.run(false)
+	noteSession(fmt.Sprintf("forward done sent %d received %d", sess.sent, sess.received), label)
+	return peerGone(runErr)
+}
+
+// sessionCaller reads the optional mark the link attaches to a live session.
+// A pipe that does not carry the mark is allowed, so existing tests keep
+// exchanging bulletins. Production always sets the mark.
+func sessionCaller(rw io.ReadWriteCloser) (string, bool) {
+	type info interface {
+		ForwardAllowed() bool
+		PeerLabel() string
+	}
+	gate, ok := rw.(info)
+	if !ok || gate == nil {
+		return "", true
+	}
+	label := strings.TrimSpace(gate.PeerLabel())
+	if label == "" {
+		label = "unknown"
+	}
+	return label, gate.ForwardAllowed()
+}
+
+func noteSession(kind, label string) {
+	if label == "" {
+		return
+	}
+	log.Printf("crossbeam: %s %s", kind, label)
+}
+
+func proposalFrom(trim string) string {
+	fields := strings.Fields(trim)
+	if len(fields) < 3 || !strings.EqualFold(fields[0], "FB") {
+		return ""
+	}
+	addr, err := ax25.Parse(fields[2])
+	if err != nil {
+		return ""
+	}
+	return addr.String()
 }
 
 func human(w io.Writer, rd *reader, name, first string) error {

@@ -173,8 +173,12 @@ func hostAllowed(r *http.Request, hosts hostSet) bool {
 	origin := r.Header.Get("Origin")
 	// A browser that has not trusted the self-signed certificate sends
 	// Origin "null" when the sign-in form is posted. The Host check above
-	// still has to match.
-	if origin == "" || origin == "null" {
+	// still has to match. Other requests have to name this panel.
+	// An empty Origin is a client that is not a browser.
+	if origin == "null" {
+		return r.URL.Path == "/login" || r.URL.Path == "/api/login"
+	}
+	if origin == "" {
 		return true
 	}
 	return originMatches(origin, matched)

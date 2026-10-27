@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/bbeamer41/crossbeam/internal/ax25"
@@ -115,7 +117,48 @@ func (n *Node) serveTCP(conn net.Conn, kind string) {
 	if kind == "telnet" {
 		rw = telnet.Wrap(rw)
 	}
-	n.user(ax25.Address{}, rw)
+	allow, label := n.tcpPolicy(kind, conn)
+	n.user(ax25.Address{}, &sessionGate{ReadWriteCloser: rw, allow: allow, label: label})
+}
+
+// tcpPolicy allows a bulletin forward only when the remote IP is one of
+// the listed peers for this port. The prompt stays available either way.
+// The incoming port is ephemeral, so the match is the address only.
+func (n *Node) tcpPolicy(kind string, conn net.Conn) (bool, string) {
+	remote := ""
+	if conn != nil && conn.RemoteAddr() != nil {
+		remote = conn.RemoteAddr().String()
+	}
+	host, _, err := net.SplitHostPort(remote)
+	if err != nil {
+		host = remote
+	}
+	ip := net.ParseIP(host)
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	list := n.fbbTo
+	if kind == "telnet" {
+		list = n.telnetTo
+	}
+	var calls []string
+	for call, addr := range list {
+		peerHost, _, splitErr := net.SplitHostPort(addr)
+		if splitErr != nil {
+			continue
+		}
+		peerIP := net.ParseIP(peerHost)
+		if peerHost == host || (ip != nil && peerIP != nil && ip.Equal(peerIP)) {
+			calls = append(calls, call)
+		}
+	}
+	if len(calls) == 0 {
+		if remote == "" {
+			return false, kind + " unknown"
+		}
+		return false, kind + " " + remote
+	}
+	sort.Strings(calls)
+	return true, strings.Join(calls, ",") + " " + remote
 }
 
 func (n *Node) rememberPeers(key, text string, dest map[string]string) error {

@@ -47,6 +47,12 @@ install -m 0755 packaging/postinst "$pkg/DEBIAN/postinst"
 install -m 0755 packaging/prerm "$pkg/DEBIAN/prerm"
 install -m 0755 packaging/postrm "$pkg/DEBIAN/postrm"
 
+installed=$(du -sk "$pkg/usr" | awk '{print $1}')
+if [ -z "$installed" ] || [ "$installed" -eq 0 ]; then
+	echo "installed size is empty" >&2
+	exit 1
+fi
+
 cat >"$pkg/DEBIAN/control" <<EOF
 Package: crossbeam
 Version: $version
@@ -55,6 +61,7 @@ Priority: optional
 Architecture: $arch
 Maintainer: K5LEB <75401887+bbeamer41@users.noreply.github.com>
 Homepage: https://github.com/bbeamer41/crossbeam
+Installed-Size: $installed
 Depends: systemd
 Description: packet-radio node and bulletin bridge
  Crossbeam stores one article and can post it as a packet bulletin

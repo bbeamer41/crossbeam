@@ -18,7 +18,7 @@ func cmdMCP(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	state := fs.String("state", defaultState, "state directory")
-	if err := fs.Parse(args); err != nil {
+	if err := parseArgs(fs, args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}

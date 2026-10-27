@@ -89,7 +89,7 @@ write_files:
       enabled=$(systemctl is-enabled crossbeam.service 2>/dev/null || true)
       ver=$(/usr/bin/crossbeam version)
       pw=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
-      printf '%s\n' "$pw" | /usr/sbin/runuser -u crossbeam -- /usr/bin/crossbeam sysop password --state /var/lib/crossbeam >/tmp/crossbeam-pw.out 2>/tmp/crossbeam-pw.err || fail password
+      printf '%s\n%s\n' "$pw" "$pw" | /usr/sbin/runuser -u crossbeam -- /usr/bin/crossbeam sysop password --state /var/lib/crossbeam >/tmp/crossbeam-pw.out 2>/tmp/crossbeam-pw.err || fail password
       systemctl start crossbeam.service || fail start
       pid=""
       i=0

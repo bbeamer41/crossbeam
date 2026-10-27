@@ -38,6 +38,9 @@ func TestPackageBuilds(t *testing.T) {
 	if !strings.Contains(info, "Depends: systemd") {
 		t.Fatalf("depends %s", info)
 	}
+	if !installedSize(info) {
+		t.Fatalf("installed size %s", info)
+	}
 	list := run(t, "dpkg-deb", "-c", deb)
 	for _, path := range []string{
 		"./usr/bin/crossbeam",
@@ -97,6 +100,18 @@ func TestPackageBuilds(t *testing.T) {
 	if !strings.Contains(list, "-rwxr-xr-x") {
 		t.Fatalf("mode %s", list)
 	}
+}
+
+func installedSize(info string) bool {
+	for _, line := range strings.Split(info, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "Installed-Size:") {
+			continue
+		}
+		n := strings.TrimSpace(strings.TrimPrefix(line, "Installed-Size:"))
+		return n != "" && n != "0"
+	}
+	return false
 }
 
 func arch(t *testing.T) string {
