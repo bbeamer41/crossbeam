@@ -5,26 +5,26 @@ Origin: Crossbeam
 Label: Crossbeam
 Suite: stable
 Codename: stable
-Date: Thu, 29 Oct 2026 17:54:05 +0000
+Date: Thu, 29 Oct 2026 19:40:10 +0000
 Architectures: amd64
 Components: main
 Description: Crossbeam packet-radio node
 MD5Sum:
- 2895469d087d2aa58269a7b10832e266 649 main/binary-amd64/Packages
- 117d11a4925a50ea32ff3283e6d115f7 453 main/binary-amd64/Packages.gz
+ 9d4641eb86a56cac7b4d83a618798d66 649 main/binary-amd64/Packages
+ c3f6638399b4e30b4d06b783477b87cb 451 main/binary-amd64/Packages.gz
 SHA1:
- 52d8b4cb60de6c2c510c13e4772bb02b8dd746d1 649 main/binary-amd64/Packages
- 2db572b38c985c4c4114dd2f3d46eefd6b709a6c 453 main/binary-amd64/Packages.gz
+ 5e296b6c6eb3f1e1d4f2fbaf3bcb19c4f8873f26 649 main/binary-amd64/Packages
+ 84d4579e37863f0b1c522d3ad21c0279b0885335 451 main/binary-amd64/Packages.gz
 SHA256:
- 49f5da68ee5054c40175f36fb974ae0a8cdc9f0c4f052e4b1955c4679d0ae03b 649 main/binary-amd64/Packages
- c5583a58f97d884386b69fe7e6b24ac3ec3a6ff4d7a9463f79ac0e51f1e1cfef 453 main/binary-amd64/Packages.gz
+ 7cde9be0d7e1078863cae9614020fa2569c050338ed3c92e508b04a14591ab43 649 main/binary-amd64/Packages
+ 5e8cb442224ef32303914646fb8688be7ce7e1a26d1a816c382b2e6e8410cbe8 451 main/binary-amd64/Packages.gz
 SHA512:
- a30e99f18e8640ec8e23f40b18eda83596c4e9cf1f6a7a0ce8cb6ca2d8f13f6e948cf5f59c856617d914864530919431066185a516e611d3438c2945e75bb967 649 main/binary-amd64/Packages
- 6f9dc2fb58baa9293231b2e00f40a0ce8ec6f899256e77ebbad7244bf37865d9d7ed5b9d668ac6194ae292aa79974211accda4d246189b90b2163629d0e7f526 453 main/binary-amd64/Packages.gz
+ 82283dc199dadfe1b896659bb881e6318a7ea6de1c8b590adf12856510601ccf3d3031fc3aefc261ab5722642176bdb33432aca61e00970713c35ccfec67a086 649 main/binary-amd64/Packages
+ 937192a60876820e1fef83ffb496c9453b7eada4c9e56513110ead617057b2779d2f6a1f509a055b146b8c990f4d230b72b91f618c2c939ef3ea8231ac826814 451 main/binary-amd64/Packages.gz
 -----BEGIN PGP SIGNATURE-----
 
-iHUEARYKAB0WIQTmt6m1S2OhXjfAl5/Et//hqw1gNAUCauOIPgAKCRDEt//hqw1g
-NOzUAQCqF8C6KeLT82qfHn9Km+BI/BoMjtAG/7WS/IOvgQPREAEAs7jcUralSuOk
-COkMjLg8c6qfCUJ+fYz1eow+oOxeJQ4=
-=cUoK
+iHUEARYKAB0WIQTmt6m1S2OhXjfAl5/Et//hqw1gNAUCauOhGgAKCRDEt//hqw1g
+NDfGAQDpQzR04sfPB5DCxo4FmYLrQ4Gc8HoTFW6rzgErgm/NjAEA0vjGOjUBckBV
+oXoAA64Qyf21jottqTkDsn43KOf0jQw=
+=qre3
 -----END PGP SIGNATURE-----
