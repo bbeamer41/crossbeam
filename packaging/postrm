@@ -5,6 +5,18 @@
 set -e
 
 # The state directory holds articles and the sysop password. Leave it in place.
+# Purge removes only the system account this package created.
+if [ "$1" = "purge" ]; then
+	entry=$(getent passwd crossbeam || true)
+	case "$entry" in
+	*:/var/lib/crossbeam:/usr/sbin/nologin)
+		userdel crossbeam || true
+		;;
+	esac
+	if getent group crossbeam >/dev/null 2>&1; then
+		groupdel crossbeam || true
+	fi
+fi
 if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
 	systemctl daemon-reload || true
 fi

@@ -14,6 +14,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -695,6 +696,115 @@ func TestBadChecksumIsLogged(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "forward done sent 0 received 0: bad checksum W1AW 127.0.0.1:10093") {
 		t.Fatalf("log %q", buf.String())
+	}
+}
+
+type lockedLog struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *lockedLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
+func TestAcceptedProposalIsLogged(t *testing.T) {
+	var buf lockedLog
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	stA := openStore(t)
+	stB := openStore(t)
+	saveArt(t, stA, "NIGHT", "Net tonight", "K5LEB", "Meet at 7.", time.Now().UTC())
+	a, b := net.Pipe()
+	errc := make(chan error, 1)
+	go func() {
+		errc <- Serve(context.Background(), stB, mustCall(t, "W1AW-1"), labeledConn{
+			ReadWriteCloser: b, allow: true, label: "K5LEB 127.0.0.1:10093",
+		})
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	res, err := Forward(ctx, stA, mustCall(t, "K5LEB"), labeledConn{
+		ReadWriteCloser: a, allow: true, label: "W1AW-1 127.0.0.1:10093",
+	})
+	a.Close()
+	if err != nil || res.Sent != 1 || res.Received != 0 {
+		t.Fatalf("forward %+v %v", res, err)
+	}
+	select {
+	case err := <-errc:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		b.Close()
+		t.Fatal("answer timed out")
+	}
+	text := buf.String()
+	for _, want := range []string{
+		"forward proposal sent NIGHT K5LEB W1AW-1 127.0.0.1:10093",
+		"forward done sent 1 received 0 W1AW-1 127.0.0.1:10093",
+		"forward proposal received NIGHT K5LEB K5LEB 127.0.0.1:10093",
+		"forward done sent 0 received 1 K5LEB 127.0.0.1:10093",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q in %q", want, text)
+		}
+	}
+}
+
+func TestRefusalLogsCallAfterSID(t *testing.T) {
+	var buf lockedLog
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	st := openStore(t)
+	a, b := net.Pipe()
+	defer a.Close()
+	errc := make(chan error, 1)
+	go func() {
+		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), labeledConn{
+			ReadWriteCloser: b, allow: false, label: "fbb 127.0.0.3:4000",
+		})
+	}()
+	rd := bufio.NewReader(a)
+	if err := readUntilPrompt(rd); err != nil {
+		t.Fatal(err)
+	}
+	line := "FB B W0NOSID WW ALL NOTE1 8"
+	if _, err := io.WriteString(a, "[TEST-1-F$]\r; note\r"+line+"\r"); err != nil {
+		t.Fatal(err)
+	}
+	sawFQ := false
+	for i := 0; i < 6; i++ {
+		next, err := readCR(rd)
+		if err != nil {
+			break
+		}
+		if strings.TrimSpace(next) == "FQ" {
+			sawFQ = true
+			break
+		}
+	}
+	if !sawFQ {
+		t.Fatal("refusal did not send FQ")
+	}
+	a.Close()
+	if err := <-errc; err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "forward refused W0NOSID fbb 127.0.0.3:4000") {
+		t.Fatalf("log %q", buf.String())
+	}
+	if countArt(t, st) != 0 {
+		t.Fatal("refused forward stored a bulletin")
 	}
 }
 

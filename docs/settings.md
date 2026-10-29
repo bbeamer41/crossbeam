@@ -129,3 +129,5 @@ crossbeam settings set station.callsign K5LEB --state /var/lib/crossbeam
 ```
 
 When `crossbeam serve` is running and `--state` is omitted, the command uses the Unix socket. `--socket PATH` selects the socket explicitly. `--state` selects the database file. Both paths accept and reject the same values.
+
+`settings get` and `settings` read a directory that already exists. They do not create it. `settings set` creates a missing directory.

@@ -15,6 +15,7 @@ import (
 	"io"
 	"log"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -98,12 +99,11 @@ func Serve(ctx context.Context, st *store.Store, local ax25.Address, rw io.ReadW
 		}
 		if isForwardStart(trim) {
 			if !allowed {
-				who := label
-				if from := proposalFrom(trim); from != "" {
-					who = from + " " + label
-				}
-				noteSession("forward refused", who)
 				// FQ before any FS tells a forwarder to stop without sending bodies.
+				// A real forwarder sends its station id first. The callsign is on
+				// the proposal that follows, so wait briefly for that line.
+				who := strings.TrimSpace(forwarderCall(rd, rw, trim) + " " + label)
+				noteSession("forward refused", who)
 				if err := writeAll(rw, "FQ\r"); err != nil {
 					return peerGone(err)
 				}
@@ -130,8 +130,11 @@ func Forward(ctx context.Context, st *store.Store, local ax25.Address, rw io.Rea
 		return Result{}, err
 	}
 	rd := newReader(rw)
+	label := streamLabel(rw)
 	if err := readBanner(ctx, rd); err != nil {
-		return Result{}, peerGone(err)
+		err = peerGone(err)
+		noteExchange(label, nil, err)
+		return Result{}, err
 	}
 	sid, err := fbb.SID(version.String)
 	if err != nil {
@@ -140,9 +143,12 @@ func Forward(ctx context.Context, st *store.Store, local ax25.Address, rw io.Rea
 	sess := newSession(ctx, st, rw, rd, queue)
 	rememberIdentities(ctx, st, local, sess.known)
 	if err := sess.write(sid + "\r"); err != nil {
-		return Result{}, peerGone(err)
+		err = peerGone(err)
+		noteExchange(label, sess, err)
+		return Result{}, err
 	}
 	err = sess.run(true)
+	noteExchange(label, sess, err)
 	return sess.result(), peerGone(err)
 }
 
@@ -162,11 +168,7 @@ func serveForward(ctx context.Context, st *store.Store, local ax25.Address, w io
 		sess.hold = first
 	}
 	runErr := sess.run(false)
-	summary := fmt.Sprintf("forward done sent %d received %d", sess.sent, sess.received)
-	if runErr != nil {
-		summary += ": " + oneLine(runErr)
-	}
-	noteSession(summary, label)
+	noteExchange(label, sess, runErr)
 	return peerGone(runErr)
 }
 
@@ -196,16 +198,108 @@ func noteSession(kind, label string) {
 	log.Printf("crossbeam: %s %s", kind, label)
 }
 
-func proposalFrom(trim string) string {
+// noteExchange records each bulletin the peer accepted and each one this
+// station stored, then the same summary line a refusal or a checksum uses.
+func noteExchange(label string, sess *session, runErr error) {
+	if label == "" {
+		return
+	}
+	sent, received := 0, 0
+	if sess != nil {
+		for _, item := range sess.notes {
+			way := "received"
+			if item.sent {
+				way = "sent"
+			}
+			noteSession("forward proposal "+way+" "+item.bid+" "+item.author, label)
+		}
+		sent = sess.sent
+		received = sess.received
+	}
+	summary := fmt.Sprintf("forward done sent %d received %d", sent, received)
+	if runErr != nil {
+		summary += ": " + oneLine(runErr)
+	}
+	noteSession(summary, label)
+}
+
+func streamLabel(rw io.ReadWriter) string {
+	type named interface{ PeerLabel() string }
+	mark, ok := rw.(named)
+	if !ok || mark == nil {
+		return ""
+	}
+	return strings.TrimSpace(mark.PeerLabel())
+}
+
+// forwarderCall is the sender on an FB line. A forwarder sends the station
+// id first, and the callsign is on the proposal after it. A callsign that
+// does not fit AX.25 is still logged when it is a short token.
+func forwarderCall(rd *reader, rw io.ReadWriteCloser, first string) string {
+	if from := proposalCall(first); from != "" {
+		return from
+	}
+	trim := strings.TrimSpace(first)
+	if !isSID(trim) && !strings.HasPrefix(trim, ";") {
+		return ""
+	}
+	return awaitProposalCall(rd, rw)
+}
+
+func awaitProposalCall(rd *reader, rw io.ReadWriteCloser) string {
+	var mu sync.Mutex
+	done := false
+	timer := time.AfterFunc(2*time.Second, func() {
+		mu.Lock()
+		defer mu.Unlock()
+		if done {
+			return
+		}
+		done = true
+		_ = rw.Close()
+	})
+	defer func() {
+		timer.Stop()
+		mu.Lock()
+		done = true
+		mu.Unlock()
+	}()
+	for i := 0; i < 32; i++ {
+		line, err := rd.readLine(protoLine)
+		if err != nil {
+			return ""
+		}
+		trim := strings.TrimSpace(line)
+		if trim == "" || strings.HasPrefix(trim, ";") || isSID(trim) {
+			continue
+		}
+		return proposalCall(trim)
+	}
+	return ""
+}
+
+func proposalCall(trim string) string {
 	fields := strings.Fields(trim)
 	if len(fields) < 3 || !strings.EqualFold(fields[0], "FB") {
 		return ""
 	}
-	addr, err := ax25.Parse(fields[2])
-	if err != nil {
+	return logCall(fields[2])
+}
+
+func logCall(raw string) string {
+	if addr, err := ax25.Parse(raw); err == nil {
+		return addr.String()
+	}
+	text := strings.ToUpper(strings.TrimSpace(raw))
+	if len(text) < 1 || len(text) > 12 || strings.Trim(text, "-") == "" {
 		return ""
 	}
-	return addr.String()
+	for _, c := range text {
+		if (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '-' {
+			return ""
+		}
+	}
+	return text
 }
 
 func human(w io.Writer, rd *reader, name, first string) error {

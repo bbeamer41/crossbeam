@@ -97,6 +97,14 @@ func TestPackageBuilds(t *testing.T) {
 	if !strings.Contains(text, "useradd") || strings.Contains(text, "systemctl enable") || strings.Contains(text, "systemctl start") {
 		t.Fatalf("postinst %s", text)
 	}
+	postrm, err := os.ReadFile(filepath.Join(ctrl, "postrm"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	removed := string(postrm)
+	if !strings.Contains(removed, "purge") || !strings.Contains(removed, "userdel") || !strings.Contains(removed, "groupdel") || !strings.Contains(removed, "/var/lib/crossbeam") {
+		t.Fatalf("postrm %s", removed)
+	}
 	if !strings.Contains(list, "-rwxr-xr-x") {
 		t.Fatalf("mode %s", list)
 	}

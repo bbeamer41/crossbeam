@@ -1,6 +1,6 @@
 # Telnet and FBB TCP
 
-Telnet and FBB TCP are cleartext. They carry the same readable session as an AX.25 connection. Neither one is encrypted, and neither one asks for a password. Leave the address empty to keep the port off. Bind a LAN address. Anyone who can open the port can use the prompt. Bulletin forwarding is accepted only from an address listed in `telnet.peers` or `fbb.peers` for that port. The author saved from an accepted proposal is still the callsign written in the proposal. The log records the address of every session.
+Telnet and FBB TCP are cleartext. They carry the same readable session as an AX.25 connection. Neither one is encrypted, and neither one asks for a password. Leave the address empty to keep the port off. Bind a LAN address. Anyone who can open the port can use the prompt. Bulletin forwarding is accepted only from an address listed in `telnet.peers` or `fbb.peers` for that port. The author saved from an accepted proposal is still the callsign written in the proposal. The log records the address of every session. A refusal also names the sender from the proposal when that line follows the station id. An accepted bulletin is logged with its id and author. The station that starts the forward logs the attempt and a failure to connect.
 
 A change to these settings is used the next time `crossbeam serve` starts.
 
@@ -19,7 +19,7 @@ crossbeam settings set telnet.peers W1AW-1@192.168.1.21:8770 --state /var/lib/cr
 The remote prompt looks the same as an AX.25 session:
 
 ```text
-[CROSSBEAM-0.9.5-FHM$]
+[CROSSBEAM-0.9.6-FHM$]
 Crossbeam K5LEB
 K5LEB>
 ```

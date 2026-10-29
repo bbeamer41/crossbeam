@@ -131,6 +131,14 @@ type session struct {
 	receivedBytes int
 	skips         int
 	localErr      error
+	notes         []proposalNote
+}
+
+// proposalNote is one bulletin the peer accepted or this station stored.
+type proposalNote struct {
+	bid    string
+	author string
+	sent   bool
 }
 
 func newSession(ctx context.Context, st *store.Store, w io.Writer, rd *reader, queue []outgoing) *session {
@@ -323,6 +331,7 @@ func (s *session) sendBatch() error {
 			return err
 		}
 		s.sent++
+		s.notes = append(s.notes, proposalNote{bid: props[i].BID, author: props[i].From, sent: true})
 	}
 	return nil
 }
@@ -494,6 +503,7 @@ func (s *session) takeProposal(lines []string, end string) error {
 		s.received++
 		s.receivedBytes += p.Size
 		s.known[p.BID] = true
+		s.notes = append(s.notes, proposalNote{bid: p.BID, author: p.From, sent: false})
 	}
 	return nil
 }

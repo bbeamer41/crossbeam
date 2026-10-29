@@ -16,9 +16,15 @@ sudo apt update
 sudo apt install crossbeam
 ```
 
-The signing key fingerprint is `E6B7A9B54B63A15E37C0979FC4B7FFE1AB0D6034`.
+The signing key fingerprint is `E6B7A9B54B63A15E37C0979FC4B7FFE1AB0D6034`. Check the downloaded key before you install it:
 
-The package adds the `crossbeam` user, creates `/var/lib/crossbeam` at mode `0700`, and installs `/usr/lib/systemd/system/crossbeam.service`. It does not enable the service and it does not start it. Set the sysop password before you start it. Removing the package leaves the state directory in place.
+```bash
+gpg --show-keys /tmp/crossbeam.asc
+```
+
+The fingerprint in that output is `E6B7A9B54B63A15E37C0979FC4B7FFE1AB0D6034`.
+
+The package adds the `crossbeam` user, creates `/var/lib/crossbeam` at mode `0700`, and installs `/usr/lib/systemd/system/crossbeam.service`. It does not enable the service and it does not start it. Set the sysop password before you start it. Removing the package leaves the state directory in place. Purging the package removes the `crossbeam` user and group and still leaves that directory.
 
 The unit in the package uses `/usr/bin/crossbeam`. Do not also copy `deploy/crossbeam.service` to `/etc/systemd/system`, because that file would override the packaged unit and would still expect `/usr/local/bin/crossbeam`.
 

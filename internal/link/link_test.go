@@ -409,6 +409,50 @@ func TestDroppedWrongIPIsLogged(t *testing.T) {
 	}
 }
 
+func TestOutboundForwardFailureIsLogged(t *testing.T) {
+	var buf lockedBuf
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	node, err := Listen(Config{
+		Bind:         "127.0.0.1:0",
+		Local:        mustCall(t, "K5LEB"),
+		T1:           40 * time.Millisecond,
+		N2:           2,
+		TerminalPath: filepath.Join(t.TempDir(), "terminal.sock"),
+		TerminalMode: 0o600,
+		Forward: func(context.Context, io.ReadWriteCloser) (string, error) {
+			return "", errors.New("exchange should not start")
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer node.Close()
+	if err := node.SetPeers("W1AW-1@127.0.0.1:1"); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := net.Dial("unix", node.Terminal())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
+	if _, err := fmt.Fprintf(conn, "FORWARD W1AW-1\n"); err != nil {
+		t.Fatal(err)
+	}
+	reply, err := bufio.NewReader(conn).ReadString('\n')
+	if err != nil || !strings.Contains(reply, "connection timed out") {
+		t.Fatalf("reply %q %v", reply, err)
+	}
+	text := buf.String()
+	if !strings.Contains(text, "crossbeam: forward W1AW-1 127.0.0.1:1") {
+		t.Fatalf("log %q", text)
+	}
+	if !strings.Contains(text, "forward done sent 0 received 0: connection timed out W1AW-1 127.0.0.1:1") {
+		t.Fatalf("log %q", text)
+	}
+}
+
 func TestLearnedPortEndsWithTheSession(t *testing.T) {
 	node, err := Listen(Config{
 		Bind: "127.0.0.1:0", Local: mustCall(t, "K5LEB"),

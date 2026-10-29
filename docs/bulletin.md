@@ -16,13 +16,13 @@ With the systemd layout the terminal socket is `/run/crossbeam/terminal.sock`. `
 
 `bulletin.to` and `bulletin.at` set the category and the distribution. The defaults are `ALL` and `WW`.
 
-An incoming forward, on AX/UDP, telnet, or FBB TCP, is accepted only from a listed peer. An unlisted caller can still send `?` and `BYE`. A forward from anyone else is answered with `FQ` and is not stored. The author of a stored bulletin is still the sender field of the proposal.
+An incoming forward, on AX/UDP, telnet, or FBB TCP, is accepted only from a listed peer. An unlisted caller can still send `?` and `BYE`. A forward from anyone else is answered with `FQ` and is not stored. The author of a stored bulletin is still the sender field of the proposal. The log names the bulletin id and the author of every bulletin this station stores and every bulletin the peer accepts. A refusal names the sender from the proposal, including when the station id arrived first. The station that runs `crossbeam bulletin send` writes those lines too, and it writes a failure to connect.
 
 ## What is on the wire
 
 The called station sends a station id, the `Crossbeam CALL` line, and the `CALL>` prompt. The caller sends its own station id and then the proposals. A person can still send `?` or `BYE` if the first line is not a forwarding command.
 
-The station id looks like `[CROSSBEAM-0.9.5-FHM$]`. The version is the program version. `F` is batch forwarding, `H` is a hierarchical address, `M` is a message id, and `$` is a bulletin id. Compressed forwarding is not offered.
+The station id looks like `[CROSSBEAM-0.9.6-FHM$]`. The version is the program version. `F` is batch forwarding, `H` is a hierarchical address, `M` is a message id, and `$` is a bulletin id. Compressed forwarding is not offered.
 
 A proposal is one or more lines, then a checksum line:
 

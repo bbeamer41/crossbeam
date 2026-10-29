@@ -1186,9 +1186,12 @@ func (n *Node) serveTerm(conn net.Conn) {
 // Cancelling the context does not unblock a stream read, so the
 // session itself is closed.
 func (n *Node) serveForward(conn net.Conn, call string, wait time.Duration) {
+	where := n.forwardWhere(call)
+	n.noteForward("forward", where)
 	_, listedErr := n.listed(call)
 	fbbTarget, fbbOK := n.tcpTarget(n.fbbTo, call)
 	if listedErr != nil && !fbbOK {
+		n.noteForwardFailed(where, termErr(listedErr))
 		_ = conn.SetDeadline(time.Now().Add(wait))
 		fmt.Fprintf(conn, "ERR %s\n", termErr(listedErr))
 		return
@@ -1203,6 +1206,7 @@ func (n *Node) serveForward(conn net.Conn, call string, wait time.Duration) {
 	}()
 	if n.ready != nil {
 		if err := n.ready(fctx); err != nil {
+			n.noteForwardFailed(where, termErr(err))
 			_ = conn.SetDeadline(time.Now().Add(wait))
 			fmt.Fprintf(conn, "ERR %s\n", termErr(err))
 			return
@@ -1210,6 +1214,7 @@ func (n *Node) serveForward(conn net.Conn, call string, wait time.Duration) {
 	}
 	select {
 	case <-clientDone:
+		n.noteForwardFailed(where, "forward stopped")
 		return
 	default:
 	}
@@ -1226,15 +1231,19 @@ func (n *Node) serveForward(conn net.Conn, call string, wait time.Duration) {
 	dcancel()
 	_ = conn.SetDeadline(time.Now().Add(wait))
 	if err != nil {
+		n.noteForwardFailed(where, termErr(err))
 		fmt.Fprintf(conn, "ERR %s\n", termErr(err))
 		return
 	}
 	defer stream.Close()
 	select {
 	case <-clientDone:
+		n.noteForwardFailed(where, "forward stopped")
 		return
 	default:
 	}
+	// The exchange log uses this label, including each accepted bulletin.
+	stream = &sessionGate{ReadWriteCloser: stream, allow: true, label: where}
 	stop := make(chan struct{})
 	defer close(stop)
 	go func() {
@@ -1255,6 +1264,38 @@ func (n *Node) serveForward(conn net.Conn, call string, wait time.Duration) {
 		detail = "forward complete"
 	}
 	fmt.Fprintf(conn, "OK %s\n", detail)
+}
+
+func (n *Node) forwardWhere(call string) string {
+	addr, err := ax25.Parse(call)
+	if err != nil {
+		return "unknown"
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	name := addr.String()
+	if udp := n.peers[name]; udp != nil {
+		return name + " " + udp.String()
+	}
+	if tcp := n.fbbTo[name]; tcp != "" {
+		return name + " " + tcp
+	}
+	return name
+}
+
+func (n *Node) noteForward(kind, where string) {
+	if where == "" || strings.ContainsAny(where, "\r\n") {
+		where = "unknown"
+	}
+	log.Printf("crossbeam: %s %s", kind, where)
+}
+
+func (n *Node) noteForwardFailed(where, reason string) {
+	kind := "forward done sent 0 received 0"
+	if reason != "" {
+		kind += ": " + reason
+	}
+	n.noteForward(kind, where)
 }
 
 func terminalCommand(line string) (string, string) {

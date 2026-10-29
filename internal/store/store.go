@@ -44,6 +44,12 @@ var ErrNoSession = errors.New("session not found")
 // ErrNotFound means the article row does not exist.
 var ErrNotFound = errors.New("article not found")
 
+// ErrNoState means the state directory is not there.
+var ErrNoState = errors.New("state directory does not exist")
+
+// ErrNoDatabase means the directory has no Crossbeam database.
+var ErrNoDatabase = errors.New("state directory has no database")
+
 // ErrDuplicateID means another row already uses that bulletin id.
 type ErrDuplicateID struct{}
 
@@ -96,6 +102,37 @@ func Open(dir string) (*Store, error) {
 	}
 	s.tighten()
 	return s, nil
+}
+
+// OpenExisting opens a state directory that already has a database.
+// It does not create the directory or the database file.
+func OpenExisting(dir string) (*Store, error) {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(abs)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, ErrNoState
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, ErrNoState
+	}
+	dbPath := filepath.Join(abs, "crossbeam.db")
+	info, err = os.Stat(dbPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, ErrNoDatabase
+	}
+	if err != nil {
+		return nil, err
+	}
+	if info.IsDir() {
+		return nil, ErrNoDatabase
+	}
+	return Open(abs)
 }
 
 // Close closes the database.

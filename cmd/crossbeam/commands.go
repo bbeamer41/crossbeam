@@ -638,7 +638,7 @@ func cmdSettings(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		fmt.Fprintln(stderr, "crossbeam: usage: crossbeam settings [get KEY | set KEY VALUE]")
 		return 2
 	}
-	back, code := openBackend(fs, *state, *socket, stderr)
+	back, code := openBackend(fs, *state, *socket, stderr, sub == "set")
 	if code != 0 {
 		return code
 	}
@@ -694,7 +694,7 @@ func cmdStatus(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		fmt.Fprintln(stderr, "crossbeam: status does not take arguments")
 		return 2
 	}
-	back, code := openBackend(fs, *state, *socket, stderr)
+	back, code := openBackend(fs, *state, *socket, stderr, true)
 	if code != 0 {
 		return code
 	}
@@ -992,7 +992,7 @@ func cmdSave(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if code != 0 {
 		return code
 	}
-	back, code := openBackend(flags.fs, *flags.state, *flags.socket, stderr)
+	back, code := openBackend(flags.fs, *flags.state, *flags.socket, stderr, true)
 	if code != 0 {
 		return code
 	}
@@ -1025,7 +1025,7 @@ func cmdList(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "crossbeam: article list does not take arguments")
 		return 2
 	}
-	back, code := openBackend(fs, *state, *socket, stderr)
+	back, code := openBackend(fs, *state, *socket, stderr, true)
 	if code != 0 {
 		return code
 	}
@@ -1060,7 +1060,7 @@ func (b *backend) close() {
 	}
 }
 
-func openBackend(fs *flag.FlagSet, state, socket string, stderr io.Writer) (*backend, int) {
+func openBackend(fs *flag.FlagSet, state, socket string, stderr io.Writer, create bool) (*backend, int) {
 	stateSet, socketSet := false, false
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
@@ -1091,7 +1091,13 @@ func openBackend(fs *flag.FlagSet, state, socket string, stderr io.Writer) (*bac
 			return nil, 1
 		}
 	}
-	st, err := store.Open(state)
+	var st *store.Store
+	var err error
+	if create {
+		st, err = store.Open(state)
+	} else {
+		st, err = store.OpenExisting(state)
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "crossbeam: %s\n", err)
 		return nil, 1

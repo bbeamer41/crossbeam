@@ -76,6 +76,44 @@ func TestArticleCommands(t *testing.T) {
 	}
 }
 
+func TestSettingsGetDoesNotCreateState(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "cbmiss")
+	stdout, stderr, code := capture([]string{"settings", "get", "--state", dir, "station.callsign"})
+	if code != 1 || stdout != "" || !strings.Contains(stderr, "state directory does not exist") {
+		t.Fatalf("get code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("state created: %v", err)
+	}
+	stdout, stderr, code = capture([]string{"settings", "--state", dir})
+	if code != 1 || stdout != "" || !strings.Contains(stderr, "state directory does not exist") {
+		t.Fatalf("list code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("list created: %v", err)
+	}
+	empty := filepath.Join(t.TempDir(), "empty")
+	if err := os.Mkdir(empty, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, stderr, code = capture([]string{"settings", "get", "--state", empty, "station.callsign"})
+	if code != 1 || !strings.Contains(stderr, "state directory has no database") {
+		t.Fatalf("empty code=%d stderr=%q", code, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(empty, "crossbeam.db")); !os.IsNotExist(err) {
+		t.Fatal("database created")
+	}
+	made := filepath.Join(t.TempDir(), "made")
+	stdout, stderr, code = capture([]string{"settings", "set", "--state", made, "station.callsign", "K5LEB"})
+	if code != 0 || stderr != "" {
+		t.Fatalf("set code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	stdout, stderr, code = capture([]string{"settings", "get", "--state", made, "station.callsign"})
+	if code != 0 || stderr != "" || stdout != "K5LEB\n" {
+		t.Fatalf("read back code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+}
+
 func TestBulletinSendWaitsUntilStopped(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "terminal.sock")
 	ln, err := net.Listen("unix", path)
