@@ -1,14 +1,14 @@
 Package: crossbeam
-Version: 0.9.4
+Version: 0.9.5
 Architecture: amd64
 Maintainer: K5LEB <75401887+bbeamer41@users.noreply.github.com>
-Installed-Size: 13168
+Installed-Size: 13188
 Depends: systemd
-Filename: pool/main/crossbeam_0.9.4_amd64.deb
-Size: 5590122
-MD5sum: 5857569534697798def75160b6ff200f
-SHA1: 444daa858b731090f5dc15e4bdfc529192885ae8
-SHA256: 845b61243be866a5ce841973066d91d8b6f3e101aef404c1620f1a19da19d8c0
+Filename: pool/main/crossbeam_0.9.5_amd64.deb
+Size: 5598262
+MD5sum: 8473d30116242102aef42a9a34127a8e
+SHA1: ce673b70366e8e0d934a72cac17754ae8e8aaaec
+SHA256: add0bd3de0fd66f9ed709d8e1fbf02b782fd70a822af66dc24ffa4043e25cf65
 Section: hamradio
 Priority: optional
 Homepage: https://github.com/bbeamer41/crossbeam
