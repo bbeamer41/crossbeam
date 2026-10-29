@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -38,6 +39,9 @@ const (
 	// the circuit closes.
 	hopLinger      = 15 * time.Second
 	maxNetromInbox = 64
+	// dropLogGap is the quiet period before the same listed callsign
+	// and address are logged again.
+	dropLogGap = 30 * time.Second
 )
 
 // guestRoute is the return address of a station that is not in the peer list.
@@ -93,9 +97,18 @@ type Node struct {
 
 	lineWait time.Duration
 
-	mu       sync.Mutex
-	peers    map[string]*net.UDPAddr
+	mu    sync.Mutex
+	peers map[string]*net.UDPAddr
+	// peerPort is the UDP port used for an open session when the packet
+	// arrived on a different port than link.peers. It is cleared when
+	// the session ends, so the next outbound call uses the configured port.
 	peerPort map[string]int
+	// replyPort is the source port of the latest accepted frame from a
+	// listed peer. An inbound session copies it into peerPort.
+	replyPort map[string]int
+	// live is a callsign whose AX.25 session has started and not ended.
+	live     map[string]bool
+	dropSeen map[string]time.Time
 	guests   map[string]*guestRoute
 	drop     func(ax25.Frame) bool
 	terms    int
@@ -197,26 +210,29 @@ func Listen(cfg Config) (*Node, error) {
 		n2 = ax25.DefaultN2
 	}
 	n := &Node{
-		local:    cfg.Local,
-		pc:       pc,
-		lookup:   cfg.Lookup,
-		dialFor:  t1 * time.Duration(n2+2),
-		termPath: cfg.TerminalPath,
-		lineWait: termLineWait,
-		quit:     make(chan struct{}),
-		peers:    map[string]*net.UDPAddr{},
-		peerPort: map[string]int{},
-		guests:   map[string]*guestRoute{},
-		forward:  cfg.Forward,
-		ready:    cfg.ForwardReady,
-		nodes:    ax25.Address{Call: "NODES"},
-		hops:     map[string]*hop{},
-		wake:     make(chan struct{}, 1),
-		kissAddr: kissAddr,
-		kissWait: cfg.KissRetry,
-		telnetTo: map[string]string{},
-		fbbTo:    map[string]string{},
-		tcpLive:  map[net.Conn]struct{}{},
+		local:     cfg.Local,
+		pc:        pc,
+		lookup:    cfg.Lookup,
+		dialFor:   t1 * time.Duration(n2+2),
+		termPath:  cfg.TerminalPath,
+		lineWait:  termLineWait,
+		quit:      make(chan struct{}),
+		peers:     map[string]*net.UDPAddr{},
+		peerPort:  map[string]int{},
+		replyPort: map[string]int{},
+		live:      map[string]bool{},
+		dropSeen:  map[string]time.Time{},
+		guests:    map[string]*guestRoute{},
+		forward:   cfg.Forward,
+		ready:     cfg.ForwardReady,
+		nodes:     ax25.Address{Call: "NODES"},
+		hops:      map[string]*hop{},
+		wake:      make(chan struct{}, 1),
+		kissAddr:  kissAddr,
+		kissWait:  cfg.KissRetry,
+		telnetTo:  map[string]string{},
+		fbbTo:     map[string]string{},
+		tcpLive:   map[net.Conn]struct{}{},
 	}
 	n.user = cfg.Handler
 	if n.user == nil {
@@ -319,6 +335,7 @@ func (n *Node) SetPeers(text string) error {
 	n.mu.Lock()
 	n.peers = next
 	n.peerPort = map[string]int{}
+	n.replyPort = map[string]int{}
 	for call := range next {
 		delete(n.guests, call)
 	}
@@ -827,12 +844,12 @@ func (n *Node) allow(src ax25.Address, from *net.UDPAddr) bool {
 	n.sweepGuestsLocked(now)
 	if peer, ok := n.peers[key]; ok {
 		if !peer.IP.Equal(ip) {
+			n.noteWrongIPLocked(key, from, now)
 			return false
 		}
-		if from.Port != peer.Port {
-			n.peerPort[key] = from.Port
-		} else {
-			delete(n.peerPort, key)
+		n.replyPort[key] = from.Port
+		if n.live[key] {
+			n.setSessionPortLocked(key, peer.Port, from.Port)
 		}
 		return true
 	}
@@ -885,24 +902,67 @@ func (n *Node) sweepGuestsLocked(now time.Time) {
 	}
 }
 
-func (n *Node) beginSession(remote ax25.Address) {
+func (n *Node) beginSession(remote ax25.Address, inbound bool) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	guest, ok := n.guests[remote.String()]
-	if !ok || guest.active {
+	key := remote.String()
+	if guest, ok := n.guests[key]; ok && !guest.active {
+		guest.active = true
+	}
+	n.live[key] = true
+	// An outbound call keeps the configured port for its SABM. The peer's
+	// reply, handled in allow, learns a different source port for this
+	// session only. An inbound SABM has already stored that port.
+	if !inbound {
+		delete(n.peerPort, key)
 		return
 	}
-	guest.active = true
+	peer, ok := n.peers[key]
+	if !ok {
+		return
+	}
+	port, ok := n.replyPort[key]
+	if !ok {
+		return
+	}
+	n.setSessionPortLocked(key, peer.Port, port)
 }
 
 func (n *Node) endSession(remote ax25.Address) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	key := remote.String()
+	delete(n.live, key)
+	delete(n.peerPort, key)
+	delete(n.replyPort, key)
 	if _, ok := n.guests[key]; !ok {
 		return
 	}
 	delete(n.guests, key)
+}
+
+func (n *Node) setSessionPortLocked(key string, configured, port int) {
+	if port != configured {
+		n.peerPort[key] = port
+		return
+	}
+	delete(n.peerPort, key)
+}
+
+func (n *Node) noteWrongIPLocked(call string, from *net.UDPAddr, now time.Time) {
+	ip := canonicalIP(from.IP)
+	if ip == nil {
+		return
+	}
+	mark := call + " " + ip.String()
+	if prev, ok := n.dropSeen[mark]; ok && now.Sub(prev) < dropLogGap {
+		return
+	}
+	if len(n.dropSeen) >= 32 {
+		n.dropSeen = map[string]time.Time{}
+	}
+	n.dropSeen[mark] = now
+	log.Printf("crossbeam: dropped %s from %s", call, from.String())
 }
 
 func canonicalIP(ip net.IP) net.IP {

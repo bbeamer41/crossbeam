@@ -339,6 +339,9 @@ func (s *session) readFS(n int) ([]byte, error) {
 		if trim == "" || isSID(trim) {
 			continue
 		}
+		if strings.EqualFold(trim, "FQ") {
+			return nil, errors.New("forward refused")
+		}
 		return fbb.ParseFS(trim, n)
 	}
 }

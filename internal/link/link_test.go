@@ -10,7 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -373,6 +375,130 @@ func TestListedPeerRejectsAnotherAddress(t *testing.T) {
 	if len(frames) == 0 || !ax25.IsUA(frames[0].Control) {
 		t.Fatalf("real peer %+v", frames)
 	}
+}
+
+func TestDroppedWrongIPIsLogged(t *testing.T) {
+	var buf lockedBuf
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	node := startNode(t, "K5LEB", false)
+	spoof := listenUDP(t, "127.0.0.2")
+	if err := node.SetPeers("W1AW-1@127.0.0.1:9"); err != nil {
+		t.Fatal(err)
+	}
+	sabm := ax25.Frame{Dest: node.Local(), Src: mustCall(t, "W1AW-1"), Command: true, Control: ax25.SABM | 0x10}.Encode()
+	if _, err := spoof.WriteToUDP(sabm, node.LocalAddr()); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for !strings.Contains(buf.String(), "crossbeam: dropped W1AW-1 from 127.0.0.2:") {
+		if time.Now().After(deadline) {
+			t.Fatalf("log %q", buf.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := spoof.WriteToUDP(sabm, node.LocalAddr()); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if strings.Count(buf.String(), "dropped W1AW-1") != 1 {
+		t.Fatalf("repeated drop %q", buf.String())
+	}
+	if frames := readFrames(spoof, 1, 200*time.Millisecond); len(frames) != 0 {
+		t.Fatalf("spoof got %+v", frames)
+	}
+}
+
+func TestLearnedPortEndsWithTheSession(t *testing.T) {
+	node, err := Listen(Config{
+		Bind: "127.0.0.1:0", Local: mustCall(t, "K5LEB"),
+		T1: 150 * time.Millisecond, N2: 6,
+		Handler: func(_ ax25.Address, rw io.ReadWriteCloser) {
+			_, _ = io.Copy(io.Discard, rw)
+			_ = rw.Close()
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer node.Close()
+	real := listenUDP(t, "127.0.0.1")
+	attacker := listenUDP(t, "127.0.0.1")
+	if err := node.SetPeers("W1AW-1@" + real.LocalAddr().String()); err != nil {
+		t.Fatal(err)
+	}
+	call := mustCall(t, "W1AW-1")
+	sabm := ax25.Frame{Dest: node.Local(), Src: call, Command: true, Control: ax25.SABM | 0x10}.Encode()
+	if _, err := attacker.WriteToUDP(sabm, node.LocalAddr()); err != nil {
+		t.Fatal(err)
+	}
+	frames := readFrames(attacker, 1, time.Second)
+	if len(frames) == 0 || !ax25.IsUA(frames[0].Control) {
+		t.Fatalf("attacker session %+v", frames)
+	}
+	node.mu.Lock()
+	learned := node.peerPort[call.String()]
+	node.mu.Unlock()
+	if learned != attacker.LocalAddr().(*net.UDPAddr).Port {
+		t.Fatalf("session port %d want %d", learned, attacker.LocalAddr().(*net.UDPAddr).Port)
+	}
+	disc := ax25.Frame{Dest: node.Local(), Src: call, Command: true, Control: ax25.DISC | 0x10}.Encode()
+	if _, err := attacker.WriteToUDP(disc, node.LocalAddr()); err != nil {
+		t.Fatal(err)
+	}
+	frames = readFrames(attacker, 1, time.Second)
+	if len(frames) == 0 || !ax25.IsUA(frames[0].Control) {
+		t.Fatalf("disc %+v", frames)
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		node.mu.Lock()
+		_, stuck := node.peerPort[call.String()]
+		node.mu.Unlock()
+		if !stuck {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("learned port stuck after the session")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	got := make(chan error, 1)
+	go func() {
+		_, err := waitSABM(real, node.Local(), call)
+		got <- err
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, _ = node.Dial(ctx, call.String())
+	select {
+	case err := <-got:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("configured peer did not receive the next call")
+	}
+	if frames := readFrames(attacker, 1, 200*time.Millisecond); len(frames) != 0 {
+		t.Fatalf("next call followed the old port %+v", frames)
+	}
+}
+
+type lockedBuf struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *lockedBuf) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuf) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
 }
 
 func TestUnlistedCallerStaysOnItsAddress(t *testing.T) {

@@ -10,7 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -601,11 +603,97 @@ func TestUnlistedAXUDPForwardIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.HasPrefix(reply, "OK ") {
-		t.Fatalf("unlisted forward accepted %q", reply)
+	if strings.HasPrefix(reply, "OK ") || strings.Contains(reply, "expected FS") {
+		t.Fatalf("refusal %q", reply)
 	}
 	if countArt(t, stB) != 0 {
 		t.Fatal("unlisted forward stored a bulletin")
+	}
+}
+
+func TestFQBeforeFSIsRefused(t *testing.T) {
+	st := openStore(t)
+	saveArt(t, st, "NIGHT", "Net tonight", "K5LEB", "Meet at 7.", time.Now().UTC())
+	a, b := net.Pipe()
+	defer a.Close()
+	errc := make(chan error, 1)
+	go func() {
+		defer b.Close()
+		rd := bufio.NewReader(b)
+		if _, err := io.WriteString(b, "[TEST-1-F$]\rW1AW>\r"); err != nil {
+			errc <- err
+			return
+		}
+		for {
+			line, err := readCR(rd)
+			if err != nil {
+				errc <- err
+				return
+			}
+			if strings.HasPrefix(strings.ToUpper(line), "F>") {
+				break
+			}
+		}
+		_, err := io.WriteString(b, "FQ\r")
+		errc <- err
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	_, err := Forward(ctx, st, mustCall(t, "K5LEB"), a)
+	a.Close()
+	if err == nil || !strings.Contains(err.Error(), "forward refused") {
+		t.Fatalf("forward %v", err)
+	}
+	if err := <-errc; err != nil {
+		t.Fatal(err)
+	}
+}
+
+type labeledConn struct {
+	io.ReadWriteCloser
+	allow bool
+	label string
+}
+
+func (c labeledConn) ForwardAllowed() bool { return c.allow }
+
+func (c labeledConn) PeerLabel() string { return c.label }
+
+func TestBadChecksumIsLogged(t *testing.T) {
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	st := openStore(t)
+	line := "FB B W1AW WW ALL NEW-1 8"
+	sum := fbb.Checksum([]string{line}) ^ 0xFF
+	a, b := net.Pipe()
+	defer a.Close()
+	errc := make(chan error, 1)
+	go func() {
+		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), labeledConn{
+			ReadWriteCloser: b, allow: true, label: "W1AW 127.0.0.1:10093",
+		})
+	}()
+	rd := bufio.NewReader(a)
+	if err := readUntilPrompt(rd); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(a, "[TEST-1-F$]\r"+line+"\r"+fmt.Sprintf("F> %02X\r", sum)); err != nil {
+		t.Fatal(err)
+	}
+	reply, err := readCR(rd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(reply, "bad checksum") {
+		t.Fatalf("reply %q", reply)
+	}
+	a.Close()
+	if err := <-errc; err == nil || !strings.Contains(err.Error(), "bad checksum") {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "forward done sent 0 received 0: bad checksum W1AW 127.0.0.1:10093") {
+		t.Fatalf("log %q", buf.String())
 	}
 }
 

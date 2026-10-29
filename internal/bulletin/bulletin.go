@@ -159,7 +159,11 @@ func serveForward(ctx context.Context, st *store.Store, local ax25.Address, w io
 		sess.hold = first
 	}
 	runErr := sess.run(false)
-	noteSession(fmt.Sprintf("forward done sent %d received %d", sess.sent, sess.received), label)
+	summary := fmt.Sprintf("forward done sent %d received %d", sess.sent, sess.received)
+	if runErr != nil {
+		summary += ": " + oneLine(runErr)
+	}
+	noteSession(summary, label)
 	return peerGone(runErr)
 }
 

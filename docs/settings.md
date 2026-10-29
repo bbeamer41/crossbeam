@@ -52,7 +52,7 @@ A hostname is saved without looking it up. At start it must resolve to one addre
 
 Stations this node can call. Separate entries with spaces or commas. Each entry is CALL@host:port, such as W1AW-1@192.168.1.20:10093. A change takes effect on the next start.
 
-Each callsign is stored in uppercase. SSID 0 is stored without a suffix. At most 32 stations. A hostname in an entry is resolved when the link starts, and it must resolve to one address. This node answers the prompt for a station that is not listed. Bulletin forwarding on AX/UDP is accepted only from a station in this list. The list is also who this node will call. The reply goes to the address the request came from.
+Each callsign is stored in uppercase. SSID 0 is stored without a suffix. At most 32 stations. A hostname in an entry is resolved when the link starts, and it must resolve to one address. This node answers the prompt for a station that is not listed. Bulletin forwarding on AX/UDP is accepted only from a station in this list. The list is also who this node will call. While a session with that station is open, the reply goes to the address the request came from. The next call uses the port in this list again.
 
 A listed station is also a NET/ROM neighbor. Routes learned from those neighbors stay in memory until `crossbeam serve` stops. They are described in `docs/netrom.md`.
 

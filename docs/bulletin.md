@@ -22,7 +22,7 @@ An incoming forward, on AX/UDP, telnet, or FBB TCP, is accepted only from a list
 
 The called station sends a station id, the `Crossbeam CALL` line, and the `CALL>` prompt. The caller sends its own station id and then the proposals. A person can still send `?` or `BYE` if the first line is not a forwarding command.
 
-The station id looks like `[CROSSBEAM-0.9.3-FHM$]`. The version is the program version. `F` is batch forwarding, `H` is a hierarchical address, `M` is a message id, and `$` is a bulletin id. Compressed forwarding is not offered.
+The station id looks like `[CROSSBEAM-0.9.4-FHM$]`. The version is the program version. `F` is batch forwarding, `H` is a hierarchical address, `M` is a message id, and `$` is a bulletin id. Compressed forwarding is not offered.
 
 A proposal is one or more lines, then a checksum line:
 
@@ -57,7 +57,7 @@ The receiver stores the bulletin id as the article id and the sender as the auth
 
 ## Checksum
 
-`F>` may stand alone. A peer that sends two hex digits is checked. The value is the two's complement of an 8-bit total of every proposal line, including the carriage return at the end of each line, and not including the `F>` line. That is the ASCII proposal checksum published for F6FBB. It is written as two uppercase hex digits. A following line feed is ignored and is not added. The checksum used on a compressed binary block is a different sum, and compressed forwarding is not implemented. This matches the published ASCII rule. It has not been run against a LinBPQ node. A wrong checksum, a missing field, or a bad character ends the session. Nothing from that proposal is stored. Two Crossbeam nodes use this sum.
+`F>` may stand alone. A peer that sends two hex digits is checked. The value is the two's complement of an 8-bit total of every proposal line, including the carriage return at the end of each line, and not including the `F>` line. That is the ASCII proposal checksum published for F6FBB. It is written as two uppercase hex digits. A following line feed is ignored and is not added. The checksum used on a compressed binary block is a different sum, and compressed forwarding is not implemented. This matches the published ASCII rule. It has not been run against a LinBPQ node. A wrong checksum, a missing field, or a bad character ends the session and is named in the forward log. Nothing from that proposal is stored. Two Crossbeam nodes use this sum. A peer that still sends the plain sum has to be upgraded before the two stations can exchange bulletins.
 
 ## Limits
 

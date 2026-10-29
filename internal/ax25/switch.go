@@ -41,7 +41,7 @@ type Switch struct {
 	send    func(Address, Frame)
 	accept  func(Address, *Stream)
 	netrom  func(Address, []byte)
-	onBegin func(Address)
+	onBegin func(Address, bool)
 	onEnd   func(Address)
 	idle    time.Duration
 	events  chan event
@@ -66,7 +66,8 @@ type Config struct {
 	// only enqueue the frame. It must not call this switch.
 	Netrom func(Address, []byte)
 	// Begin and End run on the engine goroutine and must not call the switch.
-	Begin func(Address)
+	// Begin's bool is true when the remote station sent the SABM.
+	Begin func(Address, bool)
 	End   func(Address)
 	// Idle is how long a quiet session stays up. Zero uses DefaultIdle.
 	Idle time.Duration
@@ -498,7 +499,7 @@ func (s *Switch) onDial(remote Address, result chan dialResult) {
 	c.phase = phaseSetup
 	c.waiter = result
 	s.conns[remote.String()] = c
-	s.began(remote)
+	s.began(remote, false)
 	s.sendU(remote, SABM, true, true)
 	c.arm(s.now())
 }
@@ -619,7 +620,7 @@ func (s *Switch) onSABM(f Frame, c *conn) {
 	if fresh {
 		c = s.newConn(f.Src)
 		s.conns[f.Src.String()] = c
-		s.began(f.Src)
+		s.began(f.Src, true)
 	}
 	c.vs, c.vr, c.va = 0, 0, 0
 	c.sent = [8]slot{}
@@ -913,9 +914,9 @@ func (s *Switch) newConn(remote Address) *conn {
 	return &conn{remote: remote, stream: st}
 }
 
-func (s *Switch) began(remote Address) {
+func (s *Switch) began(remote Address, inbound bool) {
 	if s.onBegin != nil {
-		s.onBegin(remote)
+		s.onBegin(remote, inbound)
 	}
 }
 
