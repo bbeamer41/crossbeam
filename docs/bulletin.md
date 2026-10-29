@@ -22,7 +22,7 @@ An incoming forward, on AX/UDP, telnet, or FBB TCP, is accepted only from a list
 
 The called station sends a station id, the `Crossbeam CALL` line, and the `CALL>` prompt. The caller sends its own station id and then the proposals. A person can still send `?` or `BYE` if the first line is not a forwarding command.
 
-The station id looks like `[CROSSBEAM-0.9.4-FHM$]`. The version is the program version. `F` is batch forwarding, `H` is a hierarchical address, `M` is a message id, and `$` is a bulletin id. Compressed forwarding is not offered.
+The station id looks like `[CROSSBEAM-0.9.5-FHM$]`. The version is the program version. `F` is batch forwarding, `H` is a hierarchical address, `M` is a message id, and `$` is a bulletin id. Compressed forwarding is not offered.
 
 A proposal is one or more lines, then a checksum line:
 
