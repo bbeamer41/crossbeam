@@ -5,26 +5,26 @@ Origin: Crossbeam
 Label: Crossbeam
 Suite: stable
 Codename: stable
-Date: Tue, 27 Oct 2026 19:00:20 +0000
+Date: Thu, 29 Oct 2026 14:31:33 +0000
 Architectures: amd64
 Components: main
 Description: Crossbeam packet-radio node
 MD5Sum:
- c7a16d2c67f4db96360e010f89d024a2 649 main/binary-amd64/Packages
- 443dbbb73e65a71b5044c3da386c3ecf 453 main/binary-amd64/Packages.gz
+ a92135bdfb1ebabd05c7e6445d182a09 649 main/binary-amd64/Packages
+ e3b97ca5ecb26d5a97d955eb2c08f1e4 453 main/binary-amd64/Packages.gz
 SHA1:
- e4f454897cefbb954283c26a8392f6dd9d596f7b 649 main/binary-amd64/Packages
- d8c552d5bd77d0044f827a1d654e9b2a6446bbda 453 main/binary-amd64/Packages.gz
+ e401d32ce1435c6399717ce92eec1d0c3eaf1d56 649 main/binary-amd64/Packages
+ f3c38c587bf5f400251dc5bd6371ba6fc36fbd84 453 main/binary-amd64/Packages.gz
 SHA256:
- 906e0a9488a2dc511c69d93a2bf27b56a1eb3a91c1146abd578839129e285e62 649 main/binary-amd64/Packages
- 1e91c56280946d59c29af190a0222289690635a237279d3e3fcb9ae6b3a275c7 453 main/binary-amd64/Packages.gz
+ 2c435da71015f5112f001957578124e7bac5fd85aba035c9cfc3e68440199749 649 main/binary-amd64/Packages
+ 575aa77fe5f56ee295105cbd81b217d83e2b04702fc0017b178673c8bd5b996c 453 main/binary-amd64/Packages.gz
 SHA512:
- a8d9f64c4afdf8ee2ef65c9a231d4b2ac22183c58eaf61e9cb82f829a1a45d0e6fda6882b150785500969c5d47780e1aac10ac170c3b47e700869916e07ca241 649 main/binary-amd64/Packages
- 631c01df697b5310b376e8155a609e9cb7c5c9144c521ab0efd5c49d4f68a3faff00da95ba1a398555265ba05b1bb9255d9efa111defb86fcc1911aea902e4e5 453 main/binary-amd64/Packages.gz
+ 83d0791d2fc5fa57da498f071e948141e92d38c6fae543115cbaf73a30899fa388f1fbbc7eb22fad8bf263413d4d33099d900a90b56f24db2ab134b72e1fb9a8 649 main/binary-amd64/Packages
+ 9f385c073b8e5f3cd39bde5fbd0542488a7398cf0130e0a3d678caf46641c600834811968977f4144c90c2e577e3094eb6c2562ef2481befcfbee5cf0b2a29c5 453 main/binary-amd64/Packages.gz
 -----BEGIN PGP SIGNATURE-----
 
-iHUEARYKAB0WIQTmt6m1S2OhXjfAl5/Et//hqw1gNAUCauD0xAAKCRDEt//hqw1g
-NEIOAQCTDuXugzvOUoPK9cxVOicNMx3MK5k9e92OPm5GV9kLmgD/Q6aFe9pd5Sc4
-CpQvM6Vmbt7TMlI5c9kCRFVMa1Zyaww=
-=b5IN
+iHUEARYKAB0WIQTmt6m1S2OhXjfAl5/Et//hqw1gNAUCauNYxgAKCRDEt//hqw1g
+NJI8AP91sK495OECPcxvNPrUELHJgGOG+QUeOCrChlAyYJNKmgEAwyuDaRKl+Nu4
+mYM3LRHA2teg9/mpdLtS9H/Z4t6J9wk=
+=oS9j
 -----END PGP SIGNATURE-----
