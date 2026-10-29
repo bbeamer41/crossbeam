@@ -7,6 +7,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -191,6 +193,19 @@ func TestSysopPassword(t *testing.T) {
 	}
 }
 
+func TestSocketModeStaysOutOfTheStateDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "state")
+	_, stderr, code := capture([]string{"serve", "--state", dir, "--listen", "127.0.0.1:0", "--socket-mode", "0660"})
+	if code != 2 || !strings.Contains(stderr, "outside the state directory") {
+		t.Fatalf("inside code=%d stderr=%q", code, stderr)
+	}
+	outside := filepath.Join(t.TempDir(), "crossbeam.sock")
+	_, stderr, code = capture([]string{"serve", "--state", dir, "--listen", "127.0.0.1:0", "--socket", outside, "--socket-mode", "0660"})
+	if code != 78 || !strings.Contains(stderr, "sysop password") {
+		t.Fatalf("outside code=%d stderr=%q", code, stderr)
+	}
+}
+
 func TestConnectCommand(t *testing.T) {
 	_, stderr, code := capture([]string{"connect"})
 	if code != 2 || !strings.Contains(stderr, "usage") {
@@ -259,6 +274,66 @@ func TestConnectCommand(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("serve did not stop")
+	}
+}
+
+func TestConnectHalfClosesStdin(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "terminal.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	type gotRead struct {
+		body string
+		err  error
+	}
+	got := make(chan gotRead, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			got <- gotRead{err: err}
+			return
+		}
+		defer conn.Close()
+		br := bufio.NewReader(conn)
+		line, err := br.ReadString('\n')
+		if err != nil {
+			got <- gotRead{err: err}
+			return
+		}
+		if strings.TrimSpace(line) != "CONNECT W1AW-1" {
+			got <- gotRead{err: fmt.Errorf("line %q", line)}
+			return
+		}
+		if _, err := conn.Write([]byte("OK\n")); err != nil {
+			got <- gotRead{err: err}
+			return
+		}
+		var body bytes.Buffer
+		if _, err := io.Copy(&body, br); err != nil {
+			got <- gotRead{err: err}
+			return
+		}
+		if _, err := conn.Write([]byte("DONE\n")); err != nil {
+			got <- gotRead{err: err}
+			return
+		}
+		got <- gotRead{body: body.String()}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	stdout, stderr, code := captureIn(ctx, []string{"connect", "--socket", sock, "W1AW-1"}, strings.NewReader("hi\r"))
+	if code != 0 || !strings.Contains(stdout, "DONE") {
+		t.Fatalf("connect %d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	select {
+	case item := <-got:
+		if item.err != nil || item.body != "hi\r" {
+			t.Fatalf("body %q %v", item.body, item.err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("server did not see the end of stdin")
 	}
 }
 

@@ -111,6 +111,8 @@ type circuit struct {
 	last        time.Time
 	ackDue      time.Time
 	nak         bool
+	forceResend bool
+	draining    bool
 	remoteChoke bool
 	chokeSince  time.Time
 	active      time.Time
@@ -502,8 +504,8 @@ func (r *Router) onInfo(from ax25.Address, m Message) {
 	}
 	r.applyAckLocked(c, m.Rx, m.Choke)
 	r.takeInfoLocked(c, m.Tx, m.Info)
-	if m.NAK {
-		c.last = time.Time{}
+	if m.NAK && len(c.unacked) > 0 {
+		c.forceResend = true
 	}
 	r.mu.Unlock()
 	r.flush(c)
@@ -517,8 +519,8 @@ func (r *Router) onAck(from ax25.Address, m Message) {
 		return
 	}
 	r.applyAckLocked(c, m.Rx, m.Choke)
-	if m.NAK {
-		c.last = time.Time{}
+	if m.NAK && len(c.unacked) > 0 {
+		c.forceResend = true
 	}
 	r.mu.Unlock()
 	r.flush(c)
@@ -604,8 +606,11 @@ func (r *Router) takeInfoLocked(c *circuit, seq byte, data []byte) {
 	}
 	if seq == c.vr {
 		if !r.appendLocked(c, data) {
-			c.nak = true
-			c.ackDue = time.Now()
+			// The frame was in sequence. Choke on the acknowledgement
+			// tells the peer to wait. A NAK here would skip the retry limit.
+			if c.ackDue.IsZero() {
+				c.ackDue = time.Now()
+			}
 			return
 		}
 		c.vr++
@@ -615,8 +620,9 @@ func (r *Router) takeInfoLocked(c *circuit, seq byte, data []byte) {
 				break
 			}
 			if !r.appendLocked(c, nxt) {
-				c.nak = true
-				c.ackDue = time.Now()
+				if c.ackDue.IsZero() {
+					c.ackDue = time.Now()
+				}
 				break
 			}
 			delete(c.early, c.vr)
@@ -789,10 +795,23 @@ func (r *Router) service(c *circuit, now time.Time) {
 		_ = r.sendConnect(c)
 		return
 	}
-	if c.state == stUp && len(c.unacked) > 0 && (c.last.IsZero() || now.Sub(c.last) >= r.timeout) {
-		if !c.last.IsZero() && c.tries >= r.tries {
+	if c.state == stUp && c.draining && len(c.unacked) == 0 && len(c.pending) == 0 {
+		frame, via, send := r.discLocked(c, now)
+		c.state = stClosing
+		c.tries = 1
+		r.mu.Unlock()
+		r.emit(send, via, [][]byte{frame})
+		return
+	}
+	if c.state == stUp && len(c.unacked) > 0 && (c.forceResend || c.last.IsZero() || now.Sub(c.last) >= r.timeout) {
+		c.forceResend = false
+		if c.tries >= r.tries {
+			frame, via, send := r.discLocked(c, now)
+			c.state = stClosing
+			c.draining = false
+			c.tries = 1
 			r.mu.Unlock()
-			r.finish(c, errors.New("connection timed out"))
+			r.emit(send, via, [][]byte{frame})
 			return
 		}
 		frames, via := r.resendLocked(c, now)
@@ -807,7 +826,7 @@ func (r *Router) service(c *circuit, now time.Time) {
 		r.emit(send, via, [][]byte{frame})
 		return
 	}
-	if c.state == stUp && len(c.unacked) == 0 && len(c.pending) == 0 && !c.active.IsZero() && now.Sub(c.active) >= r.idle {
+	if c.state == stUp && !c.draining && len(c.unacked) == 0 && len(c.pending) == 0 && !c.active.IsZero() && now.Sub(c.active) >= r.idle {
 		r.mu.Unlock()
 		r.beginClose(c)
 		return
@@ -880,7 +899,7 @@ func (r *Router) discLocked(c *circuit, now time.Time) ([]byte, ax25.Address, fu
 
 func (r *Router) beginClose(c *circuit) {
 	r.mu.Lock()
-	if c.state == stDead || c.state == stClosing {
+	if c.state == stDead || c.state == stClosing || c.draining {
 		r.mu.Unlock()
 		return
 	}
@@ -889,12 +908,18 @@ func (r *Router) beginClose(c *circuit) {
 		r.finish(c, io.EOF)
 		return
 	}
-	c.state = stClosing
+	c.draining = true
 	if c.err == nil {
 		c.err = io.EOF
 	}
 	c.cond.Broadcast()
+	if len(c.unacked) > 0 || len(c.pending) > 0 {
+		r.mu.Unlock()
+		r.flush(c)
+		return
+	}
 	frame, via, send := r.discLocked(c, time.Now())
+	c.state = stClosing
 	// discLocked increments tries. The first disc should count as try 1.
 	c.tries = 1
 	r.mu.Unlock()
@@ -998,8 +1023,13 @@ func (p *pipe) Read(b []byte) (int, error) {
 	if len(c.rbuf) == 0 {
 		c.rbuf = nil
 	}
-	if len(c.rbuf) <= p.r.payload*2 && c.ackDue.IsZero() {
-		c.ackDue = time.Now()
+	// The bytes are with the application. Acknowledge them now instead of
+	// waiting out a delay that was set when they arrived.
+	if len(c.rbuf) <= p.r.payload*2 {
+		now := time.Now()
+		if c.ackDue.IsZero() || c.ackDue.After(now) {
+			c.ackDue = now
+		}
 	}
 	return n, nil
 }

@@ -11,6 +11,45 @@ import (
 	"time"
 )
 
+func TestRNRFinalDoesNotRetransmit(t *testing.T) {
+	var frames []Frame
+	sw := &Switch{
+		local:  Address{Call: "K5LEB"},
+		t1:     time.Second,
+		window: 4,
+		now:    time.Now,
+		send: func(_ Address, f Frame) {
+			frames = append(frames, f)
+		},
+	}
+	c := sw.newConn(Address{Call: "W1AW"})
+	c.phase = phaseInfo
+	c.vs = 1
+	c.poll = true
+	c.sent[0] = slot{pid: PIDText, data: []byte("hi")}
+	sw.onS(c, Frame{Command: false, Control: SControl(RNR, 0, true)})
+	if !c.peerBusy || c.poll {
+		t.Fatalf("busy %v poll %v", c.peerBusy, c.poll)
+	}
+	for _, f := range frames {
+		if f.Control&1 == 0 {
+			t.Fatal("RNR final retransmitted an I frame")
+		}
+	}
+	frames = nil
+	c.poll = true
+	sw.onS(c, Frame{Command: false, Control: SControl(RR, 0, true)})
+	sawI := false
+	for _, f := range frames {
+		if f.Control&1 == 0 {
+			sawI = true
+		}
+	}
+	if !sawI || c.poll {
+		t.Fatal("RR final did not retransmit")
+	}
+}
+
 func TestCanceledDialReleasesTheCall(t *testing.T) {
 	started := make(chan struct{})
 	var once sync.Once

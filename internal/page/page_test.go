@@ -16,6 +16,13 @@ import (
 	"github.com/bbeamer41/crossbeam/internal/store"
 )
 
+func TestPublishErrHidesSQL(t *testing.T) {
+	err := publishErr(errors.New("sql: database is closed"))
+	if err == nil || err.Error() != "the pages could not be published" {
+		t.Fatalf("%v", err)
+	}
+}
+
 func TestFileName(t *testing.T) {
 	name, err := FileName(1)
 	if err != nil || name != "cb-1.mu" {

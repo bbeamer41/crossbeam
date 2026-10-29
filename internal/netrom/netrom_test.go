@@ -8,6 +8,7 @@ import (
 	"context"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -422,6 +423,78 @@ func TestSecondCircuitIsRefusedAtTheCap(t *testing.T) {
 			second.Close()
 		}
 		t.Fatalf("second %v", err)
+	}
+}
+
+func TestNAKResendStopsAndAFullBufferWaits(t *testing.T) {
+	far := mustCall(t, "W1AW-1")
+	var frames [][]byte
+	r := &Router{
+		local:   mustCall(t, "K5LEB"),
+		ttl:     8,
+		tries:   3,
+		timeout: time.Hour,
+		payload: 236,
+		window:  4,
+		send: func(_ ax25.Address, frame []byte) error {
+			frames = append(frames, append([]byte(nil), frame...))
+			return nil
+		},
+		circuits: map[uint16]*circuit{},
+	}
+	c := &circuit{
+		state:      stUp,
+		localIndex: 1,
+		localID:    2,
+		far:        far,
+		via:        far,
+		window:     4,
+		vs:         1,
+		unacked:    []outFrame{{data: []byte("hi")}},
+		tries:      1,
+		last:       time.Now().Add(-time.Minute),
+		early:      map[byte][]byte{},
+		cond:       sync.NewCond(&sync.Mutex{}),
+	}
+	r.circuits[localKey(c.localIndex, c.localID)] = c
+	stamp := c.last
+	r.onAck(far, Message{Origin: far, Index: c.localIndex, ID: c.localID, Op: OpAck, NAK: true})
+	if !c.last.Equal(stamp) || !c.forceResend {
+		t.Fatalf("NAK last %v force %v", c.last, c.forceResend)
+	}
+	for i := 0; i < 2; i++ {
+		r.service(c, time.Now())
+		r.onAck(far, Message{Origin: far, Index: c.localIndex, ID: c.localID, Op: OpAck, NAK: true})
+	}
+	r.service(c, time.Now())
+	if c.state != stClosing {
+		t.Fatalf("state %d", c.state)
+	}
+	info, disc := 0, 0
+	for _, frame := range frames {
+		msg, err := Decode(frame)
+		if err != nil {
+			t.Fatal(err)
+		}
+		switch msg.Op {
+		case OpInfo:
+			info++
+		case OpDisc:
+			disc++
+		}
+	}
+	if info != 2 || disc != 1 {
+		t.Fatalf("info %d disc %d", info, disc)
+	}
+
+	full := &circuit{state: stUp, window: 4, rbuf: bytes.Repeat([]byte{'x'}, maxBuf), early: map[byte][]byte{}}
+	r.takeInfoLocked(full, 0, []byte("more"))
+	if full.nak || full.ackDue.IsZero() {
+		t.Fatalf("full nak %v ack %v", full.nak, full.ackDue)
+	}
+	r.takeInfoLocked(full, 1, []byte("later"))
+	if !full.nak {
+		t.Fatal("out of order did not NAK")
 	}
 }
 

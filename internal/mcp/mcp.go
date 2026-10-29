@@ -82,9 +82,17 @@ var errTooLarge = errors.New("message is too large")
 func readLines(ctx context.Context, in io.Reader, lines chan<- scanLine) {
 	defer close(lines)
 	sc := bufio.NewScanner(in)
-	sc.Buffer(make([]byte, 0, 64*1024), maxMessageBytes)
+	// The limit counts the line. The scanner also has to see the newline.
+	sc.Buffer(make([]byte, 0, 64*1024), maxMessageBytes+1)
 	for sc.Scan() {
 		line := append([]byte(nil), sc.Bytes()...)
+		if len(line) > maxMessageBytes {
+			select {
+			case <-ctx.Done():
+			case lines <- scanLine{err: errTooLarge}:
+			}
+			return
+		}
 		select {
 		case <-ctx.Done():
 			return

@@ -317,8 +317,29 @@ func TestPagesAndStation(t *testing.T) {
 		req(2, "tools/call", map[string]any{"name": "list_articles"}),
 	)
 	failed := toolData(t, closed[1])
-	if !failed.isError || strings.Contains(failed.text, dir) || strings.Contains(string(closed[1]), dir) {
+	rawClosed := string(closed[1])
+	if !failed.isError || strings.Contains(failed.text, dir) || strings.Contains(rawClosed, dir) || strings.Contains(strings.ToLower(failed.text), "sql:") || strings.Contains(strings.ToLower(rawClosed), "sql:") {
 		t.Fatalf("closed %#v %s", failed, closed[1])
+	}
+}
+
+func TestMessageAtTheCapContinues(t *testing.T) {
+	if publicText("sql: database is closed") {
+		t.Fatal("sql text was public")
+	}
+	st := openState(t)
+	var in bytes.Buffer
+	in.Write(bytes.Repeat([]byte("A"), maxMessageBytes))
+	in.WriteByte('\n')
+	in.WriteString(req(1, "initialize", map[string]any{"protocolVersion": "2025-06-18"}))
+	in.WriteByte('\n')
+	var out bytes.Buffer
+	if err := Serve(context.Background(), st, &in, &out); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	if !strings.Contains(text, "parse error") || !strings.Contains(text, `"protocolVersion":"2025-06-18"`) {
+		t.Fatalf("output %q", text)
 	}
 }
 

@@ -54,6 +54,14 @@ type Store struct {
 	db   *sql.DB
 	dir  string
 	path string
+
+	// bulletinMu covers the in-flight bulletin claims in pendN and pendB.
+	// A forward decides to accept before the body arrives, so the claim
+	// is counted until the row is stored or the body is rejected.
+	bulletinMu sync.Mutex
+	pendN      int
+	pendB      int64
+	pendID     map[string]int
 }
 
 // Open creates the state directory and the database. The directory is
@@ -237,6 +245,11 @@ func ValidatePassword(password string) error {
 
 const unsetPasswordMaterial = "crossbeam-unset-password"
 
+// invalidGuess is the bcrypt input for a password that fails validation.
+// The leading NUL means ValidatePassword rejects it, so SetPassword can
+// never store this value.
+const invalidGuess = "\x00invalid-password-pad"
+
 var (
 	dummyOnce sync.Once
 	dummyHash []byte
@@ -252,8 +265,9 @@ func dummyBcrypt() ([]byte, error) {
 
 // CheckPassword reports whether password matches the stored hash.
 // A missing hash is still checked with bcrypt so the two cases take
-// the same amount of time. The answer is false when no password is set,
-// including when the guess is the internal padding string.
+// the same amount of time. The answer is false when no password is set.
+// A guess that fails validation is compared as invalidGuess, which
+// itself fails validation, so it cannot be the stored password.
 func (s *Store) CheckPassword(ctx context.Context, password string) (bool, error) {
 	hash, err := s.passwordHash(ctx)
 	if err != nil {
@@ -274,7 +288,7 @@ func (s *Store) passwordHash(ctx context.Context) (string, error) {
 func comparePassword(hash, password string) (bool, error) {
 	compare := password
 	if ValidatePassword(password) != nil {
-		compare = "invalid-password-pad"
+		compare = invalidGuess
 	}
 	if hash == "" {
 		dummy, err := dummyBcrypt()
@@ -660,13 +674,65 @@ ORDER BY created DESC, row_id DESC
 }
 
 // HasBulletinID reports whether a non-empty bulletin id is already stored.
+// The match is case-insensitive. Wire ids are uppercase.
 func (s *Store) HasBulletinID(ctx context.Context, id string) (bool, error) {
 	if strings.TrimSpace(id) == "" {
 		return false, nil
 	}
 	var n int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM articles WHERE bulletin_id = ?`, id).Scan(&n)
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM articles WHERE bulletin_id = ? COLLATE NOCASE`, id).Scan(&n)
 	return n > 0, err
+}
+
+// ClaimBulletin reserves one inbound bulletin under the store cap.
+// The answer is '+' when the slot is reserved, '-' when the id is
+// already stored, and '=' when the cap is already reached. The caller
+// releases the reservation when the body is stored or rejected.
+func (s *Store) ClaimBulletin(ctx context.Context, id string, size int, maxN int, maxB int64) (byte, error) {
+	s.bulletinMu.Lock()
+	defer s.bulletinMu.Unlock()
+	have, err := s.HasBulletinID(ctx, id)
+	if err != nil {
+		return 0, err
+	}
+	key := strings.ToUpper(strings.TrimSpace(id))
+	if have || s.pendID[key] > 0 {
+		return '-', nil
+	}
+	n, b, err := s.BulletinUsage(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if n+s.pendN >= maxN || b+s.pendB+int64(size) > maxB {
+		return '=', nil
+	}
+	if s.pendID == nil {
+		s.pendID = map[string]int{}
+	}
+	s.pendID[key]++
+	s.pendN++
+	s.pendB += int64(size)
+	return '+', nil
+}
+
+// ReleaseBulletin drops one reservation from ClaimBulletin.
+func (s *Store) ReleaseBulletin(id string, size int) {
+	s.bulletinMu.Lock()
+	defer s.bulletinMu.Unlock()
+	key := strings.ToUpper(strings.TrimSpace(id))
+	if s.pendID[key] > 0 {
+		s.pendID[key]--
+		if s.pendID[key] == 0 {
+			delete(s.pendID, key)
+		}
+	}
+	if s.pendN > 0 {
+		s.pendN--
+	}
+	s.pendB -= int64(size)
+	if s.pendB < 0 {
+		s.pendB = 0
+	}
 }
 
 // AllArticles returns every row oldest first, including bodies.

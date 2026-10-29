@@ -68,6 +68,22 @@ func cmdServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		return 1
 	}
 	defer st.Close()
+	sock := *socket
+	if sock == "" {
+		sock = filepath.Join(st.Dir(), "crossbeam.sock")
+	}
+	if mode == 0o660 {
+		parent, err := filepath.Abs(filepath.Dir(sock))
+		if err != nil {
+			fmt.Fprintf(stderr, "crossbeam: %s\n", err)
+			return 1
+		}
+		if parent == st.Dir() {
+			fmt.Fprintln(stderr, "crossbeam: socket mode 0660 needs a socket outside the state directory")
+			return 2
+		}
+	}
+	*socket = sock
 	has, err := st.HasPassword(ctx)
 	if err != nil {
 		fmt.Fprintf(stderr, "crossbeam: %s\n", err)
@@ -272,10 +288,10 @@ func cmdConnect(ctx context.Context, args []string, stdin io.Reader, stdout, std
 		fmt.Fprintf(stderr, "crossbeam: %s\n", err)
 		return 1
 	}
-	_ = conn.SetDeadline(time.Now().Add(70 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(connectReplyWait))
 	reply, err := readConnLine(conn)
 	if err != nil {
-		fmt.Fprintln(stderr, "crossbeam: the AX/UDP link is not running")
+		fmt.Fprintf(stderr, "crossbeam: %s\n", connectReadErr(err))
 		return 1
 	}
 	_ = conn.SetDeadline(time.Time{})
@@ -290,7 +306,12 @@ func cmdConnect(ctx context.Context, args []string, stdin io.Reader, stdout, std
 	if file, ok := stdin.(*os.File); ok && term.IsTerminal(int(file.Fd())) {
 		return connectTerminal(file, conn, stdout, stderr)
 	}
-	go func() { _, _ = io.Copy(conn, stdin) }()
+	go func() {
+		_, _ = io.Copy(conn, stdin)
+		if unixConn, ok := conn.(*net.UnixConn); ok {
+			_ = unixConn.CloseWrite()
+		}
+	}()
 	if _, err := io.Copy(stdout, conn); err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, io.EOF) {
 		fmt.Fprintf(stderr, "crossbeam: %s\n", err)
 		return 1
@@ -431,6 +452,21 @@ func connectTerminal(in *os.File, conn net.Conn, stdout, stderr io.Writer) int {
 	}
 	<-done
 	return 0
+}
+
+// connectReplyWait is a routed dial at the default timers, plus a margin.
+// A direct dial is T1*(N2+2). A NET/ROM connect is allowed three of those.
+const connectReplyWait = ax25.DefaultT1*time.Duration(ax25.DefaultN2+2)*3 + 15*time.Second
+
+func connectReadErr(err error) string {
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		return "the connection timed out"
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "the connection timed out"
+	}
+	return "the link dropped the reply"
 }
 
 func readConnLine(conn net.Conn) (string, error) {

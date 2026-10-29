@@ -42,15 +42,22 @@ cleanup() {
 }
 trap cleanup EXIT
 
-curl -fsSL -o "$cache/SHA512SUMS" "$image_url/SHA512SUMS"
-if [ ! -f "$cache/$image_name" ]; then
+image_matches() {
+	(
+		cd "$cache" || return 1
+		sha512sum -c SHA512SUMS --ignore-missing
+	)
+}
+fetch_image() {
 	curl -fL --retry 3 -o "$cache/$image_name.partial" "$image_url/$image_name"
 	mv "$cache/$image_name.partial" "$cache/$image_name"
+}
+curl -fsSL -o "$cache/SHA512SUMS" "$image_url/SHA512SUMS"
+if [ ! -f "$cache/$image_name" ] || ! image_matches; then
+	rm -f "$cache/$image_name"
+	fetch_image
+	image_matches
 fi
-(
-	cd "$cache"
-	sha512sum -c SHA512SUMS --ignore-missing
-)
 
 mkdir -p "$work/share"
 cp "$deb" "$work/share/crossbeam.deb"
@@ -132,9 +139,15 @@ xorriso -as mkisofs -o "$work/seed.iso" -volid cidata -joliet -rock "$work/user-
 overlay=$work/overlay.qcow2
 qemu-img create -f qcow2 -b "$cache/$image_name" -F qcow2 "$overlay" 8G >/dev/null
 
+cpu=qemu64
+accel=tcg
+if [ -c /dev/kvm ] && [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+	cpu=host
+	accel=kvm
+fi
 qemu-system-x86_64 \
-	-machine type=pc,accel=kvm:tcg \
-	-cpu host \
+	-machine "type=pc,accel=${accel}" \
+	-cpu "$cpu" \
 	-m 2048 \
 	-smp 2 \
 	-display none \
@@ -146,7 +159,7 @@ qemu-system-x86_64 \
 	-drive file="$overlay",if=virtio,format=qcow2 \
 	-drive file="$work/share.img",if=virtio,format=raw,readonly=on \
 	-drive file="$work/seed.iso",if=virtio,format=raw,readonly=on \
-	>/dev/null 2>&1 &
+	>"$work/qemu.err" 2>&1 &
 qpid=$!
 
 i=0
@@ -168,6 +181,9 @@ if [ ! -f "$log" ] || ! grep -q 'CROSSBEAM_VM_OK ' "$log"; then
 	echo "virtual machine check failed" >&2
 	if [ -f "$log" ]; then
 		grep 'CROSSBEAM_VM_' "$log" >&2 || true
+	fi
+	if [ -s "$work/qemu.err" ]; then
+		tail -n 40 "$work/qemu.err" >&2 || true
 	fi
 	exit 1
 fi

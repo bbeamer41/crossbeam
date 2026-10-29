@@ -9,6 +9,7 @@
   var micron = document.getElementById("micron");
   var status = document.getElementById("preview-status");
   var timer = 0;
+  var previewGen = 0;
 
   function field(name) {
     var el = form.elements.namedItem(name);
@@ -19,6 +20,7 @@
   }
 
   function preview() {
+    var gen = ++previewGen;
     var payload = {
       title: field("title"),
       author: field("author"),
@@ -39,6 +41,9 @@
         return { ok: res.ok, data: data };
       });
     }).then(function (result) {
+      if (gen !== previewGen) {
+        return;
+      }
       if (!result.ok) {
         if (status) {
           status.textContent = (result.data && result.data.error) || "Preview failed.";
@@ -59,6 +64,9 @@
         created.value = result.data.created;
       }
     }).catch(function () {
+      if (gen !== previewGen) {
+        return;
+      }
       if (status) {
         status.textContent = "Preview failed.";
       }

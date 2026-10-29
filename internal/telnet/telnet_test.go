@@ -30,7 +30,7 @@ func TestGreetingAndLine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(buf[:n]) != "hi\r" {
+	if string(buf[:n]) != "hi\r\x00" {
 		t.Fatalf("line %q", buf[:n])
 	}
 	greet := <-gotGreet
@@ -209,7 +209,7 @@ func TestTwoSidesExchange(t *testing.T) {
 	}
 	select {
 	case line := <-got:
-		if line != string([]byte{iac, '\r'}) {
+		if line != string([]byte{iac, '\r', '\n'}) {
 			t.Fatalf("server saw %q", line)
 		}
 	case <-time.After(2 * time.Second):

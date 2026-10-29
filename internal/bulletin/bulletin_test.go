@@ -23,6 +23,7 @@ import (
 	"github.com/bbeamer41/crossbeam/internal/link"
 	"github.com/bbeamer41/crossbeam/internal/settings"
 	"github.com/bbeamer41/crossbeam/internal/store"
+	"github.com/bbeamer41/crossbeam/internal/telnet"
 	"github.com/bbeamer41/crossbeam/internal/version"
 )
 
@@ -1302,4 +1303,252 @@ func TestStoreFullDefers(t *testing.T) {
 	if countArt(t, st) != 0 {
 		t.Fatal("byte cap stored a bulletin")
 	}
+}
+
+func TestOverlongTitleStillRejectsItsID(t *testing.T) {
+	st := openStore(t)
+	title := strings.Repeat("T", fbb.MaxSubjectRunes+1)
+	saveArt(t, st, "Note-1", title, "K5LEB", "x", time.Now().UTC())
+	fs := offerBID(t, st, "NOTE-1", 8)
+	if fs != "FS -" {
+		t.Fatalf("fs %q", fs)
+	}
+	if countArt(t, st) != 1 {
+		t.Fatalf("stored %d", countArt(t, st))
+	}
+
+	st = openStore(t)
+	when := time.Date(2026, 10, 29, 15, 4, 5, 0, time.UTC)
+	saveArt(t, st, "local note", title, "K5LEB", "x", when)
+	rows, err := st.AllArticles(context.Background())
+	if err != nil || len(rows) != 1 {
+		t.Fatal(err)
+	}
+	art, err := rows[0].Article.Canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bid, err := wireBID(art, fromCall(art.Author, mustCall(t, "K5LEB")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs = offerBID(t, st, bid, 8)
+	if fs != "FS -" {
+		t.Fatalf("wire %s fs %q", bid, fs)
+	}
+	if countArt(t, st) != 1 {
+		t.Fatalf("stored %d", countArt(t, st))
+	}
+}
+
+func TestBadBodyDoesNotStopTheBlock(t *testing.T) {
+	st := openStore(t)
+	good1 := []byte("Good one\rYes.\x1a")
+	bad := []byte("Bad bell\rno\x07pe\x1a")
+	good2 := []byte("Good two\rAlso.\x1a")
+	lines := []string{
+		fmt.Sprintf("FB B W1AW WW ALL GOOD1 %d", len(good1)),
+		fmt.Sprintf("FB B W1AW WW ALL BADBELL %d", len(bad)),
+		fmt.Sprintf("FB B W1AW WW ALL GOOD2 %d", len(good2)),
+	}
+	sum := fbb.Checksum(lines)
+	a, b := net.Pipe()
+	defer a.Close()
+	errc := make(chan error, 1)
+	go func() {
+		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), b)
+	}()
+	rd := bufio.NewReader(a)
+	if err := readUntilPrompt(rd); err != nil {
+		t.Fatal(err)
+	}
+	payload := "[TEST-1-F$]\r" + strings.Join(lines, "\r") + "\r" + fmt.Sprintf("F> %02X\r", sum)
+	if _, err := io.WriteString(a, payload); err != nil {
+		t.Fatal(err)
+	}
+	fs, err := readCR(rd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(fs) != "FS +++" {
+		t.Fatalf("fs %q", fs)
+	}
+	if _, err := a.Write(append(append(good1, bad...), good2...)); err != nil {
+		t.Fatal(err)
+	}
+	next, err := readCR(rd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(next) != "FF" || strings.Contains(next, "***") {
+		t.Fatalf("after %q", next)
+	}
+	if _, err := io.WriteString(a, "FQ\r"); err != nil {
+		t.Fatal(err)
+	}
+	a.Close()
+	if err := <-errc; err != nil {
+		t.Fatal(err)
+	}
+	if countArt(t, st) != 2 {
+		t.Fatalf("stored %d", countArt(t, st))
+	}
+	findArt(t, st, "Good one")
+	findArt(t, st, "Good two")
+}
+
+func TestShortProposalIsRefused(t *testing.T) {
+	st := openStore(t)
+	line := "FB B W1AW WW ALL TINY 2"
+	sum := fbb.Checksum([]string{line})
+	a, b := net.Pipe()
+	defer a.Close()
+	errc := make(chan error, 1)
+	go func() {
+		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), b)
+	}()
+	rd := bufio.NewReader(a)
+	if err := readUntilPrompt(rd); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(a, "[TEST-1-F$]\r"+line+"\r"+fmt.Sprintf("F> %02X\r", sum)); err != nil {
+		t.Fatal(err)
+	}
+	fs, err := readCR(rd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(fs) != "FS -" {
+		t.Fatalf("fs %q", fs)
+	}
+	next, err := readCR(rd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(next) != "FF" {
+		t.Fatalf("after %q", next)
+	}
+	if _, err := io.WriteString(a, "FQ\r"); err != nil {
+		t.Fatal(err)
+	}
+	a.Close()
+	if err := <-errc; err != nil {
+		t.Fatal(err)
+	}
+	if countArt(t, st) != 0 {
+		t.Fatal("a short proposal was stored")
+	}
+}
+
+func TestCommentFloodIsRefused(t *testing.T) {
+	st := openStore(t)
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	errc := make(chan error, 1)
+	go func() {
+		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), b)
+	}()
+	rd := bufio.NewReader(a)
+	if err := readUntilPrompt(rd); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	buf.WriteString("[TEST-1-F$]\r")
+	for i := 0; i < maxRounds+1; i++ {
+		buf.WriteString("; stall\r")
+	}
+	if _, err := a.Write(buf.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	timer := time.AfterFunc(2*time.Second, func() {
+		a.Close()
+		b.Close()
+	})
+	defer timer.Stop()
+	line, err := readCR(rd)
+	if err != nil || strings.TrimSpace(line) != "*** bad proposal" {
+		t.Fatalf("line %q %v", line, err)
+	}
+	if err := <-errc; err == nil || !strings.Contains(err.Error(), "bad proposal") {
+		t.Fatal(err)
+	}
+}
+
+func TestTelnetCRLFBodyKeepsItsSize(t *testing.T) {
+	st := openStore(t)
+	msg := []byte("Hello net\r\nline one\x1a")
+	line := fmt.Sprintf("FB B W1AW WW ALL CRLF %d", len(msg))
+	sum := fbb.Checksum([]string{line})
+	a, b := net.Pipe()
+	defer a.Close()
+	errc := make(chan error, 1)
+	go func() {
+		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), telnet.Wrap(b))
+	}()
+	rd := bufio.NewReader(a)
+	greet := make([]byte, 9)
+	if _, err := io.ReadFull(rd, greet); err != nil {
+		t.Fatal(err)
+	}
+	if err := readUntilPrompt(rd); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(a, "[TEST-1-F$]\r"+line+"\r"+fmt.Sprintf("F> %02X\r", sum)); err != nil {
+		t.Fatal(err)
+	}
+	fs, err := readCR(rd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(fs) != "FS +" {
+		t.Fatalf("fs %q", fs)
+	}
+	if _, err := a.Write(msg); err != nil {
+		t.Fatal(err)
+	}
+	next, err := readCR(rd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(next) != "FF" {
+		t.Fatalf("after %q", next)
+	}
+	if _, err := io.WriteString(a, "FQ\r"); err != nil {
+		t.Fatal(err)
+	}
+	a.Close()
+	if err := <-errc; err != nil {
+		t.Fatal(err)
+	}
+	got := findArt(t, st, "Hello net")
+	if got.Article.Body != "line one" || got.Article.ID != "CRLF" {
+		t.Fatalf("%+v", got.Article)
+	}
+}
+
+func offerBID(t *testing.T, st *store.Store, bid string, size int) string {
+	t.Helper()
+	line := fmt.Sprintf("FB B W1AW WW ALL %s %d", bid, size)
+	sum := fbb.Checksum([]string{line})
+	a, b := net.Pipe()
+	defer a.Close()
+	errc := make(chan error, 1)
+	go func() {
+		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), b)
+	}()
+	rd := bufio.NewReader(a)
+	if err := readUntilPrompt(rd); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(a, "[TEST-1-F$]\r"+line+"\r"+fmt.Sprintf("F> %02X\r", sum)); err != nil {
+		t.Fatal(err)
+	}
+	fs, err := readCR(rd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.Close()
+	<-errc
+	return strings.TrimSpace(fs)
 }

@@ -27,8 +27,9 @@ type limiter struct {
 }
 
 type attempt struct {
-	fails int
-	until time.Time
+	fails    int
+	inflight int
+	until    time.Time
 }
 
 func newLimiter() *limiter {
@@ -38,7 +39,10 @@ func newLimiter() *limiter {
 func (l *limiter) locked(ip string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	item := l.failures[ip]
+	return l.lockedItem(l.failures[ip])
+}
+
+func (l *limiter) lockedItem(item *attempt) bool {
 	if item == nil || item.until.IsZero() {
 		return false
 	}
@@ -50,16 +54,63 @@ func (l *limiter) locked(ip string) bool {
 	return false
 }
 
-func (l *limiter) fail(ip string) {
+// start reserves one sign-in attempt. A burst cannot pass the cap:
+// attempts already running count with the failures already recorded.
+// cancel drops a reservation that did not check a password.
+func (l *limiter) start(ip string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	item := l.prepare(ip)
+	if item == nil || l.lockedItem(item) {
+		return false
+	}
+	if item.fails+item.inflight >= maxFailures {
+		return false
+	}
+	item.inflight++
+	return true
+}
+
+func (l *limiter) cancel(ip string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	item := l.failures[ip]
 	if item == nil {
-		if len(l.failures) >= maxClients {
-			l.evictOne()
-		}
-		item = &attempt{}
-		l.failures[ip] = item
+		return
+	}
+	if item.inflight > 0 {
+		item.inflight--
+	}
+	if item.inflight == 0 && item.fails == 0 && item.until.IsZero() {
+		delete(l.failures, ip)
+	}
+}
+
+func (l *limiter) prepare(ip string) *attempt {
+	item := l.failures[ip]
+	if item != nil {
+		return item
+	}
+	if len(l.failures) >= maxClients {
+		l.evictOne()
+	}
+	if len(l.failures) >= maxClients {
+		return nil
+	}
+	item = &attempt{}
+	l.failures[ip] = item
+	return item
+}
+
+func (l *limiter) fail(ip string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	item := l.prepare(ip)
+	if item == nil {
+		return
+	}
+	if item.inflight > 0 {
+		item.inflight--
 	}
 	item.fails++
 	if item.fails >= maxFailures {

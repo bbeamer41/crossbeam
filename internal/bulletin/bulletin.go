@@ -138,6 +138,7 @@ func Forward(ctx context.Context, st *store.Store, local ax25.Address, rw io.Rea
 		return Result{}, err
 	}
 	sess := newSession(ctx, st, rw, rd, queue)
+	rememberIdentities(ctx, st, local, sess.known)
 	if err := sess.write(sid + "\r"); err != nil {
 		return Result{}, peerGone(err)
 	}
@@ -149,10 +150,12 @@ func serveForward(ctx context.Context, st *store.Store, local ax25.Address, w io
 	queue, err := prepare(ctx, st, local)
 	if err != nil {
 		// Read the caller's offer before deciding we have nothing to send.
-		// FF on our turn lets the caller's forward finish.
+		// FF on our turn lets the caller's forward finish. The ids already
+		// stored are still remembered, including when this queue is empty.
 		queue = nil
 	}
 	sess := newSession(ctx, st, w, rd, queue)
+	rememberIdentities(ctx, st, local, sess.known)
 	sess.localErr = err
 	if !isSID(strings.TrimSpace(first)) {
 		sess.held = true
@@ -265,6 +268,55 @@ func isSID(trim string) bool {
 func Check(ctx context.Context, st *store.Store, local ax25.Address) error {
 	_, err := prepare(ctx, st, local)
 	return err
+}
+
+// rememberIdentities records every stored bulletin id and the wire id
+// this station would offer for it. A failed offer queue must not forget
+// those ids, or an echo of a generated id is stored again.
+func rememberIdentities(ctx context.Context, st *store.Store, local ax25.Address, known map[string]bool) {
+	if known == nil || st == nil {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	rows, err := st.BulletinSources(ctx)
+	if err != nil {
+		return
+	}
+	for _, row := range rows {
+		if err := ctx.Err(); err != nil {
+			return
+		}
+		for _, id := range identityOf(ctx, st, local, row) {
+			known[id] = true
+		}
+	}
+}
+
+func identityOf(ctx context.Context, st *store.Store, local ax25.Address, row store.BulletinSource) []string {
+	id := strings.ToUpper(strings.TrimSpace(row.ID))
+	var ids []string
+	if id != "" {
+		ids = append(ids, id)
+	}
+	if fbb.ValidBID(id) {
+		return ids
+	}
+	saved, err := st.Article(ctx, row.RowID)
+	if err != nil {
+		return ids
+	}
+	art, err := saved.Article.Canonical()
+	if err != nil {
+		return ids
+	}
+	bid, err := wireBID(art, fromCall(art.Author, local))
+	if err != nil || bid == "" {
+		return ids
+	}
+	ids = append(ids, bid)
+	return ids
 }
 
 func prepare(ctx context.Context, st *store.Store, local ax25.Address) ([]outgoing, error) {

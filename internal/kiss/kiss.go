@@ -106,12 +106,19 @@ func (d *Decoder) Push(p []byte) []Frame {
 		case !d.started || d.drop:
 		case d.esc:
 			d.esc = false
+			var decoded byte
 			switch b {
 			case TFEND:
-				d.buf = append(d.buf, FEND)
+				decoded = FEND
 			case TFESC:
-				d.buf = append(d.buf, FESC)
+				decoded = FESC
 			default:
+				d.drop = true
+				d.buf = d.buf[:0]
+				continue
+			}
+			d.buf = append(d.buf, decoded)
+			if len(d.buf) > maxFrame {
 				d.drop = true
 				d.buf = d.buf[:0]
 			}

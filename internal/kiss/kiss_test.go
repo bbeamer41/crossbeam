@@ -82,3 +82,16 @@ func TestOverlongFrameIsDropped(t *testing.T) {
 		t.Fatalf("%+v", frames)
 	}
 }
+
+func TestEscapedOverlongFrameIsDropped(t *testing.T) {
+	dec := &Decoder{}
+	buf := []byte{FEND, CmdData}
+	for i := 0; i < maxFrame; i++ {
+		buf = append(buf, FESC, TFEND)
+	}
+	buf = append(buf, FEND, CmdData, 'o', 'k', FEND)
+	frames := dec.Push(buf)
+	if len(frames) != 1 || string(frames[0].Data) != "ok" {
+		t.Fatalf("%+v", frames)
+	}
+}

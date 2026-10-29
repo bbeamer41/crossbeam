@@ -333,6 +333,9 @@ func publicText(msg string) bool {
 		return false
 	}
 	lower := strings.ToLower(msg)
+	if strings.HasPrefix(lower, "sql:") {
+		return false
+	}
 	for _, word := range []string{"sqlite", ".db", "password", "token", "secret"} {
 		if strings.Contains(lower, word) {
 			return false

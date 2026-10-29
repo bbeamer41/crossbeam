@@ -734,7 +734,8 @@ func (s *Switch) onS(c *conn, f Frame) {
 	}
 	if response && pf && c.poll {
 		c.poll = false
-		if !sentAgain {
+		// RNR means stop I frames until RR. REJ already rewound the window.
+		if base != RNR && !sentAgain {
 			s.retransmit(c)
 		}
 	}

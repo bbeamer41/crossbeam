@@ -33,6 +33,10 @@ const (
 	maxGuestsPerIP = 4
 	guestHold      = 2 * time.Second
 	termLineWait   = 5 * time.Second
+	// setupHold keeps the return address of a SABM that the AX.25 engine
+	// has not accepted yet. A slow KISS write can block that engine for
+	// longer than guestHold.
+	setupHold      = 10 * time.Minute
 	peerReserveMax = 8
 	// hopLinger is how long a relay crosslink stays up after the last
 	// NET/ROM frame. A circuit this node opened keeps its crosslink until
@@ -103,9 +107,11 @@ type Node struct {
 	// arrived on a different port than link.peers. It is cleared when
 	// the session ends, so the next outbound call uses the configured port.
 	peerPort map[string]int
-	// replyPort is the source port of the latest accepted frame from a
-	// listed peer. An inbound session copies it into peerPort.
-	replyPort map[string]int
+	// setupAddr is the source of a SABM waiting for the engine, or the
+	// source that opened the current inbound session. Later UI frames
+	// do not replace it. The guest sweeper does not own this map.
+	setupAddr map[string]*net.UDPAddr
+	setupAt   map[string]time.Time
 	// live is a callsign whose AX.25 session has started and not ended.
 	live     map[string]bool
 	dropSeen map[string]time.Time
@@ -219,7 +225,8 @@ func Listen(cfg Config) (*Node, error) {
 		quit:      make(chan struct{}),
 		peers:     map[string]*net.UDPAddr{},
 		peerPort:  map[string]int{},
-		replyPort: map[string]int{},
+		setupAddr: map[string]*net.UDPAddr{},
+		setupAt:   map[string]time.Time{},
 		live:      map[string]bool{},
 		dropSeen:  map[string]time.Time{},
 		guests:    map[string]*guestRoute{},
@@ -335,7 +342,8 @@ func (n *Node) SetPeers(text string) error {
 	n.mu.Lock()
 	n.peers = next
 	n.peerPort = map[string]int{}
-	n.replyPort = map[string]int{}
+	n.setupAddr = map[string]*net.UDPAddr{}
+	n.setupAt = map[string]time.Time{}
 	for call := range next {
 		delete(n.guests, call)
 	}
@@ -445,6 +453,9 @@ func (n *Node) readLoop() {
 		}
 		if !n.allow(frame.Src, from) {
 			continue
+		}
+		if ax25.IsSABM(frame.Control) {
+			n.rememberSetup(frame.Src, from)
 		}
 		n.sw.Inject(frame)
 	}
@@ -847,7 +858,6 @@ func (n *Node) allow(src ax25.Address, from *net.UDPAddr) bool {
 			n.noteWrongIPLocked(key, from, now)
 			return false
 		}
-		n.replyPort[key] = from.Port
 		if n.live[key] {
 			n.setSessionPortLocked(key, peer.Port, from.Port)
 		}
@@ -894,38 +904,78 @@ func (n *Node) guestsFromLocked(ip net.IP) int {
 }
 
 func (n *Node) sweepGuestsLocked(now time.Time) {
+	for key, at := range n.setupAt {
+		if n.live[key] || now.Sub(at) < setupHold {
+			continue
+		}
+		delete(n.setupAddr, key)
+		delete(n.setupAt, key)
+	}
 	for key, guest := range n.guests {
 		if guest.active || now.Sub(guest.seen) < guestHold {
+			continue
+		}
+		if at, ok := n.setupAt[key]; ok && now.Sub(at) < setupHold {
 			continue
 		}
 		delete(n.guests, key)
 	}
 }
 
+// rememberSetup stores the source of this SABM. The first one waits
+// until the engine accepts it. A NODES broadcast cannot move it.
+func (n *Node) rememberSetup(src ax25.Address, from *net.UDPAddr) {
+	ip := canonicalIP(from.IP)
+	if ip == nil || from.Port < 1 {
+		return
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.setupAddr == nil {
+		n.setupAddr = map[string]*net.UDPAddr{}
+		n.setupAt = map[string]time.Time{}
+	}
+	key := src.String()
+	if _, waiting := n.setupAddr[key]; waiting && !n.live[key] {
+		n.setupAt[key] = time.Now()
+		return
+	}
+	n.setupAddr[key] = &net.UDPAddr{IP: append(net.IP(nil), ip...), Port: from.Port}
+	n.setupAt[key] = time.Now()
+}
+
 func (n *Node) beginSession(remote ax25.Address, inbound bool) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	key := remote.String()
-	if guest, ok := n.guests[key]; ok && !guest.active {
-		guest.active = true
-	}
 	n.live[key] = true
 	// An outbound call keeps the configured port for its SABM. The peer's
 	// reply, handled in allow, learns a different source port for this
-	// session only. An inbound SABM has already stored that port.
+	// session only. An inbound SABM uses the port stored for that SABM.
 	if !inbound {
 		delete(n.peerPort, key)
+		delete(n.setupAddr, key)
+		delete(n.setupAt, key)
 		return
 	}
-	peer, ok := n.peers[key]
-	if !ok {
-		return
+	from := n.setupAddr[key]
+	if from != nil {
+		if peer, listed := n.peers[key]; listed {
+			n.setSessionPortLocked(key, peer.Port, from.Port)
+		} else if guest, ok := n.guests[key]; ok {
+			guest.addr = cloneUDP(from)
+			guest.seen = time.Now()
+		} else {
+			n.guests[key] = &guestRoute{addr: cloneUDP(from), seen: time.Now()}
+		}
 	}
-	port, ok := n.replyPort[key]
-	if !ok {
-		return
+	if guest, ok := n.guests[key]; ok {
+		guest.active = true
 	}
-	n.setSessionPortLocked(key, peer.Port, port)
+}
+
+func cloneUDP(from *net.UDPAddr) *net.UDPAddr {
+	return &net.UDPAddr{IP: append(net.IP(nil), from.IP...), Port: from.Port}
 }
 
 func (n *Node) endSession(remote ax25.Address) {
@@ -934,7 +984,8 @@ func (n *Node) endSession(remote ax25.Address) {
 	key := remote.String()
 	delete(n.live, key)
 	delete(n.peerPort, key)
-	delete(n.replyPort, key)
+	delete(n.setupAddr, key)
+	delete(n.setupAt, key)
 	if _, ok := n.guests[key]; !ok {
 		return
 	}
@@ -1116,8 +1167,13 @@ func (n *Node) serveTerm(conn net.Conn) {
 	_ = conn.SetDeadline(time.Time{})
 	done := make(chan struct{})
 	go func() {
-		_, _ = io.Copy(rw, conn)
-		_ = rw.Close()
+		// A half-close means the user has finished typing. The station
+		// at the far end still has to answer, so the AX.25 session stays
+		// up. Closing the terminal socket entirely ends the session.
+		_, err := io.Copy(rw, conn)
+		if err != nil || clientLeft(conn) {
+			_ = rw.Close()
+		}
 		close(done)
 	}()
 	_, _ = io.Copy(conn, rw)

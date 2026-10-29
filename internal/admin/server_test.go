@@ -639,8 +639,8 @@ func TestWebAssets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(js), "form.title") || !strings.Contains(string(js), "namedItem") {
-		t.Fatal("compose script should read fields with namedItem")
+	if strings.Contains(string(js), "form.title") || !strings.Contains(string(js), "namedItem") || !strings.Contains(string(js), "previewGen") {
+		t.Fatal("compose script should read fields with namedItem and ignore a stale preview")
 	}
 	css, err := webFS.ReadFile("web/app.css")
 	if err != nil {
@@ -676,6 +676,22 @@ func TestLimiterKeepsLock(t *testing.T) {
 	}
 	if !l.locked("victim") {
 		t.Fatal("a full table cleared the lock")
+	}
+}
+
+func TestLimiterCountsInFlight(t *testing.T) {
+	l := newLimiter()
+	for i := 0; i < maxFailures; i++ {
+		if !l.start("burst") {
+			t.Fatalf("start %d", i)
+		}
+	}
+	if l.start("burst") {
+		t.Fatal("a burst passed the cap")
+	}
+	l.cancel("burst")
+	if !l.start("burst") {
+		t.Fatal("cancel did not free a sign-in slot")
 	}
 }
 

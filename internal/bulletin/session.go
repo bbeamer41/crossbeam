@@ -37,7 +37,9 @@ var (
 var errLong = errors.New("line is too long")
 
 // reader splits carriage-return lines and exact message bodies.
-// A line feed after a carriage return is skipped and is not part of the checksum.
+// A line feed or NUL after a carriage return ends the line and is not
+// part of the checksum. Counted message bodies are read as they stand,
+// so a CR LF inside a body stays in the size.
 type reader struct {
 	r      *bufio.Reader
 	skipLF bool
@@ -56,7 +58,7 @@ func (r *reader) discardLF() error {
 	if err != nil {
 		return err
 	}
-	if b != '\n' {
+	if b != '\n' && b != 0 {
 		return r.r.UnreadByte()
 	}
 	return nil
@@ -127,6 +129,7 @@ type session struct {
 	sent          int
 	received      int
 	receivedBytes int
+	skips         int
 	localErr      error
 }
 
@@ -254,6 +257,9 @@ func (s *session) nextLine() (string, error) {
 		}
 		trim := strings.TrimSpace(line)
 		if strings.HasPrefix(trim, ";") {
+			if err := s.skipLine(); err != nil {
+				return "", err
+			}
 			continue
 		}
 		if text, ok := peerError(trim); ok {
@@ -261,6 +267,17 @@ func (s *session) nextLine() (string, error) {
 		}
 		return line, nil
 	}
+}
+
+// skipLine counts a comment, a blank line, or a repeated SID.
+// Those lines are not a proposal turn, so without this cap a peer
+// can hold the handler by sending only those lines.
+func (s *session) skipLine() error {
+	s.skips++
+	if s.skips > maxRounds {
+		return errors.New("bad proposal")
+	}
+	return nil
 }
 
 func peerError(trim string) (string, bool) {
@@ -337,6 +354,9 @@ func (s *session) readFS(n int) ([]byte, error) {
 		}
 		trim := strings.TrimSpace(line)
 		if trim == "" || isSID(trim) {
+			if err := s.skipLine(); err != nil {
+				return nil, err
+			}
 			continue
 		}
 		if strings.EqualFold(trim, "FQ") {
@@ -355,6 +375,9 @@ func (s *session) receive() (string, error) {
 		}
 		trim := strings.TrimSpace(line)
 		if trim == "" || isSID(trim) {
+			if err := s.skipLine(); err != nil {
+				return "", err
+			}
 			continue
 		}
 		upper := strings.ToUpper(trim)
@@ -411,67 +434,73 @@ func (s *session) takeProposal(lines []string, end string) error {
 	}
 	answers := make([]byte, len(props))
 	yes := make([]fbb.Proposal, 0, len(props))
+	defer func() {
+		for _, p := range yes {
+			s.st.ReleaseBulletin(p.BID, p.Size)
+		}
+	}()
 	seen := map[string]bool{}
 	count := s.received
 	total := s.receivedBytes
-	usedN, usedB, err := s.st.BulletinUsage(s.ctx)
-	if err != nil {
-		return cleanStore(err)
-	}
-	pendN := 0
-	pendB := 0
 	for i, p := range props {
-		if p.Type != "B" {
+		if p.Type != "B" || p.Size < minWireMessage {
 			answers[i] = '-'
 			continue
 		}
-		have, err := s.st.HasBulletinID(s.ctx, p.BID)
-		if err != nil {
-			return cleanStore(err)
-		}
-		if have || seen[p.BID] || s.known[p.BID] {
+		if seen[p.BID] || s.known[p.BID] {
 			answers[i] = '-'
-			continue
-		}
-		if usedN+pendN >= maxStoreArticles || usedB+int64(pendB)+int64(p.Size) > int64(maxStoreBytes) {
-			answers[i] = '='
 			continue
 		}
 		if count >= maxAccepted || total+p.Size > maxAcceptedBytes {
 			return errors.New("too many bulletins in one session")
 		}
+		mark, err := s.st.ClaimBulletin(s.ctx, p.BID, p.Size, maxStoreArticles, int64(maxStoreBytes))
+		if err != nil {
+			return cleanStore(err)
+		}
+		if mark != '+' {
+			answers[i] = mark
+			continue
+		}
 		seen[p.BID] = true
 		count++
 		total += p.Size
-		pendN++
-		pendB += p.Size
 		answers[i] = '+'
 		yes = append(yes, p)
 	}
 	if err := s.write(fmt.Sprintf("FS %s\r", string(answers))); err != nil {
 		return err
 	}
-	for _, p := range yes {
+	for len(yes) > 0 {
+		p := yes[0]
 		raw, err := s.rd.readExact(p.Size)
 		if err != nil {
 			return err
 		}
+		yes = yes[1:]
 		title, body, err := fbb.DecodeMessage(raw)
 		if err != nil {
-			return err
+			s.st.ReleaseBulletin(p.BID, p.Size)
+			continue
 		}
 		if err := s.save(p, title, body); err != nil {
-			if errors.Is(err, store.ErrDuplicateID{}) {
-				continue
+			s.st.ReleaseBulletin(p.BID, p.Size)
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
 			}
-			return cleanStore(err)
+			continue
 		}
+		s.st.ReleaseBulletin(p.BID, p.Size)
 		s.received++
 		s.receivedBytes += p.Size
 		s.known[p.BID] = true
 	}
 	return nil
 }
+
+// minWireMessage is one subject byte, a carriage return, and Ctrl-Z.
+// A shorter size cannot be a message, so it is refused before FS +.
+const minWireMessage = 3
 
 func (s *session) save(p fbb.Proposal, title, body string) error {
 	_, err := s.st.SaveArticle(s.ctx, store.ArticleIn{

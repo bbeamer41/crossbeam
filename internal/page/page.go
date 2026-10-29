@@ -294,7 +294,7 @@ func publishErr(err error) error {
 		return errors.New("the pages could not be published")
 	}
 	lower := strings.ToLower(msg)
-	if strings.Contains(lower, "sqlite") || strings.Contains(lower, ".db") {
+	if strings.HasPrefix(lower, "sql:") || strings.Contains(lower, "sqlite") || strings.Contains(lower, ".db") {
 		return errors.New("the pages could not be published")
 	}
 	return err

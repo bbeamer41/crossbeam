@@ -239,7 +239,7 @@ func (a *app) login(w http.ResponseWriter, r *http.Request, local, api bool) {
 		return
 	}
 	ip := remoteIP(r)
-	if a.lim.locked(ip) {
+	if !a.lim.start(ip) {
 		if api {
 			writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "Too many sign-in attempts. Wait a minute and try again."})
 			return
@@ -250,6 +250,12 @@ func (a *app) login(w http.ResponseWriter, r *http.Request, local, api bool) {
 		})
 		return
 	}
+	checked := false
+	defer func() {
+		if !checked {
+			a.lim.cancel(ip)
+		}
+	}()
 	password, err := a.readPassword(r)
 	if err != nil {
 		if tooLarge(err) {
@@ -269,6 +275,7 @@ func (a *app) login(w http.ResponseWriter, r *http.Request, local, api bool) {
 		return
 	}
 	if !ok {
+		checked = true
 		a.lim.fail(ip)
 		if api {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": badPassword})
@@ -280,6 +287,7 @@ func (a *app) login(w http.ResponseWriter, r *http.Request, local, api bool) {
 		})
 		return
 	}
+	checked = true
 	a.lim.success(ip)
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,

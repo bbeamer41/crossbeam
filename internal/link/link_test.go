@@ -484,6 +484,71 @@ func TestLearnedPortEndsWithTheSession(t *testing.T) {
 	}
 }
 
+func TestBeginSessionKeepsTheSABMPort(t *testing.T) {
+	call := mustCall(t, "W1AW-1")
+	n := &Node{
+		peers: map[string]*net.UDPAddr{
+			call.String(): {IP: net.ParseIP("127.0.0.1"), Port: 10093},
+		},
+		peerPort:  map[string]int{},
+		guests:    map[string]*guestRoute{},
+		live:      map[string]bool{},
+		setupAddr: map[string]*net.UDPAddr{},
+		setupAt:   map[string]time.Time{},
+	}
+	n.rememberSetup(call, &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 40000})
+	n.rememberSetup(call, &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 40001})
+	if !n.allow(call, &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 10093}) {
+		t.Fatal("listed peer was refused")
+	}
+	n.mu.Lock()
+	_, moved := n.peerPort[call.String()]
+	kept := n.setupAddr[call.String()]
+	n.mu.Unlock()
+	if moved || kept == nil || kept.Port != 40000 {
+		t.Fatalf("setup port %v moved %v", kept, moved)
+	}
+	n.beginSession(call, true)
+	n.mu.Lock()
+	got := n.peerPort[call.String()]
+	n.mu.Unlock()
+	if got != 40000 {
+		t.Fatalf("session port %d", got)
+	}
+}
+
+func TestGuestSurvivesUntilTheSession(t *testing.T) {
+	call := mustCall(t, "N0CALL")
+	n := &Node{
+		peers:    map[string]*net.UDPAddr{},
+		peerPort: map[string]int{},
+		live:     map[string]bool{},
+		guests: map[string]*guestRoute{
+			call.String(): {addr: &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 9}, seen: time.Now().Add(-time.Hour)},
+		},
+		setupAddr: map[string]*net.UDPAddr{},
+		setupAt:   map[string]time.Time{},
+	}
+	n.rememberSetup(call, &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 40000})
+	n.mu.Lock()
+	n.sweepGuestsLocked(time.Now())
+	_, ok := n.guests[call.String()]
+	n.mu.Unlock()
+	if !ok {
+		t.Fatal("a guest with a fresh SABM was swept")
+	}
+	n.mu.Lock()
+	delete(n.guests, call.String())
+	n.mu.Unlock()
+	n.beginSession(call, true)
+	n.mu.Lock()
+	guest := n.guests[call.String()]
+	n.mu.Unlock()
+	if guest == nil || !guest.active || guest.addr == nil || guest.addr.Port != 40000 {
+		t.Fatalf("restored %+v", guest)
+	}
+}
+
 type lockedBuf struct {
 	mu sync.Mutex
 	b  bytes.Buffer

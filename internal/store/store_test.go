@@ -104,6 +104,72 @@ func TestPasswordAndModes(t *testing.T) {
 	}
 }
 
+func TestInvalidGuessIsNotTheStoredPassword(t *testing.T) {
+	s := openStore(t, filepath.Join(t.TempDir(), "state"))
+	ctx := context.Background()
+	const password = "invalid-password-pad"
+	if err := s.SetPassword(ctx, password); err != nil {
+		t.Fatal(err)
+	}
+	ok, err := s.CheckPassword(ctx, "")
+	if err != nil || ok {
+		t.Fatalf("empty %v %v", ok, err)
+	}
+	ok, err = s.CheckPassword(ctx, "short")
+	if err != nil || ok {
+		t.Fatalf("short %v %v", ok, err)
+	}
+	ok, err = s.CheckPassword(ctx, "\x00invalid-password-pad")
+	if err != nil || ok {
+		t.Fatalf("stand-in %v %v", ok, err)
+	}
+	ok, err = s.CheckPassword(ctx, password)
+	if err != nil || !ok {
+		t.Fatalf("real %v %v", ok, err)
+	}
+}
+
+func TestBulletinClaimIsCaseInsensitive(t *testing.T) {
+	s := openStore(t, filepath.Join(t.TempDir(), "state"))
+	ctx := context.Background()
+	if _, err := s.SaveArticle(ctx, ArticleIn{
+		ID: "Note-1", Title: "Hello", Author: "K5LEB", Body: "x", Now: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	have, err := s.HasBulletinID(ctx, "NOTE-1")
+	if err != nil || !have {
+		t.Fatalf("stored %v %v", have, err)
+	}
+	mark, err := s.ClaimBulletin(ctx, "note-1", 8, 10, 1000)
+	if err != nil || mark != '-' {
+		t.Fatalf("stored claim %q %v", mark, err)
+	}
+
+	fresh := openStore(t, filepath.Join(t.TempDir(), "state"))
+	mark, err = fresh.ClaimBulletin(ctx, "Note-1", 8, 2, 1000)
+	if err != nil || mark != '+' {
+		t.Fatalf("first %q %v", mark, err)
+	}
+	mark, err = fresh.ClaimBulletin(ctx, "NOTE-1", 8, 2, 1000)
+	if err != nil || mark != '-' {
+		t.Fatalf("overlap %q %v", mark, err)
+	}
+	fresh.ReleaseBulletin("note-1", 8)
+	mark, err = fresh.ClaimBulletin(ctx, "NOTE-1", 8, 2, 1000)
+	if err != nil || mark != '+' {
+		t.Fatalf("after release %q %v", mark, err)
+	}
+	mark, err = fresh.ClaimBulletin(ctx, "OTHER", 8, 2, 1000)
+	if err != nil || mark != '+' {
+		t.Fatalf("second id %q %v", mark, err)
+	}
+	mark, err = fresh.ClaimBulletin(ctx, "THIRD", 8, 2, 1000)
+	if err != nil || mark != '=' {
+		t.Fatalf("cap %q %v", mark, err)
+	}
+}
+
 func TestSettingsRoundTrip(t *testing.T) {
 	s := openStore(t, filepath.Join(t.TempDir(), "state"))
 	ctx := context.Background()

@@ -5,6 +5,8 @@
 // The session underneath is the same carriage-return text as an AX.25
 // connection. This station does not echo, and it asks the peer not to
 // wait for a go-ahead. A data byte of 255 is sent as two IAC bytes.
+// A line feed or NUL after a carriage return is left in the stream.
+// The session skips that byte on a line. A counted bulletin body keeps it.
 package telnet
 
 import (
@@ -43,7 +45,6 @@ type conn struct {
 	mu      sync.Mutex
 	willSGA bool
 	doSGA   bool
-	skipNL  bool
 	sent    map[byte]byte
 	pend    atomic.Value // error, first failure only
 }
@@ -108,31 +109,8 @@ func (c *conn) next() (byte, error) {
 		if err != nil {
 			return 0, err
 		}
-		if c.skipNL {
-			c.skipNL = false
-			if b == '\n' || b == 0 {
-				continue
-			}
-		}
 		if b != iac {
-			if b != '\r' {
-				return b, nil
-			}
-			if c.br.Buffered() == 0 {
-				c.skipNL = true
-				return '\r', nil
-			}
-			nxt, err := c.br.ReadByte()
-			if err != nil {
-				c.setPend(err)
-				return '\r', nil
-			}
-			if nxt != '\n' && nxt != 0 {
-				if err := c.br.UnreadByte(); err != nil {
-					return 0, err
-				}
-			}
-			return '\r', nil
+			return b, nil
 		}
 		cmd, err := c.br.ReadByte()
 		if err != nil {
