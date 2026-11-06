@@ -5,6 +5,7 @@ package ax25
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -47,6 +48,39 @@ func TestRNRFinalDoesNotRetransmit(t *testing.T) {
 	}
 	if !sawI || c.poll {
 		t.Fatal("RR final did not retransmit")
+	}
+}
+
+func TestFullSwitchRefusesTheNextSABM(t *testing.T) {
+	var frames []Frame
+	var refused []Address
+	sw := &Switch{
+		local: Address{Call: "K5LEB"},
+		conns: map[string]*conn{},
+		now:   time.Now,
+		send: func(_ Address, f Frame) {
+			frames = append(frames, f)
+		},
+		onRefuse: func(a Address) {
+			refused = append(refused, a)
+		},
+	}
+	for i := 0; i < MaxSessions; i++ {
+		call := Address{Call: fmt.Sprintf("N%05d", i)}
+		c := sw.newConn(call)
+		c.phase = phaseInfo
+		sw.conns[call.String()] = c
+	}
+	next := Address{Call: "W1AW"}
+	sw.onSABM(Frame{Dest: sw.local, Src: next, Command: true, Control: SABM | 0x10}, nil)
+	if len(frames) != 1 || !IsDM(frames[0].Control) || len(refused) != 1 || !refused[0].Equal(next) {
+		t.Fatalf("full frames %+v refused %+v", frames, refused)
+	}
+	frames = nil
+	refused = nil
+	sw.onFrame(Frame{Dest: sw.local, Src: next, Command: true, Control: SABME | 0x10})
+	if len(frames) != 1 || !IsDM(frames[0].Control) || len(refused) != 1 || !refused[0].Equal(next) {
+		t.Fatalf("sabme frames %+v refused %+v", frames, refused)
 	}
 }
 

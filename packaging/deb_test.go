@@ -89,6 +89,19 @@ func TestPackageBuilds(t *testing.T) {
 	if !bytes.Contains(manual, []byte("/usr/local/bin/crossbeam")) {
 		t.Fatal("manual unit changed")
 	}
+	for _, line := range []string{
+		"MemoryDenyWriteExecute=true",
+		"RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK",
+		"CapabilityBoundingSet=",
+		"PrivateDevices=true",
+	} {
+		if !bytes.Contains(unit, []byte(line)) {
+			t.Fatalf("package unit missing %s\n%s", line, unit)
+		}
+		if !bytes.Contains(manual, []byte(line)) {
+			t.Fatalf("manual unit missing %s\n%s", line, manual)
+		}
+	}
 	postinst, err := os.ReadFile(filepath.Join(ctrl, "postinst"))
 	if err != nil {
 		t.Fatal(err)

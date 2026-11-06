@@ -84,7 +84,7 @@ func TestForwardOverTCP(t *testing.T) {
 			errc <- err
 			return
 		}
-		errc <- Serve(context.Background(), stB, mustCall(t, "W1AW-1"), conn)
+		errc <- Serve(context.Background(), stB, mustCall(t, "W1AW-1"), permit(conn))
 	}()
 	conn, err := net.Dial("tcp", ln.Addr().String())
 	if err != nil {
@@ -255,7 +255,7 @@ func TestScriptedIngest(t *testing.T) {
 	defer b.Close()
 	errc := make(chan error, 1)
 	go func() {
-		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), b)
+		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), permit(b))
 	}()
 	rd := bufio.NewReader(a)
 	if err := readUntilPrompt(rd); err != nil {
@@ -306,7 +306,7 @@ func TestBadChecksumAndPrivate(t *testing.T) {
 	defer a.Close()
 	errc := make(chan error, 1)
 	go func() {
-		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), b)
+		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), permit(b))
 	}()
 	rd := bufio.NewReader(a)
 	if err := readUntilPrompt(rd); err != nil {
@@ -334,7 +334,7 @@ func TestBadChecksumAndPrivate(t *testing.T) {
 	a, b = net.Pipe()
 	defer a.Close()
 	go func() {
-		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), b)
+		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), permit(b))
 	}()
 	rd = bufio.NewReader(a)
 	if err := readUntilPrompt(rd); err != nil {
@@ -446,6 +446,37 @@ func TestHumanPrompt(t *testing.T) {
 	}
 }
 
+func TestUnmarkedForwardIsRefused(t *testing.T) {
+	st := openStore(t)
+	a, b := net.Pipe()
+	defer a.Close()
+	errc := make(chan error, 1)
+	go func() {
+		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), b)
+	}()
+	rd := bufio.NewReader(a)
+	if err := readUntilPrompt(rd); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(a, "FB B W1AW WW ALL TEST 10\r"); err != nil {
+		t.Fatal(err)
+	}
+	reply, err := readCR(rd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(reply) != "FQ" {
+		t.Fatalf("reply %q", reply)
+	}
+	a.Close()
+	if err := <-errc; err != nil {
+		t.Fatal(err)
+	}
+	if countArt(t, st) != 0 {
+		t.Fatal("unmarked forward was stored")
+	}
+}
+
 func TestForwardOverAXUDP(t *testing.T) {
 	stA := openStore(t)
 	stB := openStore(t)
@@ -509,6 +540,16 @@ func TestForwardOverAXUDP(t *testing.T) {
 		t.Fatalf("master %+v", back.Article)
 	}
 }
+
+type permitCaller struct {
+	io.ReadWriteCloser
+}
+
+func (permitCaller) ForwardAllowed() bool { return true }
+
+func (permitCaller) PeerLabel() string { return "test" }
+
+func permit(rw io.ReadWriteCloser) permitCaller { return permitCaller{rw} }
 
 type denyCaller struct {
 	io.ReadWriteCloser
@@ -953,7 +994,7 @@ func exchange(t *testing.T, stA, stB *store.Store, callA, callB string) Result {
 	a, b := net.Pipe()
 	errc := make(chan error, 1)
 	go func() {
-		errc <- Serve(context.Background(), stB, mustCall(t, callB), b)
+		errc <- Serve(context.Background(), stB, mustCall(t, callB), permit(b))
 	}()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -1121,7 +1162,7 @@ func TestRemoteTitleErrorIsReturned(t *testing.T) {
 	defer b.Close()
 	errc := make(chan error, 1)
 	go func() {
-		errc <- Serve(context.Background(), stB, mustCall(t, "W1AW"), b)
+		errc <- Serve(context.Background(), stB, mustCall(t, "W1AW"), permit(b))
 	}()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -1160,7 +1201,7 @@ func TestCallerBulletinAcceptedWhenAnswerCannotOffer(t *testing.T) {
 	defer b.Close()
 	errc := make(chan error, 1)
 	go func() {
-		errc <- Serve(context.Background(), stB, mustCall(t, "W1AW"), b)
+		errc <- Serve(context.Background(), stB, mustCall(t, "W1AW"), permit(b))
 	}()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -1262,7 +1303,7 @@ func TestCRLFMessageStoresOneParagraph(t *testing.T) {
 	defer b.Close()
 	errc := make(chan error, 1)
 	go func() {
-		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), b)
+		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), permit(b))
 	}()
 	rd := bufio.NewReader(a)
 	if err := readUntilPrompt(rd); err != nil {
@@ -1331,7 +1372,7 @@ func TestStoreFullDefers(t *testing.T) {
 	defer a.Close()
 	errc := make(chan error, 1)
 	go func() {
-		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), b)
+		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), permit(b))
 	}()
 	rd := bufio.NewReader(a)
 	if err := readUntilPrompt(rd); err != nil {
@@ -1380,7 +1421,7 @@ func TestStoreFullDefers(t *testing.T) {
 	a, b = net.Pipe()
 	defer a.Close()
 	go func() {
-		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), b)
+		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), permit(b))
 	}()
 	rd = bufio.NewReader(a)
 	if err := readUntilPrompt(rd); err != nil {
@@ -1466,7 +1507,7 @@ func TestBadBodyDoesNotStopTheBlock(t *testing.T) {
 	defer a.Close()
 	errc := make(chan error, 1)
 	go func() {
-		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), b)
+		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), permit(b))
 	}()
 	rd := bufio.NewReader(a)
 	if err := readUntilPrompt(rd); err != nil {
@@ -1515,7 +1556,7 @@ func TestShortProposalIsRefused(t *testing.T) {
 	defer a.Close()
 	errc := make(chan error, 1)
 	go func() {
-		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), b)
+		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), permit(b))
 	}()
 	rd := bufio.NewReader(a)
 	if err := readUntilPrompt(rd); err != nil {
@@ -1557,7 +1598,7 @@ func TestCommentFloodIsRefused(t *testing.T) {
 	defer b.Close()
 	errc := make(chan error, 1)
 	go func() {
-		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), b)
+		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), permit(b))
 	}()
 	rd := bufio.NewReader(a)
 	if err := readUntilPrompt(rd); err != nil {
@@ -1594,7 +1635,7 @@ func TestTelnetCRLFBodyKeepsItsSize(t *testing.T) {
 	defer a.Close()
 	errc := make(chan error, 1)
 	go func() {
-		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), telnet.Wrap(b))
+		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), permit(telnet.Wrap(b)))
 	}()
 	rd := bufio.NewReader(a)
 	greet := make([]byte, 9)
@@ -1645,7 +1686,7 @@ func offerBID(t *testing.T, st *store.Store, bid string, size int) string {
 	defer a.Close()
 	errc := make(chan error, 1)
 	go func() {
-		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), b)
+		errc <- Serve(context.Background(), st, mustCall(t, "K5LEB"), permit(b))
 	}()
 	rd := bufio.NewReader(a)
 	if err := readUntilPrompt(rd); err != nil {

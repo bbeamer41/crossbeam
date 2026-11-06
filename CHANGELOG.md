@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.7
+
+- A Unix socket is mode 0600 before its name is published. The mode can then widen to 0660 for the crossbeam group.
+- The systemd service hides devices, kernel interfaces, and extra address families. It keeps the network and NETLINK.
+- An unmarked stream cannot forward bulletins. Login is the only path that creates an admin session.
+- An AX.25 SABM that the engine refuses does not keep that callsign off the radio. A later SABM does not extend the first hold.
+
 ## 0.9.6
 
 - The forward log names the bulletin id and author of each bulletin this station stores and each bulletin the peer accepts. A refusal names the sender from the proposal, including when the station id arrived first.

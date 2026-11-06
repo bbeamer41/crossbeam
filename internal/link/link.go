@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/bbeamer41/crossbeam/internal/ax25"
@@ -33,9 +34,9 @@ const (
 	maxGuestsPerIP = 4
 	guestHold      = 2 * time.Second
 	termLineWait   = 5 * time.Second
-	// setupHold keeps the return address of a SABM that the AX.25 engine
-	// has not accepted yet. A slow KISS write can block that engine for
-	// longer than guestHold.
+	// setupHold keeps the return address of the first SABM until the
+	// AX.25 engine accepts it. A later SABM does not extend it. A slow
+	// KISS write can block that engine for longer than guestHold.
 	setupHold      = 10 * time.Minute
 	peerReserveMax = 8
 	// hopLinger is how long a relay crosslink stays up after the last
@@ -276,6 +277,7 @@ func Listen(cfg Config) (*Node, error) {
 		Netrom: n.onNetrom,
 		Begin:  n.beginSession,
 		End:    n.endSession,
+		Refuse: n.refuseSession,
 	})
 	if pc != nil {
 		go n.readLoop()
@@ -922,8 +924,9 @@ func (n *Node) sweepGuestsLocked(now time.Time) {
 	}
 }
 
-// rememberSetup stores the source of this SABM. The first one waits
-// until the engine accepts it. A NODES broadcast cannot move it.
+// rememberSetup stores the source of the first SABM. A later SABM does
+// not move it and does not extend the hold. The engine accepts that
+// SABM, or the hold expires. A NODES broadcast cannot move it.
 func (n *Node) rememberSetup(src ax25.Address, from *net.UDPAddr) {
 	ip := canonicalIP(from.IP)
 	if ip == nil || from.Port < 1 {
@@ -937,11 +940,27 @@ func (n *Node) rememberSetup(src ax25.Address, from *net.UDPAddr) {
 	}
 	key := src.String()
 	if _, waiting := n.setupAddr[key]; waiting && !n.live[key] {
-		n.setupAt[key] = time.Now()
 		return
 	}
 	n.setupAddr[key] = &net.UDPAddr{IP: append(net.IP(nil), ip...), Port: from.Port}
 	n.setupAt[key] = time.Now()
+}
+
+// refuseSession drops a callsign the engine answered with DM and did not
+// open. A live session is left alone. An unanswered SABM must not keep
+// that callsign off the radio.
+func (n *Node) refuseSession(remote ax25.Address) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	key := remote.String()
+	if n.live[key] {
+		return
+	}
+	delete(n.setupAddr, key)
+	delete(n.setupAt, key)
+	if guest, ok := n.guests[key]; ok && !guest.active {
+		delete(n.guests, key)
+	}
 }
 
 func (n *Node) beginSession(remote ax25.Address, inbound bool) {
@@ -1448,7 +1467,19 @@ func listenUnix(path string, mode os.FileMode) (net.Listener, error) {
 			return nil, err
 		}
 	}
-	ln, err := net.Listen("unix", path)
+	// Mode 0600 is set before bind. A connection can queue as soon as the
+	// name exists, and the terminal socket can dial and forward. The
+	// following chmod only widens 0600 to 0660 for the group.
+	ln, err := (&net.ListenConfig{Control: func(_, _ string, c syscall.RawConn) error {
+		var cerr error
+		err := c.Control(func(fd uintptr) {
+			cerr = syscall.Fchmod(int(fd), 0o600)
+		})
+		if err != nil {
+			return err
+		}
+		return cerr
+	}}).Listen(context.Background(), "unix", path)
 	if err != nil {
 		return nil, err
 	}

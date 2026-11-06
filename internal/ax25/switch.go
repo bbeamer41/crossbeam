@@ -33,23 +33,24 @@ var ErrNotConnected = errors.New("not connected")
 // as soon as a frame is accepted. T1 stays at several seconds so a peer that
 // delays its own acknowledgement, the way BPQ's RESPTIME does, still fits.
 type Switch struct {
-	local   Address
-	paclen  int
-	window  int
-	n2      int
-	t1      time.Duration
-	send    func(Address, Frame)
-	accept  func(Address, *Stream)
-	netrom  func(Address, []byte)
-	onBegin func(Address, bool)
-	onEnd   func(Address)
-	idle    time.Duration
-	events  chan event
-	quit    chan struct{}
-	done    chan struct{}
-	once    sync.Once
-	conns   map[string]*conn
-	now     func() time.Time
+	local    Address
+	paclen   int
+	window   int
+	n2       int
+	t1       time.Duration
+	send     func(Address, Frame)
+	accept   func(Address, *Stream)
+	netrom   func(Address, []byte)
+	onBegin  func(Address, bool)
+	onEnd    func(Address)
+	onRefuse func(Address)
+	idle     time.Duration
+	events   chan event
+	quit     chan struct{}
+	done     chan struct{}
+	once     sync.Once
+	conns    map[string]*conn
+	now      func() time.Time
 }
 
 // Config is the station and the timers for a switch.
@@ -69,6 +70,10 @@ type Config struct {
 	// Begin's bool is true when the remote station sent the SABM.
 	Begin func(Address, bool)
 	End   func(Address)
+	// Refuse runs when an inbound SABM or SABME is answered with DM and
+	// does not open a session. It runs on the engine goroutine and must
+	// not call the switch.
+	Refuse func(Address)
 	// Idle is how long a quiet session stays up. Zero uses DefaultIdle.
 	Idle time.Duration
 }
@@ -171,22 +176,23 @@ func NewSwitch(cfg Config) *Switch {
 		cfg.Idle = DefaultIdle
 	}
 	s := &Switch{
-		local:   cfg.Local,
-		paclen:  cfg.Paclen,
-		window:  cfg.Window,
-		n2:      cfg.N2,
-		t1:      cfg.T1,
-		idle:    cfg.Idle,
-		send:    cfg.Send,
-		accept:  cfg.Accept,
-		netrom:  cfg.Netrom,
-		onBegin: cfg.Begin,
-		onEnd:   cfg.End,
-		events:  make(chan event, 64),
-		quit:    make(chan struct{}),
-		done:    make(chan struct{}),
-		conns:   map[string]*conn{},
-		now:     time.Now,
+		local:    cfg.Local,
+		paclen:   cfg.Paclen,
+		window:   cfg.Window,
+		n2:       cfg.N2,
+		t1:       cfg.T1,
+		idle:     cfg.Idle,
+		send:     cfg.Send,
+		accept:   cfg.Accept,
+		netrom:   cfg.Netrom,
+		onBegin:  cfg.Begin,
+		onEnd:    cfg.End,
+		onRefuse: cfg.Refuse,
+		events:   make(chan event, 64),
+		quit:     make(chan struct{}),
+		done:     make(chan struct{}),
+		conns:    map[string]*conn{},
+		now:      time.Now,
 	}
 	go s.loop()
 	return s
@@ -563,7 +569,10 @@ func (s *Switch) onFrame(f Frame) {
 	c := s.conns[f.Src.String()]
 	switch {
 	case IsSABME(f.Control):
+		// Send the DM before Refuse. The link addresses that DM from the
+		// guest route, then drops the route.
 		s.sendU(f.Src, DM, false, PF(f.Control))
+		s.refuse(f.Src)
 		if c != nil {
 			s.end(c, errors.New("peer requested modulo 128"))
 		}
@@ -610,10 +619,12 @@ func (s *Switch) onFrame(f Frame) {
 func (s *Switch) onSABM(f Frame, c *conn) {
 	if c != nil && (c.phase == phaseRelease || c.closing) {
 		s.sendU(f.Src, DM, false, PF(f.Control))
+		s.refuse(f.Src)
 		return
 	}
 	if c == nil && len(s.conns) >= MaxSessions {
 		s.sendU(f.Src, DM, false, PF(f.Control))
+		s.refuse(f.Src)
 		return
 	}
 	fresh := c == nil
@@ -918,6 +929,12 @@ func (s *Switch) newConn(remote Address) *conn {
 func (s *Switch) began(remote Address, inbound bool) {
 	if s.onBegin != nil {
 		s.onBegin(remote, inbound)
+	}
+}
+
+func (s *Switch) refuse(remote Address) {
+	if s.onRefuse != nil {
+		s.onRefuse(remote)
 	}
 }
 

@@ -561,6 +561,57 @@ func TestBeginSessionKeepsTheSABMPort(t *testing.T) {
 	}
 }
 
+func TestRepeatedSABMDoesNotExtendHold(t *testing.T) {
+	call := mustCall(t, "N0CALL")
+	n := &Node{
+		peers:     map[string]*net.UDPAddr{},
+		peerPort:  map[string]int{},
+		guests:    map[string]*guestRoute{},
+		live:      map[string]bool{},
+		setupAddr: map[string]*net.UDPAddr{},
+		setupAt:   map[string]time.Time{},
+	}
+	from := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 40000}
+	n.rememberSetup(call, from)
+	old := time.Now().Add(-time.Minute)
+	n.mu.Lock()
+	n.setupAt[call.String()] = old
+	n.mu.Unlock()
+	n.rememberSetup(call, &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 40001})
+	n.mu.Lock()
+	got := n.setupAt[call.String()]
+	kept := n.setupAddr[call.String()]
+	n.mu.Unlock()
+	if !got.Equal(old) || kept == nil || kept.Port != 40000 {
+		t.Fatalf("hold %s port %v", got, kept)
+	}
+}
+
+func TestRefusedSetupDropsTheGuest(t *testing.T) {
+	call := mustCall(t, "N0CALL")
+	n := &Node{
+		peers:     map[string]*net.UDPAddr{},
+		peerPort:  map[string]int{},
+		guests:    map[string]*guestRoute{},
+		live:      map[string]bool{},
+		setupAddr: map[string]*net.UDPAddr{},
+		setupAt:   map[string]time.Time{},
+	}
+	from := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 40000}
+	if !n.allow(call, from) {
+		t.Fatal("guest was refused")
+	}
+	n.rememberSetup(call, from)
+	n.refuseSession(call)
+	n.mu.Lock()
+	_, guest := n.guests[call.String()]
+	_, setup := n.setupAddr[call.String()]
+	n.mu.Unlock()
+	if guest || setup {
+		t.Fatal("a refused SABM kept the callsign")
+	}
+}
+
 func TestGuestSurvivesUntilTheSession(t *testing.T) {
 	call := mustCall(t, "N0CALL")
 	n := &Node{
@@ -659,6 +710,34 @@ func TestUnlistedCapPerAddress(t *testing.T) {
 	frames := readFrames(other, 1, time.Second)
 	if len(frames) == 0 || !ax25.IsUA(frames[0].Control) {
 		t.Fatalf("other address %+v", frames)
+	}
+}
+
+func TestSABMEDoesNotHoldTheCallsign(t *testing.T) {
+	node := startNode(t, "K5LEB", false)
+	other := listenUDP(t, "127.0.0.1")
+	call := mustCall(t, "N0CALL")
+	sabme := ax25.Frame{Dest: node.Local(), Src: call, Command: true, Control: ax25.SABME | 0x10}.Encode()
+	if _, err := other.WriteToUDP(sabme, node.LocalAddr()); err != nil {
+		t.Fatal(err)
+	}
+	frames := readFrames(other, 1, time.Second)
+	if len(frames) == 0 || !ax25.IsDM(frames[0].Control) {
+		t.Fatalf("sabme %+v", frames)
+	}
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for {
+		node.mu.Lock()
+		_, guest := node.guests[call.String()]
+		_, setup := node.setupAddr[call.String()]
+		node.mu.Unlock()
+		if !guest && !setup {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("sabme kept the callsign")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 

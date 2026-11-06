@@ -85,7 +85,7 @@ func TestPasswordAndModes(t *testing.T) {
 	if err != nil || ok {
 		t.Fatalf("wrong password %v %v", ok, err)
 	}
-	session, err := s.CreateSession(ctx)
+	session, err := s.createSession(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}

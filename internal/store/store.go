@@ -476,9 +476,9 @@ type Session struct {
 	Expires time.Time
 }
 
-// CreateSession stores only the SHA-256 of the token. Login is the
+// createSession stores only the SHA-256 of the token. Login is the
 // path that checks a password first.
-func (s *Store) CreateSession(ctx context.Context) (Session, error) {
+func (s *Store) createSession(ctx context.Context) (Session, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Session{}, err

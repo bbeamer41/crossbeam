@@ -172,9 +172,8 @@ func serveForward(ctx context.Context, st *store.Store, local ax25.Address, w io
 	return peerGone(runErr)
 }
 
-// sessionCaller reads the optional mark the link attaches to a live session.
-// A pipe that does not carry the mark is allowed, so existing tests keep
-// exchanging bulletins. Production always sets the mark.
+// sessionCaller reads the mark the link attaches to a live session.
+// A stream with no mark cannot forward. The prompt still answers.
 func sessionCaller(rw io.ReadWriteCloser) (string, bool) {
 	type info interface {
 		ForwardAllowed() bool
@@ -182,7 +181,7 @@ func sessionCaller(rw io.ReadWriteCloser) (string, bool) {
 	}
 	gate, ok := rw.(info)
 	if !ok || gate == nil {
-		return "", true
+		return "", false
 	}
 	label := strings.TrimSpace(gate.PeerLabel())
 	if label == "" {

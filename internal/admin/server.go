@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/bbeamer41/crossbeam/internal/settings"
@@ -309,7 +310,19 @@ func listenUnix(path string, mode os.FileMode) (net.Listener, error) {
 			return nil, err
 		}
 	}
-	ln, err := net.Listen("unix", path)
+	// Mode 0600 is set before bind. A connection can queue as soon as the
+	// name exists, and that connection is served with no password. The
+	// following chmod only widens 0600 to 0660 for the group.
+	ln, err := (&net.ListenConfig{Control: func(_, _ string, c syscall.RawConn) error {
+		var cerr error
+		err := c.Control(func(fd uintptr) {
+			cerr = syscall.Fchmod(int(fd), 0o600)
+		})
+		if err != nil {
+			return err
+		}
+		return cerr
+	}}).Listen(context.Background(), "unix", path)
 	if err != nil {
 		return nil, err
 	}
