@@ -56,3 +56,11 @@ crossbeam settings set kiss.tnc 127.0.0.1:6700 --state /var/lib/crossbeam
 ```
 
 `station.callsign` is the address on the radio. Restart `crossbeam serve` after changing `kiss.tnc`. `--kiss HOST:PORT` uses another address for one start and does not change the saved setting. Validation is described in `docs/settings.md`.
+
+## Radio control
+
+Hamlib chooses the radio and sets the frequency and mode. Crossbeam starts `rigctld` for the saved radio. It is not a second service to edit. CAT PTT stays off, so Graywolf still keys the transmitter. A radio that is already on the packet frequency still only needs `kiss.tnc`.
+
+Leave `radio.model` empty to leave the radio alone. Choose the model, the USB port under `/dev/serial/by-id`, the frequency in MHz, and the mode, then save. FM is the packet choice. An unplugged radio is reported on the settings page and does not stop the node.
+
+The package depends on `libhamlib-utils`. The service user is in the `dialout` group, which applies the next time the service starts. The service can open USB serial ports (`ttyUSB` and `ttyACM`). Disks and other hardware stay closed.

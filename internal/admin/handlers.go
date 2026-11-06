@@ -4,10 +4,12 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"html/template"
 	"io"
+	"log"
 	"net/http"
 	"path"
 	"strconv"
@@ -15,6 +17,7 @@ import (
 	"time"
 
 	"github.com/bbeamer41/crossbeam/internal/article"
+	"github.com/bbeamer41/crossbeam/internal/radio"
 	"github.com/bbeamer41/crossbeam/internal/settings"
 	"github.com/bbeamer41/crossbeam/internal/store"
 )
@@ -28,13 +31,20 @@ type app struct {
 	hosts   hostSet
 	lim     *limiter
 	tmpl    *template.Template
+	radio   Radio
+}
+
+type optionView struct {
+	Value string
+	Label string
 }
 
 type fieldView struct {
-	Key   string
-	Help  string
-	Value string
-	Kind  string
+	Key     string
+	Help    string
+	Value   string
+	Kind    string
+	Options []optionView
 }
 
 type articleView struct {
@@ -46,23 +56,25 @@ type articleView struct {
 }
 
 type page struct {
-	Title    string
-	Station  string
-	Authed   bool
-	CSRF     string
-	Error    string
-	Kind     string
-	Version  string
-	Fields   []fieldView
-	RowID    int64
-	ArtTitle string
-	Author   string
-	ArtID    string
-	Created  string
-	Body     string
-	Packet   string
-	Micron   string
-	Articles []articleView
+	Title       string
+	Station     string
+	Authed      bool
+	CSRF        string
+	Error       string
+	Kind        string
+	Version     string
+	Fields      []fieldView
+	RowID       int64
+	ArtTitle    string
+	Author      string
+	ArtID       string
+	Created     string
+	Body        string
+	Packet      string
+	Micron      string
+	Articles    []articleView
+	RadioStatus string
+	RadioOK     bool
 }
 
 func (a *app) handler(local bool) http.Handler {
@@ -363,15 +375,21 @@ func (a *app) settingsPage(w http.ResponseWriter, r *http.Request, local bool, m
 	if msg != "" {
 		status = http.StatusBadRequest
 	}
+	note, radioOK := "", true
+	if a.radio != nil {
+		note, radioOK = a.radio.Status()
+	}
 	a.render(w, status, page{
-		Title:   "Settings",
-		Station: stationName(current),
-		Authed:  true,
-		CSRF:    csrf,
-		Error:   msg,
-		Kind:    "settings",
-		Version: a.version,
-		Fields:  fieldViews(current),
+		Title:       "Settings",
+		Station:     stationName(current),
+		Authed:      true,
+		CSRF:        csrf,
+		Error:       msg,
+		Kind:        "settings",
+		Version:     a.version,
+		Fields:      a.fieldViews(r.Context(), current),
+		RadioStatus: note,
+		RadioOK:     radioOK,
 	})
 }
 
@@ -386,10 +404,12 @@ func (a *app) settingsPost(w http.ResponseWriter, r *http.Request, local bool) {
 		}
 		patch[key] = values[len(values)-1]
 	}
-	if _, err := a.st.Apply(r.Context(), patch); err != nil {
+	next, err := a.st.Apply(r.Context(), patch)
+	if err != nil {
 		a.settingsPage(w, r, local, cleanErr(err))
 		return
 	}
+	a.syncRadio(r.Context(), next)
 	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }
 
@@ -419,7 +439,17 @@ func (a *app) settingsPut(w http.ResponseWriter, r *http.Request, local bool) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": cleanErr(err)})
 		return
 	}
+	a.syncRadio(r.Context(), next)
 	writeJSON(w, http.StatusOK, next)
+}
+
+func (a *app) syncRadio(ctx context.Context, current map[string]string) {
+	if a.radio == nil {
+		return
+	}
+	if err := a.radio.Sync(ctx, current); err != nil {
+		log.Printf("crossbeam: %s", cleanErr(err))
+	}
 }
 
 func (a *app) composePage(w http.ResponseWriter, r *http.Request, local bool, view page) {
@@ -780,7 +810,7 @@ func savedJSON(saved store.SavedArticle, packet, micron string) map[string]any {
 	}
 }
 
-func fieldViews(current map[string]string) []fieldView {
+func (a *app) fieldViews(ctx context.Context, current map[string]string) []fieldView {
 	out := make([]fieldView, 0, len(settings.Schema))
 	for _, field := range settings.Schema {
 		kind := "line"
@@ -790,9 +820,71 @@ func fieldViews(current map[string]string) []fieldView {
 		case settings.KindListen:
 			kind = "listen"
 		}
-		out = append(out, fieldView{Key: field.Key, Help: field.Help, Value: current[field.Key], Kind: kind})
+		out = append(out, fieldView{
+			Key:     field.Key,
+			Help:    field.Help,
+			Value:   current[field.Key],
+			Kind:    kind,
+			Options: radioOptions(ctx, field.Key, current),
+		})
 	}
 	return out
+}
+
+func radioOptions(ctx context.Context, key string, current map[string]string) []optionView {
+	switch key {
+	case settings.KeyRadioModel:
+		opts := []optionView{{Value: "", Label: "Off"}}
+		models, err := radio.Models(ctx)
+		if err == nil {
+			for _, model := range models {
+				opts = append(opts, optionView{Value: model.ID, Label: model.Label})
+			}
+		}
+		return ensureOption(opts, current[key], current[key])
+	case settings.KeyRadioDevice:
+		opts := []optionView{{Value: "", Label: "None"}}
+		for _, device := range radio.Devices() {
+			opts = append(opts, optionView{Value: device, Label: deviceLabel(device)})
+		}
+		return ensureOption(opts, current[key], deviceLabel(current[key]))
+	case settings.KeyRadioMode:
+		opts := []optionView{
+			{Value: "FM", Label: "FM"},
+			{Value: "USB", Label: "USB"},
+			{Value: "LSB", Label: "LSB"},
+			{Value: "AM", Label: "AM"},
+		}
+		return ensureOption(opts, current[key], current[key])
+	default:
+		return nil
+	}
+}
+
+func ensureOption(opts []optionView, value, label string) []optionView {
+	if value == "" {
+		return opts
+	}
+	for _, opt := range opts {
+		if opt.Value == value {
+			return opts
+		}
+	}
+	if label == "" {
+		label = value
+	}
+	return append(opts, optionView{Value: value, Label: label})
+}
+
+func deviceLabel(device string) string {
+	device = strings.TrimSpace(device)
+	if device == "" {
+		return ""
+	}
+	if i := strings.LastIndex(device, "/"); i >= 0 && i < len(device)-1 {
+		return device[i+1:]
+	}
+	return device
 }
 
 func stationName(current map[string]string) string {

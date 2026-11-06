@@ -26,6 +26,7 @@ import (
 	"github.com/bbeamer41/crossbeam/internal/bulletin"
 	"github.com/bbeamer41/crossbeam/internal/link"
 	"github.com/bbeamer41/crossbeam/internal/page"
+	"github.com/bbeamer41/crossbeam/internal/radio"
 	"github.com/bbeamer41/crossbeam/internal/settings"
 	"github.com/bbeamer41/crossbeam/internal/store"
 	"golang.org/x/term"
@@ -93,10 +94,13 @@ func cmdServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		fmt.Fprintf(stderr, "crossbeam: no sysop password is set. Run: crossbeam sysop password --state %s\n", *state)
 		return 78
 	}
+	tuner := radio.New()
+	defer tuner.Close()
 	running, err := admin.Start(ctx, st, admin.Config{
 		Listen:     *listen,
 		SocketPath: *socket,
 		SocketMode: mode,
+		Radio:      tuner,
 	})
 	if errors.Is(err, store.ErrNoPassword) {
 		fmt.Fprintf(stderr, "crossbeam: no sysop password is set. Run: crossbeam sysop password --state %s\n", *state)
@@ -130,6 +134,17 @@ func cmdServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 			fmt.Fprintf(stdout, "fbb %s\n", addr)
 		}
 		fmt.Fprintf(stdout, "terminal socket %s\n", node.Terminal())
+	}
+	current, err := st.Settings(ctx)
+	if err != nil {
+		running.Close()
+		fmt.Fprintf(stderr, "crossbeam: %s\n", err)
+		return 1
+	}
+	if err := tuner.Sync(ctx, current); err != nil {
+		fmt.Fprintf(stderr, "crossbeam: %s\n", err)
+	} else if note, ok := tuner.Status(); ok && note != "" {
+		fmt.Fprintf(stdout, "radio %s\n", note)
 	}
 	err = waitServe(ctx, running)
 	if err != nil {

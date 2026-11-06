@@ -6,6 +6,8 @@ The state directory is not a setting either. Pass it as `--state`. The database,
 
 A change to `admin.listen`, `admin.public`, `link.listen`, `link.peers`, `kiss.tnc`, `telnet.listen`, `telnet.peers`, `fbb.listen`, or `fbb.peers` is saved immediately and used the next time `crossbeam serve` starts. The running panel keeps the address it already bound. The running link keeps the peers, the TNC address, and the TCP ports it already resolved.
 
+A change to `radio.model`, `radio.device`, `radio.frequency`, or `radio.mode` is applied when it is saved. `crossbeam serve` applies it again at startup. An empty `radio.model` leaves the radio alone.
+
 ## station.callsign
 
 The station callsign. Compose uses it as the article author when the author box is empty. The AX/UDP link, the KISS radio, telnet, and FBB TCP use it as the station address.
@@ -65,6 +67,30 @@ The TCP address of the KISS TNC, such as 127.0.0.1:6700. Leave this empty to kee
 An empty value does not open a connection. The value is `host:port`. Port 0 is rejected. A zone id, such as `%eth0`, is rejected. A multicast address is rejected. `0.0.0.0` and `::` are rejected. This value is the address Crossbeam dials. An IP address is stored in canonical form. A hostname is saved without looking it up. At start it must resolve to one address. The behavior of the port is described in `docs/radio.md`.
 
 `--kiss` on `crossbeam serve` uses another address for this start and does not change the saved setting.
+
+## radio.model
+
+The hamlib model number of the plugged-in radio. Leave this empty to leave the radio alone. Saving a model opens that radio.
+
+The settings page lists the radios reported by `rigctl -l`. Hamlib dummy radios are omitted. An empty value does not start the controller. A saved model opens the radio when the settings are saved and again when `crossbeam serve` starts. A failure is shown on the settings page. The rest of the node keeps running. Graywolf still sends the audio and keys the transmitter. The behavior is described in `docs/radio.md`.
+
+## radio.device
+
+The USB port of the radio, under /dev/serial/by-id. Required when a model is set.
+
+The name is the stable USB name, such as `/dev/serial/by-id/usb-Icom_Inc._IC-7300_02001234-if00`. A bare name is stored with the `/dev/serial/by-id/` prefix. The service can open USB serial ports. Disks and other hardware stay closed.
+
+## radio.frequency
+
+The frequency in MHz, such as 145.030. Required when a model is set.
+
+The value is stored in megahertz. `145.030` is 145030000 hertz. The range is 0.1 MHz to 6000 MHz. There is no default packet frequency.
+
+## radio.mode
+
+The mode sent to the radio. FM is the usual packet choice. USB, LSB, and AM are also accepted. An empty value uses FM.
+
+The controller does not switch PTT. The modem keys the transmitter.
 
 ## telnet.listen
 

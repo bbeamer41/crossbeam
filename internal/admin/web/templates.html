@@ -45,6 +45,7 @@
 {{if eq .Key "admin.listen"}}<h2 class="group">Admin panel</h2>{{end}}
 {{if eq .Key "link.listen"}}<h2 class="group">AX/UDP link</h2>{{end}}
 {{if eq .Key "kiss.tnc"}}<h2 class="group">KISS radio</h2>{{end}}
+{{if eq .Key "radio.model"}}<h2 class="group">Radio control</h2>{{if $.RadioStatus}}<p class="{{if $.RadioOK}}help{{else}}error{{end}}" role="status">{{$.RadioStatus}}</p>{{end}}{{end}}
 {{if eq .Key "telnet.listen"}}<h2 class="group">Telnet</h2>{{end}}
 {{if eq .Key "fbb.listen"}}<h2 class="group">FBB forwarding</h2>{{end}}
 {{if eq .Key "bulletin.to"}}<h2 class="group">Bulletins</h2>{{end}}
@@ -55,6 +56,13 @@
 {{if eq .Kind "bool"}}
 <input type="hidden" name="{{.Key}}" value="false">
 <input id="field-{{.Key}}" name="{{.Key}}" type="checkbox" value="true"{{if eq .Value "true"}} checked{{end}}>
+{{else if .Options}}
+<select id="field-{{.Key}}" name="{{.Key}}">
+{{$field := .}}
+{{range $field.Options}}
+<option value="{{.Value}}"{{if eq .Value $field.Value}} selected{{end}}>{{.Label}}</option>
+{{end}}
+</select>
 {{else}}
 <input id="field-{{.Key}}" name="{{.Key}}" type="text" value="{{.Value}}" autocomplete="off">
 {{end}}

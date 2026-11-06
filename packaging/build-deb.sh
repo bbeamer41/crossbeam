@@ -62,7 +62,7 @@ Architecture: $arch
 Maintainer: K5LEB <75401887+bbeamer41@users.noreply.github.com>
 Homepage: https://github.com/bbeamer41/crossbeam
 Installed-Size: $installed
-Depends: systemd
+Depends: systemd, libhamlib-utils
 Description: packet-radio node and bulletin bridge
  Crossbeam stores one article and can post it as a packet bulletin
  and as a NomadNet page. The package does not enable the service.

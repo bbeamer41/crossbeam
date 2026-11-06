@@ -802,6 +802,151 @@ func TestUntrustedRequestEdges(t *testing.T) {
 	}
 }
 
+func TestSavedRadioStaysOnTheForm(t *testing.T) {
+	a := &app{tmpl: pageTmpl, version: "test"}
+	current := settings.Defaults()
+	current[settings.KeyRadioModel] = "999999"
+	current[settings.KeyRadioDevice] = "/dev/serial/by-id/usb-saved-radio"
+	current[settings.KeyRadioFrequency] = "145.03"
+	current[settings.KeyRadioMode] = "USB"
+	var buf strings.Builder
+	err := a.tmpl.ExecuteTemplate(&buf, "page", page{
+		Kind:        "settings",
+		Fields:      a.fieldViews(context.Background(), current),
+		RadioStatus: "the radio did not open",
+		RadioOK:     false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := buf.String()
+	for _, want := range []string{
+		"Radio control",
+		"the radio did not open",
+		`<option value="999999" selected>`,
+		`<option value="/dev/serial/by-id/usb-saved-radio" selected>usb-saved-radio</option>`,
+		`<option value="USB" selected>`,
+		`name="radio.frequency" type="text" value="145.03"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("missing %s\n%s", want, html)
+		}
+	}
+	if strings.Count(html, `value="999999"`) != 1 || strings.Count(html, `value="/dev/serial/by-id/usb-saved-radio"`) != 1 {
+		t.Fatal("saved radio was listed twice")
+	}
+}
+
+func TestRadioFailureDoesNotUndoTheSave(t *testing.T) {
+	st := openState(t)
+	if err := st.SetPassword(context.Background(), "test-password-1"); err != nil {
+		t.Fatal(err)
+	}
+	tuner := &fakeRadio{err: errors.New("the radio did not open"), note: "the radio did not open"}
+	running, err := Start(context.Background(), st, Config{Listen: "127.0.0.1:0", Radio: tuner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		running.Close()
+		running.Wait()
+	})
+	client := trustClient(t, filepath.Join(st.Dir(), "tls", "cert.pem"))
+	res, err := client.PostForm(running.URL+"/login", url.Values{"password": {"test-password-1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	readAll(t, res)
+	res, err = client.Get(running.URL + "/settings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := readAll(t, res)
+	token := csrfFrom(t, page)
+	res, err = client.PostForm(running.URL+"/settings", url.Values{
+		"csrf":         {token},
+		"station.name": {"Home"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	readAll(t, res)
+	if res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("save %d", res.StatusCode)
+	}
+	if tuner.calls != 1 || tuner.last[settings.KeyName] != "Home" {
+		t.Fatalf("sync %+v", tuner)
+	}
+	got, err := st.Settings(context.Background())
+	if err != nil || got[settings.KeyName] != "Home" {
+		t.Fatalf("stored %v %v", got, err)
+	}
+	res, err = client.Get(running.URL + "/settings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page = readAll(t, res)
+	if !strings.Contains(page, "the radio did not open") {
+		t.Fatalf("status missing\n%s", page)
+	}
+	req, err := http.NewRequest(http.MethodPut, running.URL+"/api/settings", strings.NewReader(`{"station.name":"Away"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Crossbeam-Request", "1")
+	res, err = client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := readAll(t, res)
+	if res.StatusCode != http.StatusOK || !strings.Contains(body, "Away") {
+		t.Fatalf("put %d %s", res.StatusCode, body)
+	}
+	if tuner.calls != 2 {
+		t.Fatalf("calls %d", tuner.calls)
+	}
+	tuner.err = nil
+	req, err = http.NewRequest(http.MethodPut, running.URL+"/api/settings", strings.NewReader(`{"radio.model":"nope"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Crossbeam-Request", "1")
+	res, err = client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readAll(t, res)
+	if res.StatusCode != http.StatusBadRequest || tuner.calls != 2 {
+		t.Fatalf("bad model synced the radio: %d calls %d", res.StatusCode, tuner.calls)
+	}
+}
+
+type fakeRadio struct {
+	err   error
+	note  string
+	ok    bool
+	calls int
+	last  map[string]string
+}
+
+func (f *fakeRadio) Sync(_ context.Context, current map[string]string) error {
+	f.calls++
+	f.last = current
+	if f.err != nil {
+		f.note = f.err.Error()
+		f.ok = false
+		return f.err
+	}
+	f.ok = true
+	return nil
+}
+
+func (f *fakeRadio) Status() (string, bool) {
+	return f.note, f.ok
+}
+
 func startPanel(t *testing.T) (*Running, *store.Store, *http.Client) {
 	t.Helper()
 	st := openState(t)

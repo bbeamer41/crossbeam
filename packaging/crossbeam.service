@@ -1,6 +1,7 @@
 [Unit]
 Description=Crossbeam packet node
-After=network.target
+Wants=modprobe@cdc_acm.service modprobe@ftdi_sio.service modprobe@cp210x.service modprobe@ch341.service modprobe@pl2303.service
+After=network.target modprobe@cdc_acm.service modprobe@ftdi_sio.service modprobe@cp210x.service modprobe@ch341.service modprobe@pl2303.service
 
 [Service]
 Type=simple
@@ -20,7 +21,10 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/crossbeam
-PrivateDevices=true
+PrivateDevices=false
+DevicePolicy=closed
+DeviceAllow=char-ttyUSB rw
+DeviceAllow=char-ttyACM rw
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectKernelLogs=true

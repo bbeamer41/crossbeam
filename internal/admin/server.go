@@ -35,11 +35,20 @@ const maxBody = 1 << 20
 // admin.listen for this start only. SocketPath overrides the socket under
 // the state directory. SocketMode is 0600 or 0660; zero means 0600.
 // Lookup resolves a hostname once at start. Nil uses the system resolver.
+// Radio applies the saved radio settings in this process. Nil leaves the
+// radio alone.
 type Config struct {
 	Listen     string
 	SocketPath string
 	SocketMode os.FileMode
 	Lookup     settings.LookupIP
+	Radio      Radio
+}
+
+// Radio starts, retunes, or stops the radio controller.
+type Radio interface {
+	Sync(context.Context, map[string]string) error
+	Status() (string, bool)
 }
 
 // Running is a live admin panel.
@@ -138,6 +147,7 @@ func Start(ctx context.Context, st *store.Store, cfg Config) (*Running, error) {
 		hosts:   accessHosts(plan.Name, bound),
 		lim:     newLimiter(),
 		tmpl:    pageTmpl,
+		radio:   cfg.Radio,
 	}
 	httpsSrv := newServer(app.handler(false))
 	plainSrv := newServer(app.handler(true))

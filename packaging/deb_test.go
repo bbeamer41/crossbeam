@@ -35,7 +35,7 @@ func TestPackageBuilds(t *testing.T) {
 	if !strings.Contains(info, "Version: "+version.String) || !strings.Contains(info, "Architecture: "+arch(t)) {
 		t.Fatalf("control %s", info)
 	}
-	if !strings.Contains(info, "Depends: systemd") {
+	if !strings.Contains(info, "Depends: systemd, libhamlib-utils") {
 		t.Fatalf("depends %s", info)
 	}
 	if !installedSize(info) {
@@ -93,7 +93,11 @@ func TestPackageBuilds(t *testing.T) {
 		"MemoryDenyWriteExecute=true",
 		"RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK",
 		"CapabilityBoundingSet=",
-		"PrivateDevices=true",
+		"PrivateDevices=false",
+		"DevicePolicy=closed",
+		"DeviceAllow=char-ttyUSB rw",
+		"DeviceAllow=char-ttyACM rw",
+		"Wants=modprobe@cdc_acm.service modprobe@ftdi_sio.service modprobe@cp210x.service modprobe@ch341.service modprobe@pl2303.service",
 	} {
 		if !bytes.Contains(unit, []byte(line)) {
 			t.Fatalf("package unit missing %s\n%s", line, unit)
@@ -102,12 +106,15 @@ func TestPackageBuilds(t *testing.T) {
 			t.Fatalf("manual unit missing %s\n%s", line, manual)
 		}
 	}
+	if bytes.Contains(unit, []byte("PrivateDevices=true")) || bytes.Contains(manual, []byte("PrivateDevices=true")) || bytes.Contains(unit, []byte("Requires=modprobe")) {
+		t.Fatalf("device sandbox\n%s\n%s", unit, manual)
+	}
 	postinst, err := os.ReadFile(filepath.Join(ctrl, "postinst"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(postinst)
-	if !strings.Contains(text, "useradd") || strings.Contains(text, "systemctl enable") || strings.Contains(text, "systemctl start") {
+	if !strings.Contains(text, "useradd") || !strings.Contains(text, "usermod -a -G dialout crossbeam") || strings.Contains(text, "systemctl enable") || strings.Contains(text, "systemctl start") {
 		t.Fatalf("postinst %s", text)
 	}
 	postrm, err := os.ReadFile(filepath.Join(ctrl, "postrm"))

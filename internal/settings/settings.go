@@ -31,20 +31,24 @@ const (
 
 // Setting keys. These names are stored and shown as-is.
 const (
-	KeyCallsign     = "station.callsign"
-	KeyName         = "station.name"
-	KeyListen       = "admin.listen"
-	KeyPublic       = "admin.public"
-	KeyLinkListen   = "link.listen"
-	KeyLinkPeers    = "link.peers"
-	KeyKiss         = "kiss.tnc"
-	KeyTelnetListen = "telnet.listen"
-	KeyTelnetPeers  = "telnet.peers"
-	KeyFBBListen    = "fbb.listen"
-	KeyFBBPeers     = "fbb.peers"
-	KeyBulletinTo   = "bulletin.to"
-	KeyBulletinAt   = "bulletin.at"
-	KeyPages        = "nomad.pages"
+	KeyCallsign       = "station.callsign"
+	KeyName           = "station.name"
+	KeyListen         = "admin.listen"
+	KeyPublic         = "admin.public"
+	KeyLinkListen     = "link.listen"
+	KeyLinkPeers      = "link.peers"
+	KeyKiss           = "kiss.tnc"
+	KeyRadioModel     = "radio.model"
+	KeyRadioDevice    = "radio.device"
+	KeyRadioFrequency = "radio.frequency"
+	KeyRadioMode      = "radio.mode"
+	KeyTelnetListen   = "telnet.listen"
+	KeyTelnetPeers    = "telnet.peers"
+	KeyFBBListen      = "fbb.listen"
+	KeyFBBPeers       = "fbb.peers"
+	KeyBulletinTo     = "bulletin.to"
+	KeyBulletinAt     = "bulletin.at"
+	KeyPages          = "nomad.pages"
 )
 
 // Field is one setting.
@@ -99,6 +103,31 @@ var Schema = []Field{
 		Help:     "The TCP address of the KISS TNC, such as 127.0.0.1:6700. Leave this empty to keep the radio off. The radio is 1200 baud. A change takes effect on the next start.",
 		Kind:     KindLine,
 		MaxRunes: 256,
+	},
+	{
+		Key:      KeyRadioModel,
+		Help:     "The hamlib model number of the plugged-in radio. Leave this empty to leave the radio alone. Saving a model opens that radio.",
+		Kind:     KindLine,
+		MaxRunes: 6,
+	},
+	{
+		Key:      KeyRadioDevice,
+		Help:     "The USB port of the radio, under /dev/serial/by-id. Required when a model is set.",
+		Kind:     KindLine,
+		MaxRunes: 256,
+	},
+	{
+		Key:      KeyRadioFrequency,
+		Help:     "The frequency in MHz, such as 145.030. Required when a model is set.",
+		Kind:     KindLine,
+		MaxRunes: 16,
+	},
+	{
+		Key:      KeyRadioMode,
+		Help:     "The mode sent to the radio. FM is the usual packet choice. USB, LSB, and AM are also accepted. An empty value uses FM.",
+		Kind:     KindLine,
+		Default:  "FM",
+		MaxRunes: 8,
 	},
 	{
 		Key:      KeyTelnetListen,
@@ -206,6 +235,9 @@ func Validate(values map[string]string) (map[string]string, error) {
 		return nil, err
 	}
 	out[KeyPages] = pages
+	if err := validateRadio(out); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 

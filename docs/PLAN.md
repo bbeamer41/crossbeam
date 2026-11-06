@@ -14,7 +14,7 @@ On amateur packet, articles travel as readable text. The bridge does not put Ret
 
 ## Radio
 
-Graywolf is the only supported modem. The mode is 1200 baud AFSK. Crossbeam speaks KISS to Graywolf and owns the node, the mailbox, and the bridge.
+Graywolf is the only supported modem. The mode is 1200 baud AFSK. Crossbeam speaks KISS to Graywolf and owns the node, the mailbox, and the bridge. Hamlib can set the frequency and mode of a plugged-in radio. It does not modulate audio and it does not key the transmitter.
 
 9600 baud is not a supported mode. There is no 9600 port profile, test, or setup screen. The KISS port does not contain a modem, so a different TNC can be attached later without rewriting the node. The documented radio path is Graywolf at 1200 baud.
 

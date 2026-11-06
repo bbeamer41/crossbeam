@@ -134,7 +134,7 @@ label {
 .field.check label,
 .field.check .help { grid-column: 2; margin-bottom: 0; }
 
-input[type="text"], input[type="password"], textarea {
+input[type="text"], input[type="password"], textarea, select {
   width: 100%;
   padding: 0.55rem 0.7rem;
   border: 1px solid #cfc6b7;
@@ -204,12 +204,12 @@ header button.quiet {
   margin-top: 0.35rem;
 }
 
-a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible {
+a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
   outline: 3px solid var(--ink);
   outline-offset: 2px;
 }
 
-input:focus-visible, textarea:focus-visible { border-color: var(--green); }
+input:focus-visible, textarea:focus-visible, select:focus-visible { border-color: var(--green); }
 
 .error {
   margin: 0 0 1rem;

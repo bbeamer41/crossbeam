@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.8
+
+- The settings page can choose a plugged-in radio, its USB port, a frequency, and a mode. Hamlib sets the radio. Graywolf still sends the audio and keys the transmitter.
+
 ## 0.9.7
 
 - A Unix socket is mode 0600 before its name is published. The mode can then widen to 0660 for the crossbeam group.
