@@ -286,7 +286,7 @@ func cmdConnect(ctx context.Context, args []string, stdin io.Reader, stdout, std
 	}
 	conn, err := net.DialTimeout("unix", path, time.Second)
 	if err != nil {
-		fmt.Fprintln(stderr, "crossbeam: the AX/UDP link is not running")
+		fmt.Fprintln(stderr, "crossbeam:", terminalMessage(err))
 		return 1
 	}
 	defer conn.Close()
@@ -366,7 +366,7 @@ func cmdBulletin(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	}
 	conn, err := net.DialTimeout("unix", path, time.Second)
 	if err != nil {
-		fmt.Fprintln(stderr, "crossbeam: the AX/UDP link is not running")
+		fmt.Fprintln(stderr, "crossbeam:", terminalMessage(err))
 		return 1
 	}
 	defer conn.Close()
@@ -709,7 +709,7 @@ func cmdStatus(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		fmt.Fprintln(stderr, "crossbeam: status does not take arguments")
 		return 2
 	}
-	back, code := openBackend(fs, *state, *socket, stderr, true)
+	back, code := openBackend(fs, *state, *socket, stderr, false)
 	if code != 0 {
 		return code
 	}
@@ -847,9 +847,9 @@ func cmdPageRun(ctx context.Context, args []string, stdout, stderr io.Writer, pu
 		fmt.Fprintf(stderr, "crossbeam: usage: crossbeam page %s [--state DIR]\n", name)
 		return 2
 	}
-	st, err := store.Open(*state)
+	st, err := store.OpenExisting(*state)
 	if err != nil {
-		fmt.Fprintf(stderr, "crossbeam: the pages could not be %s\n", verb)
+		fmt.Fprintf(stderr, "crossbeam: %s\n", pageOpenMessage(err, verb))
 		return 1
 	}
 	defer st.Close()
@@ -882,6 +882,13 @@ func cmdPageRun(ctx context.Context, args []string, stdout, stderr io.Writer, pu
 		return 1
 	}
 	return 0
+}
+
+func pageOpenMessage(err error, verb string) string {
+	if errors.Is(err, store.ErrNoState) || errors.Is(err, store.ErrNoDatabase) {
+		return err.Error()
+	}
+	return "the pages could not be " + verb
 }
 
 func pageMessage(err error, verb string) string {
@@ -1040,7 +1047,7 @@ func cmdList(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "crossbeam: article list does not take arguments")
 		return 2
 	}
-	back, code := openBackend(fs, *state, *socket, stderr, true)
+	back, code := openBackend(fs, *state, *socket, stderr, false)
 	if code != 0 {
 		return code
 	}
@@ -1127,6 +1134,13 @@ func dialSocket(path string) error {
 	}
 	conn.Close()
 	return nil
+}
+
+func terminalMessage(err error) string {
+	if errors.Is(err, syscall.EACCES) || errors.Is(err, syscall.EPERM) {
+		return "permission denied"
+	}
+	return "the AX/UDP link is not running"
 }
 
 func socketMessage(err error) string {

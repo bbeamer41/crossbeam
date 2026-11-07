@@ -628,6 +628,67 @@ func TestDocumentedFlagOrder(t *testing.T) {
 	}
 }
 
+func TestReadCommandsDoNotCreateState(t *testing.T) {
+	commands := [][]string{
+		{"article", "list", "--state"},
+		{"status", "--state"},
+		{"mcp", "--state"},
+		{"page", "publish", "--state"},
+		{"page", "ingest", "--state"},
+	}
+	for _, args := range commands {
+		dir := filepath.Join(t.TempDir(), "cbmiss")
+		cmd := append(append([]string{}, args...), dir)
+		stdout, stderr, code := capture(cmd)
+		if code != 1 || stdout != "" || !strings.Contains(stderr, "state directory does not exist") {
+			t.Fatalf("%v code=%d stdout=%q stderr=%q", args, code, stdout, stderr)
+		}
+		if _, err := os.Stat(dir); !os.IsNotExist(err) {
+			t.Fatalf("%v created state: %v", args, err)
+		}
+	}
+	empty := filepath.Join(t.TempDir(), "empty")
+	if err := os.Mkdir(empty, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range commands {
+		cmd := append(append([]string{}, args...), empty)
+		_, stderr, code := capture(cmd)
+		if code != 1 || !strings.Contains(stderr, "state directory has no database") {
+			t.Fatalf("%v empty code=%d stderr=%q", args, code, stderr)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(empty, "crossbeam.db")); !os.IsNotExist(err) {
+		t.Fatal("database created")
+	}
+}
+
+func TestTerminalSocketPermission(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "locked")
+	if err := os.Mkdir(parent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(parent, "sock")
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	if err := os.Chmod(parent, 0); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(parent, 0o700)
+	for _, args := range [][]string{
+		{"connect", "W1AW-1", "--socket", path},
+		{"bulletin", "send", "W1AW-1", "--socket", path},
+	} {
+		_, stderr, code := capture(args)
+		if code != 1 || strings.Contains(stderr, "not running") || !strings.Contains(stderr, "permission denied") {
+			t.Fatalf("%v %d %q", args[0], code, stderr)
+		}
+	}
+}
+
 func TestSocketPermission(t *testing.T) {
 	parent := filepath.Join(t.TempDir(), "locked")
 	if err := os.Mkdir(parent, 0o700); err != nil {

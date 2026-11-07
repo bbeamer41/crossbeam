@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/bbeamer41/crossbeam/internal/store"
 )
 
 func TestMCPCommand(t *testing.T) {
@@ -26,11 +28,34 @@ func TestMCPCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	stdout, stderr, code = capture([]string{"mcp", "--state", blocked})
-	if code != 1 || stdout != "" || stderr != "crossbeam: the article store is not available\n" || strings.Contains(stderr, "secret-state-name") {
+	if code != 1 || stdout != "" || stderr != "crossbeam: state directory does not exist\n" || strings.Contains(stderr, "secret-state-name") {
 		t.Fatalf("blocked code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	locked := filepath.Join(t.TempDir(), "locked")
+	if err := os.Mkdir(locked, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	hidden := filepath.Join(locked, "secret-state-name")
+	if err := os.Mkdir(hidden, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(locked, 0o700)
+	stdout, stderr, code = capture([]string{"mcp", "--state", hidden})
+	if code != 1 || stdout != "" || stderr != "crossbeam: the article store is not available\n" || strings.Contains(stderr, "secret-state-name") {
+		t.Fatalf("hidden code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 
 	dir := filepath.Join(t.TempDir(), "state")
+	opened, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := opened.Close(); err != nil {
+		t.Fatal(err)
+	}
 	script := strings.Join([]string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}`,
 		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,

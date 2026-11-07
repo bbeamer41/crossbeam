@@ -19,6 +19,8 @@ if [ -e /var/lib/crossbeam ] && [ ! -d /var/lib/crossbeam ]; then
 	exit 1
 fi
 install -d -o crossbeam -g crossbeam -m 0700 /var/lib/crossbeam
+# An existing tree is given to this account. -h does not follow a link.
+chown -h -R crossbeam:crossbeam /var/lib/crossbeam
 if getent group dialout >/dev/null 2>&1; then
 	usermod -a -G dialout crossbeam
 fi

@@ -114,7 +114,7 @@ func TestPackageBuilds(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(postinst)
-	if !strings.Contains(text, "useradd") || !strings.Contains(text, "usermod -a -G dialout crossbeam") || strings.Contains(text, "systemctl enable") || strings.Contains(text, "systemctl start") {
+	if !strings.Contains(text, "useradd") || !strings.Contains(text, "usermod -a -G dialout crossbeam") || !strings.Contains(text, "chown -h -R crossbeam:crossbeam /var/lib/crossbeam") || strings.Contains(text, "systemctl enable") || strings.Contains(text, "systemctl start") || strings.Contains(text, "chmod -R") {
 		t.Fatalf("postinst %s", text)
 	}
 	postrm, err := os.ReadFile(filepath.Join(ctrl, "postrm"))

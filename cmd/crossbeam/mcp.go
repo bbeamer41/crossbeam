@@ -28,8 +28,12 @@ func cmdMCP(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 		fmt.Fprintln(stderr, "crossbeam: usage: crossbeam mcp [--state DIR]")
 		return 2
 	}
-	st, err := store.Open(*state)
+	st, err := store.OpenExisting(*state)
 	if err != nil {
+		if errors.Is(err, store.ErrNoState) || errors.Is(err, store.ErrNoDatabase) {
+			fmt.Fprintf(stderr, "crossbeam: %s\n", err)
+			return 1
+		}
 		fmt.Fprintln(stderr, "crossbeam: the article store is not available")
 		return 1
 	}

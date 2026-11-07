@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Installing the package again gives an existing state directory, including the database and the TLS key, to the new `crossbeam` user. Links are not followed.
+- `article list`, `status`, `mcp`, and `page publish` and `page ingest` do not create a missing state directory.
+- `connect` and `bulletin send` say permission denied when the terminal socket cannot be opened.
+- `docs/install.md` checks the signing key before the key is installed.
+
 ## 0.9.8
 
 - The settings page can choose a plugged-in radio, its USB port, a frequency, and a mode. Hamlib sets the radio. Graywolf still sends the audio and keys the transmitter.

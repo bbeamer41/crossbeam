@@ -10,10 +10,6 @@ The archive is amd64. `apt update` reads it. `apt upgrade` installs a newer Cros
 sudo install -d -m 0755 /etc/apt/keyrings
 wget -O /tmp/crossbeam.asc https://raw.githubusercontent.com/bbeamer41/crossbeam/main/apt/crossbeam-archive-key.asc
 wget -O /tmp/crossbeam.list https://raw.githubusercontent.com/bbeamer41/crossbeam/main/apt/crossbeam.list
-sudo install -m 0644 /tmp/crossbeam.asc /etc/apt/keyrings/crossbeam.asc
-sudo install -m 0644 /tmp/crossbeam.list /etc/apt/sources.list.d/crossbeam.list
-sudo apt update
-sudo apt install crossbeam
 ```
 
 The signing key fingerprint is `E6B7A9B54B63A15E37C0979FC4B7FFE1AB0D6034`. Check the downloaded key before you install it:
@@ -24,7 +20,14 @@ gpg --show-keys /tmp/crossbeam.asc
 
 The fingerprint in that output is `E6B7A9B54B63A15E37C0979FC4B7FFE1AB0D6034`.
 
-The package adds the `crossbeam` user, creates `/var/lib/crossbeam` at mode `0700`, and installs `/usr/lib/systemd/system/crossbeam.service`. It does not enable the service and it does not start it. Set the sysop password before you start it. Removing the package leaves the state directory in place. Purging the package removes the `crossbeam` user and group and still leaves that directory.
+```bash
+sudo install -m 0644 /tmp/crossbeam.asc /etc/apt/keyrings/crossbeam.asc
+sudo install -m 0644 /tmp/crossbeam.list /etc/apt/sources.list.d/crossbeam.list
+sudo apt update
+sudo apt install crossbeam
+```
+
+The package adds the `crossbeam` user, creates `/var/lib/crossbeam` at mode `0700`, and installs `/usr/lib/systemd/system/crossbeam.service`. It does not enable the service and it does not start it. Set the sysop password before you start it. Removing the package leaves the state directory in place. Purging the package removes the `crossbeam` user and group and still leaves that directory. Installing the package again gives that directory and the files inside it to the new `crossbeam` user.
 
 The unit in the package uses `/usr/bin/crossbeam`. Do not also copy `deploy/crossbeam.service` to `/etc/systemd/system`, because that file would override the packaged unit and would still expect `/usr/local/bin/crossbeam`.
 

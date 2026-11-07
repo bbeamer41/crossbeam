@@ -30,8 +30,11 @@ func TestPageCommands(t *testing.T) {
 
 	dir := filepath.Join(t.TempDir(), "state")
 	_, stderr, code = capture([]string{"page", "publish", "--state", dir})
-	if code != 1 || stderr != "crossbeam: nomad.pages is empty\n" {
-		t.Fatalf("empty code=%d stderr=%q", code, stderr)
+	if code != 1 || stderr != "crossbeam: state directory does not exist\n" {
+		t.Fatalf("missing code=%d stderr=%q", code, stderr)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatal("state directory was created")
 	}
 	_, stderr, code = capture([]string{"page", "publish", "--state", dir, "extra"})
 	if code != 2 || !strings.Contains(stderr, "usage") {
@@ -158,12 +161,28 @@ func TestPageCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	stdout, stderr, code = capture([]string{"page", "publish", "--state", notDir})
-	if code != 1 || stdout != "" || stderr != "crossbeam: the pages could not be published\n" || strings.Contains(stderr, notDir) || strings.Contains(strings.ToLower(stderr), "sqlite") {
+	if code != 1 || stdout != "" || stderr != "crossbeam: state directory does not exist\n" || strings.Contains(stderr, notDir) || strings.Contains(strings.ToLower(stderr), "sqlite") {
 		t.Fatalf("open code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 	stdout, stderr, code = capture([]string{"page", "ingest", "--state", notDir})
-	if code != 1 || stderr != "crossbeam: the pages could not be imported\n" {
+	if code != 1 || stderr != "crossbeam: state directory does not exist\n" || strings.Contains(stderr, notDir) || strings.Contains(strings.ToLower(stderr), "sqlite") {
 		t.Fatalf("ingest open code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	locked := filepath.Join(t.TempDir(), "locked")
+	if err := os.Mkdir(locked, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	hidden := filepath.Join(locked, "secret-state-name")
+	if err := os.Mkdir(hidden, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(locked, 0o700)
+	stdout, stderr, code = capture([]string{"page", "publish", "--state", hidden})
+	if code != 1 || stdout != "" || stderr != "crossbeam: the pages could not be published\n" || strings.Contains(stderr, "secret-state-name") || strings.Contains(strings.ToLower(stderr), "sqlite") {
+		t.Fatalf("hidden code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 }
 
