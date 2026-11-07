@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.9
 
 - Installing the package again gives an existing state directory, including the database and the TLS key, to the new `crossbeam` user. Links are not followed.
 - `article list`, `status`, `mcp`, and `page publish` and `page ingest` do not create a missing state directory.
