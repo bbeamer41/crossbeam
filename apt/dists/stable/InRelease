@@ -5,26 +5,26 @@ Origin: Crossbeam
 Label: Crossbeam
 Suite: stable
 Codename: stable
-Date: Mon, 09 Nov 2026 12:32:19 +0000
+Date: Mon, 09 Nov 2026 12:56:37 +0000
 Architectures: amd64
 Components: main
 Description: Crossbeam packet-radio node
 MD5Sum:
- 0224c48867d6049afc843eaf4ae68793 668 main/binary-amd64/Packages
- b81df86feb94f4d323aeca90751d2289 463 main/binary-amd64/Packages.gz
+ a830a8991c980af0fcec11a1fe6a3798 668 main/binary-amd64/Packages
+ 205b72d3993b0d10cf828e541bd0d1db 466 main/binary-amd64/Packages.gz
 SHA1:
- b99c04d09c056c9f877833f1af7d817586c604f1 668 main/binary-amd64/Packages
- 61ef1e6b6fe412c4001f399845d67c1658e4d446 463 main/binary-amd64/Packages.gz
+ 7b6d52428a1e070318e414326106eba428de470b 668 main/binary-amd64/Packages
+ e77351d7c1d2abf75b415486cc62472495649fed 466 main/binary-amd64/Packages.gz
 SHA256:
- 85bf2a9da779fae7392a28862c1f123d762d6b3e3a0ecf32b7bd7ea9746f1385 668 main/binary-amd64/Packages
- c71ca138fee8599e20e1fc0c3c2c4f376f7d63c1add431d3c135b26860669171 463 main/binary-amd64/Packages.gz
+ abd0d935e422d57a7f9e9ec64dc9a3be24516aa84f18b61450f4bb1136482bcb 668 main/binary-amd64/Packages
+ e58d293bba83ed1bfd49fc6dda90be4c7d8bfac0530e1e76945a746503b35550 466 main/binary-amd64/Packages.gz
 SHA512:
- 981a7e3d625519c434498a9bb70ec49ae8f7243300cce961f8b7c29f504fa5cda1ccdb777bcf3704f816d9d0604f21687e2379f0c03dd2ff30a5cd692fa9a865 668 main/binary-amd64/Packages
- 430d79e12a21940dee47573c3b64f38f06b62921838884ffb22f85401b485bac2048efe8685e91ab3f27ae877bfcba7cdb45e02ab0a2a7d15e847e9abcddc6ea 463 main/binary-amd64/Packages.gz
+ 1c3836e575651aca7b7aa9f3464719c349622dd0dc14c32cabfa0a6b3c7b2809ead62bf140fc43a8f961ecf0695ee6473e6b7a14ec1f8a7427ca6122a47be1a8 668 main/binary-amd64/Packages
+ 978ebe21f1fcac51b6a928e695176103861707b3b75e87debbe31699d289efad9c54949e0bfc227d5d8f534f6685fa459d4ff98be7690c630aa7cc85ca4083f7 466 main/binary-amd64/Packages.gz
 -----BEGIN PGP SIGNATURE-----
 
-iHUEARYKAB0WIQTmt6m1S2OhXjfAl5/Et//hqw1gNAUCavG9UwAKCRDEt//hqw1g
-NP/XAQCHB5nCDVApq7HdlzG5WEg6OBBjPiyoC8Bx/p3FXpM+OQEA964qVI7qUcW4
-y/jAl+FoxPpxp1STDPi2dItAweogPAU=
-=DiIh
+iHUEARYKAB0WIQTmt6m1S2OhXjfAl5/Et//hqw1gNAUCavHDBQAKCRDEt//hqw1g
+NLlCAQDhvOdNS/cEP/OilVpWRt1V3IErtaPfvKjTuGxd8DJaUQEArSCuQooimiuY
+37xL3ZnwE1Ku7UIy+tC18yW9cCJD/ww=
+=TgNH
 -----END PGP SIGNATURE-----
