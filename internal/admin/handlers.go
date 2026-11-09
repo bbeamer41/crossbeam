@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/bbeamer41/crossbeam/internal/article"
 	"github.com/bbeamer41/crossbeam/internal/radio"
@@ -52,7 +53,9 @@ type articleView struct {
 	Title   string
 	Author  string
 	Created string
+	When    string
 	ID      string
+	Excerpt string
 }
 
 type page struct {
@@ -72,6 +75,7 @@ type page struct {
 	Body        string
 	Packet      string
 	Micron      string
+	When        string
 	Articles    []articleView
 	RadioStatus string
 	RadioOK     bool
@@ -129,7 +133,7 @@ func (a *app) serve(w http.ResponseWriter, r *http.Request, local bool) {
 	case r.URL.Path == "/settings" && r.Method == http.MethodPost:
 		a.settingsPost(w, r, local)
 	case r.URL.Path == "/compose" && r.Method == http.MethodGet:
-		a.composePage(w, r, local, page{Kind: "compose", Title: "Compose"})
+		a.composeGet(w, r, local)
 	case r.URL.Path == "/compose" && r.Method == http.MethodPost:
 		a.composePost(w, r, local)
 	case r.URL.Path == "/articles" && r.Method == http.MethodGet:
@@ -477,6 +481,40 @@ func (a *app) composePage(w http.ResponseWriter, r *http.Request, local bool, vi
 	a.render(w, status, view)
 }
 
+func (a *app) composeGet(w http.ResponseWriter, r *http.Request, local bool) {
+	if _, ok := a.requireSession(w, r, local); !ok {
+		return
+	}
+	view := page{Kind: "compose", Title: "Compose"}
+	raw := strings.TrimSpace(r.URL.Query().Get("row"))
+	if raw == "" {
+		a.composePage(w, r, local, view)
+		return
+	}
+	rowID, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || rowID <= 0 {
+		http.NotFound(w, r)
+		return
+	}
+	saved, err := a.st.Article(r.Context(), rowID)
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, cleanErr(err), http.StatusInternalServerError)
+		return
+	}
+	view.Title = "Edit"
+	view.RowID = saved.RowID
+	view.ArtTitle = saved.Article.Title
+	view.Author = saved.Article.Author
+	view.ArtID = saved.Article.ID
+	view.Created = saved.Article.Created.Format(time.RFC3339)
+	view.Body = saved.Article.Body
+	a.composePage(w, r, local, view)
+}
+
 func (a *app) composePost(w http.ResponseWriter, r *http.Request, local bool) {
 	if _, ok := a.requireChange(w, r, local, false); !ok {
 		return
@@ -542,26 +580,28 @@ func (a *app) articlesPage(w http.ResponseWriter, r *http.Request, local bool) {
 		http.Error(w, "Settings could not be read.", http.StatusInternalServerError)
 		return
 	}
-	list, err := a.st.ListArticles(r.Context())
+	list, err := a.st.ListArticleBlurbs(r.Context())
 	if err != nil {
 		http.Error(w, cleanErr(err), http.StatusInternalServerError)
 		return
 	}
 	view := page{
-		Title: "Articles", Station: stationName(current), Authed: true, CSRF: csrf,
+		Title: "Bulletins", Station: stationName(current), Authed: true, CSRF: csrf,
 		Kind: "articles", Version: a.version,
 	}
 	for _, item := range list {
 		view.Articles = append(view.Articles, articleView{
 			RowID: item.RowID, Title: item.Article.Title, Author: item.Article.Author,
-			Created: item.Article.Created.Format(time.RFC3339), ID: item.Article.ID,
+			Created: item.Article.Created.Format(time.RFC3339), When: boardTime(item.Article.Created),
+			ID: item.Article.ID, Excerpt: cardExcerpt(item.Excerpt),
 		})
 	}
 	a.render(w, http.StatusOK, view)
 }
 
 func (a *app) articlePage(w http.ResponseWriter, r *http.Request, local bool) {
-	if _, ok := a.requireSession(w, r, local); !ok {
+	csrf, ok := a.requireSession(w, r, local)
+	if !ok {
 		return
 	}
 	rowID, err := rowFromPath(r.URL.Path, "/articles/")
@@ -588,12 +628,42 @@ func (a *app) articlePage(w http.ResponseWriter, r *http.Request, local bool) {
 		http.Error(w, cleanErr(err), http.StatusInternalServerError)
 		return
 	}
-	a.composePage(w, r, local, page{
-		Title: "Article", RowID: saved.RowID, ArtTitle: saved.Article.Title,
+	current, err := a.st.Settings(r.Context())
+	if err != nil {
+		http.Error(w, "Settings could not be read.", http.StatusInternalServerError)
+		return
+	}
+	a.render(w, http.StatusOK, page{
+		Title: saved.Article.Title, Station: stationName(current), Authed: true, CSRF: csrf,
+		Kind: "bulletin", Version: a.version,
+		RowID: saved.RowID, ArtTitle: saved.Article.Title,
 		Author: saved.Article.Author, ArtID: saved.Article.ID,
-		Created: saved.Article.Created.Format(time.RFC3339), Body: saved.Article.Body,
-		Packet: packet, Micron: micron,
+		Created: saved.Article.Created.Format(time.RFC3339), When: boardTime(saved.Article.Created),
+		Body: saved.Article.Body, Packet: packet, Micron: micron,
 	})
+}
+
+func boardTime(t time.Time) string {
+	return t.UTC().Format("2 Jan 2006 15:04 UTC")
+}
+
+func cardExcerpt(raw string) string {
+	raw = strings.Join(strings.Fields(raw), " ")
+	const max = 140
+	if raw == "" || utf8.RuneCountInString(raw) <= max {
+		return raw
+	}
+	i, n := 0, 0
+	for i < len(raw) && n < max {
+		_, size := utf8.DecodeRuneInString(raw[i:])
+		i += size
+		n++
+	}
+	cut := raw[:i]
+	if sp := strings.LastIndex(cut, " "); sp > 80 {
+		cut = cut[:sp]
+	}
+	return strings.TrimSpace(cut) + "…"
 }
 
 func (a *app) preview(w http.ResponseWriter, r *http.Request, local bool) {

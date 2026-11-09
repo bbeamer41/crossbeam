@@ -17,7 +17,7 @@
 <nav>
 <a href="/settings"{{if eq .Kind "settings"}} aria-current="page"{{end}}>Settings</a>
 <a href="/compose"{{if eq .Kind "compose"}} aria-current="page"{{end}}>Compose</a>
-<a href="/articles"{{if eq .Kind "articles"}} aria-current="page"{{end}}>Articles</a>
+<a href="/articles"{{if or (eq .Kind "articles") (eq .Kind "bulletin")}} aria-current="page"{{end}}>Bulletins</a>
 <form method="post" action="/logout">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
 <button type="submit" class="quiet">Log out</button>
@@ -72,7 +72,7 @@
 </form>
 {{end}}
 {{if eq .Kind "compose"}}
-<h1>Compose</h1>
+<h1>{{.Title}}</h1>
 <form id="compose" method="post" action="/compose" accept-charset="utf-8">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
 <input type="hidden" name="row_id" value="{{.RowID}}">
@@ -117,23 +117,43 @@
 <script src="/app.js"></script>
 {{end}}
 {{if eq .Kind "articles"}}
-<h1>Articles</h1>
-<p class="toolbar"><a class="button-link" href="/compose">New article</a></p>
-<div class="table-wrap">
-<table>
-<thead><tr><th>Title</th><th>Author</th><th>Created</th></tr></thead>
-<tbody>
+<h1>Bulletins</h1>
+<p class="toolbar"><a class="button-link" href="/compose">New bulletin</a></p>
+<ul class="board">
 {{range .Articles}}
-<tr>
-<td><a href="/articles/{{.RowID}}">{{.Title}}</a></td>
-<td>{{.Author}}</td>
-<td>{{.Created}}</td>
-</tr>
+<li>
+<a class="pin-card" href="/articles/{{.RowID}}">
+<span class="pin" aria-hidden="true"></span>
+<span class="card-author">{{.Author}}</span>
+<span class="card-title">{{.Title}}</span>
+{{if .Excerpt}}<span class="card-excerpt">{{.Excerpt}}</span>{{end}}
+<span class="card-meta"><time datetime="{{.Created}}">{{.When}}</time>{{if .ID}} · {{.ID}}{{end}}</span>
+</a>
+</li>
 {{else}}
-<tr class="empty"><td colspan="3">No articles yet.</td></tr>
+<li class="empty-board">No bulletins yet.</li>
 {{end}}
-</tbody>
-</table>
+</ul>
+{{end}}
+{{if eq .Kind "bulletin"}}
+<p class="toolbar"><a href="/articles">All bulletins</a></p>
+<article class="sheet">
+<span class="pin" aria-hidden="true"></span>
+<p class="card-author">{{.Author}}</p>
+<h1>{{.ArtTitle}}</h1>
+<p class="card-meta"><time datetime="{{.Created}}">{{.When}}</time>{{if .ArtID}} · {{.ArtID}}{{end}}</p>
+{{if .Body}}<div class="sheet-body">{{.Body}}</div>{{end}}
+<p class="actions"><a class="button-link" href="/compose?row={{.RowID}}">Edit</a></p>
+</article>
+<div class="previews">
+<section>
+<h2>Packet</h2>
+<pre id="packet">{{.Packet}}</pre>
+</section>
+<section>
+<h2>Micron</h2>
+<pre id="micron">{{.Micron}}</pre>
+</section>
 </div>
 {{end}}
 </main>

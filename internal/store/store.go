@@ -681,6 +681,43 @@ FROM articles WHERE row_id = ?
 	return saved, nil
 }
 
+// ArticleBlurb is one list row and a short prefix of its body.
+// Article.Body stays empty. Reopen the row with Article.
+type ArticleBlurb struct {
+	SavedArticle
+	Excerpt string
+}
+
+// ListArticleBlurbs returns rows newest first. The excerpt is at most
+// 240 characters of the body, for a card on the bulletin board.
+func (s *Store) ListArticleBlurbs(ctx context.Context) ([]ArticleBlurb, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT row_id, bulletin_id, title, author, created, substr(body, 1, 240)
+FROM articles
+ORDER BY created DESC, row_id DESC
+`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ArticleBlurb
+	for rows.Next() {
+		var item ArticleBlurb
+		var created string
+		if err := rows.Scan(&item.RowID, &item.Article.ID, &item.Article.Title, &item.Article.Author, &created, &item.Excerpt); err != nil {
+			return nil, err
+		}
+		parsed, err := time.Parse(time.RFC3339, created)
+		if err != nil {
+			return nil, fmt.Errorf("created time is not RFC3339")
+		}
+		item.Article.Created = parsed
+		item.Excerpt = strings.ToValidUTF8(item.Excerpt, "")
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
 // ListArticles returns rows newest first, without bodies. Reopen one
 // row with Article.
 func (s *Store) ListArticles(ctx context.Context) ([]SavedArticle, error) {

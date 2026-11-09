@@ -275,8 +275,21 @@ func TestArticles(t *testing.T) {
 		t.Fatalf("%v %+v", err, loaded)
 	}
 	list, err := s.ListArticles(ctx)
-	if err != nil || len(list) != 3 {
+	if err != nil || len(list) != 3 || list[0].Article.Body != "" {
 		t.Fatalf("%v %d", err, len(list))
+	}
+	blurbs, err := s.ListArticleBlurbs(ctx)
+	if err != nil || len(blurbs) != 3 || blurbs[0].Article.Body != "" {
+		t.Fatalf("blurbs %v %d", err, len(blurbs))
+	}
+	var saw string
+	for _, item := range blurbs {
+		if item.Article.Title == "Net night notes" {
+			saw = item.Excerpt
+		}
+	}
+	if saw != "The net meets Thursday." {
+		t.Fatalf("excerpt %q", saw)
 	}
 	filled, err := s.SaveArticle(ctx, ArticleIn{Title: "No author", Now: now})
 	if err != nil || filled.Article.Author != "K5LEB" {

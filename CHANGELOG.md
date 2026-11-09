@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.10
+
+- The bulletin list is a board of cards. A card opens that bulletin.
+
 ## 0.9.9
 
 - Installing the package again gives an existing state directory, including the database and the TLS key, to the new `crossbeam` user. Links are not followed.

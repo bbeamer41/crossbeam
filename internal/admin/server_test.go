@@ -244,8 +244,24 @@ func TestPanelFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	page = readAll(t, res)
-	if res.StatusCode != http.StatusOK || !strings.Contains(page, "Title: Hello") || !strings.Contains(page, "----") {
+	if res.StatusCode != http.StatusOK || !strings.Contains(page, "Title: Hello") || !strings.Contains(page, "----") || !strings.Contains(page, "The net meets.") || !strings.Contains(page, "/compose?row=") {
 		t.Fatalf("reopen %d %s", res.StatusCode, page)
+	}
+	res, err = client.Get(base + "/articles")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page = readAll(t, res)
+	if res.StatusCode != http.StatusOK || !strings.Contains(page, `class="pin-card"`) || !strings.Contains(page, `href="`+loc+`"`) || !strings.Contains(page, "The net meets.") || strings.Contains(page, "<table") {
+		t.Fatalf("board %d %s", res.StatusCode, page)
+	}
+	res, err = client.Get(base + "/compose?row=" + strings.TrimPrefix(loc, "/articles/"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	page = readAll(t, res)
+	if res.StatusCode != http.StatusOK || !strings.Contains(page, ">Edit<") || !strings.Contains(page, `value="Hello"`) {
+		t.Fatalf("edit %d %s", res.StatusCode, page)
 	}
 
 	info, err := os.Stat(running.SocketPath)
@@ -631,6 +647,17 @@ func TestCertificate(t *testing.T) {
 	}
 	if !sanMatches(longPair.Leaf, long) || len(longPair.Leaf.Subject.CommonName) > 64 {
 		t.Fatalf("long name cn %q", longPair.Leaf.Subject.CommonName)
+	}
+}
+
+func TestCardExcerpt(t *testing.T) {
+	if cardExcerpt("  The   net\nmeets. ") != "The net meets." {
+		t.Fatalf("short %q", cardExcerpt("  The   net\nmeets. "))
+	}
+	long := strings.Repeat("word ", 40)
+	got := cardExcerpt(long)
+	if !strings.HasSuffix(got, "…") || strings.Contains(got, "  ") || len([]rune(strings.TrimSuffix(got, "…"))) > 140 {
+		t.Fatalf("long %q", got)
 	}
 }
 

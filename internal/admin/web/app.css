@@ -254,6 +254,126 @@ pre {
   font-family: ui-monospace, "Liberation Mono", monospace;
 }
 
+body.kind-articles,
+body.kind-bulletin {
+  background:
+    linear-gradient(180deg, rgba(255, 253, 248, 0.35), transparent 12rem),
+    #e4d7c3;
+}
+
+body.kind-articles .bar,
+body.kind-articles main,
+body.kind-articles footer,
+body.kind-bulletin .bar,
+body.kind-bulletin main,
+body.kind-bulletin footer {
+  max-width: 68rem;
+}
+
+body.kind-articles main,
+body.kind-bulletin main {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding-left: 0.2rem;
+  padding-right: 0.2rem;
+}
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  gap: 1.15rem;
+  margin: 0;
+  padding: 0.2rem 0 0.4rem;
+  list-style: none;
+}
+
+.pin-card, .sheet {
+  position: relative;
+  background: var(--card);
+  color: var(--ink);
+  border: 1px solid #e6dccb;
+  border-radius: 2px;
+  box-shadow: 0 10px 22px rgba(62, 44, 22, 0.08);
+}
+
+.pin-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-height: 11.5rem;
+  padding: 1.45rem 1rem 0.9rem;
+  text-decoration: none;
+}
+
+.sheet { padding: 1.7rem 1.35rem 1.15rem; }
+
+.pin {
+  position: absolute;
+  top: 0.55rem;
+  left: 50%;
+  width: 0.8rem;
+  height: 0.8rem;
+  margin-left: -0.4rem;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #f2e4b8, #8d6b32 58%, #5c4318);
+  box-shadow: 0 1px 1px rgba(62, 44, 22, 0.35);
+}
+
+.board li:nth-child(4n+1) .pin-card { transform: rotate(-0.6deg); }
+.board li:nth-child(4n+2) .pin-card { transform: rotate(0.45deg); }
+.board li:nth-child(4n+3) .pin-card { transform: rotate(0.15deg); }
+.board li:nth-child(4n+4) .pin-card { transform: rotate(-0.35deg); }
+
+.pin-card:hover, .pin-card:focus-visible {
+  transform: translateY(-3px);
+  box-shadow: 0 16px 28px rgba(62, 44, 22, 0.14);
+}
+
+.card-author {
+  color: var(--green);
+  font-family: ui-monospace, "Liberation Mono", monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.card-title {
+  font-family: "Liberation Serif", "Palatino Linotype", Palatino, serif;
+  font-size: 1.28rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.card-excerpt {
+  color: var(--ink);
+  font-size: 0.95rem;
+}
+
+.card-meta, .empty-board {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.pin-card .card-meta { margin-top: auto; }
+
+.sheet .card-author { margin: 0 0 0.35rem; }
+.sheet h1 { margin-bottom: 0.35rem; }
+.sheet .card-meta { margin: 0 0 0.9rem; }
+
+.sheet-body {
+  white-space: pre-wrap;
+  font-size: 1.02rem;
+  line-height: 1.55;
+}
+
+.sheet .actions { margin: 1.1rem 0 0; }
+
+.empty-board {
+  padding: 1.2rem 0.2rem;
+}
+
 .table-wrap { overflow-x: auto; }
 
 table {
@@ -293,6 +413,11 @@ tr.empty td { color: var(--muted); }
 
 .toolbar { margin: 0 0 1rem; }
 
+.toolbar a:not(.button-link) {
+  color: var(--green);
+  font-weight: 700;
+}
+
 footer {
   padding: 0 1.25rem 1.6rem;
   color: var(--muted);
@@ -317,8 +442,17 @@ body.kind-login button[type="submit"] {
   margin-top: 0.35rem;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .pin-card, .board li:nth-child(4n+1) .pin-card,
+  .board li:nth-child(4n+2) .pin-card,
+  .board li:nth-child(4n+3) .pin-card,
+  .board li:nth-child(4n+4) .pin-card,
+  .pin-card:hover, .pin-card:focus-visible { transform: none; }
+}
+
 @media (max-width: 800px) {
   .previews, #compose { grid-template-columns: 1fr; }
   main { margin-top: 0.8rem; padding: 1.1rem 1rem 1.2rem; }
   .bar, footer { padding-left: 1rem; padding-right: 1rem; }
+  .board li .pin-card { transform: none; }
 }
