@@ -10,19 +10,19 @@ A change to `radio.model`, `radio.device`, `radio.frequency`, or `radio.mode` is
 
 ## station.callsign
 
-The station callsign. Compose uses it as the article author when the author box is empty. The AX/UDP link, the KISS radio, telnet, and FBB TCP use it as the station address.
+Your amateur callsign. Compose uses it when the author box is empty. The packet link, the radio modem, telnet, and bulletin forwarding use it as the address of this station. When one of those is turned on, it has to be an AX.25 callsign, with an optional SSID such as K5LEB-1.
 
 One line, at most 64 runes. It may be empty until you set it. When the link, the radio, telnet, and FBB TCP are off, the value is not checked against a callsign pattern. When `link.listen`, `kiss.tnc`, `telnet.listen`, or `fbb.listen` is set, it must be an AX.25 callsign, with an optional SSID such as `K5LEB-1`.
 
 ## station.name
 
-A short name for this station, shown in the admin panel.
+A short name for this station. It is shown in the header of this panel so you can tell which node you are using.
 
 One line, at most 80 runes. It may be empty.
 
 ## admin.listen
 
-The host and port for the admin panel, such as 192.168.1.20:8443. Leave this empty to choose a private LAN address on port 8443. A change takes effect on the next start.
+The address of this web page, written as host:port, such as 192.168.1.20:8443. Leave it empty and Crossbeam chooses a private network address on port 8443. A saved address is used the next time Crossbeam starts. This page keeps the address it already opened.
 
 An empty value chooses the first private IPv4 address on a non-loopback interface, on port 8443. If the machine has none, the panel listens on `127.0.0.1:8443`. The automatic choice is never a public address and never `0.0.0.0` or `::`.
 
@@ -34,7 +34,7 @@ Port 0 is rejected. A zone id, such as `%eth0`, is rejected.
 
 ## admin.public
 
-Allow the admin panel to listen on a public address. Leave this false to keep the panel on the LAN.
+Allow this page to listen on a public internet address. Leave this off to keep the panel on your own network. The sysop password is still required, and the browser warns until the certificate is trusted.
 
 The only values are `true` and `false`.
 
@@ -42,7 +42,7 @@ Leave this false unless you intend to put the admin panel on a public address. T
 
 ## link.listen
 
-The host and port for the AX/UDP link, such as 192.168.1.20:10093. Leave this empty to keep the link off. A change takes effect on the next start.
+The address other packet stations use to reach this one, written as host:port. Port 10093 is the usual choice. Leave it empty to keep the link off. Each UDP packet carries one AX.25 frame. A saved address is used the next time Crossbeam starts.
 
 10093 is the usual port. The payload is one AX.25 frame, as described in `docs/link.md`. An empty value does not open a socket. A saved address may be a public address: this is the packet port, and `admin.public` does not apply to it. `0.0.0.0:10093` listens on every IPv4 interface. The bytes are readable text.
 
@@ -52,7 +52,7 @@ A hostname is saved without looking it up. At start it must resolve to one addre
 
 ## link.peers
 
-Stations this node can call. Separate entries with spaces or commas. Each entry is CALL@host:port, such as W1AW-1@192.168.1.20:10093. A change takes effect on the next start.
+Stations this node will call. Write each one as CALL@host:port, separated by spaces or commas, such as W1AW-1@192.168.1.20:10093. Bulletin forwarding on the packet link is accepted only from a station in this list. A station that is not listed can still reach the keyboard prompt. The list is read the next time Crossbeam starts.
 
 Each callsign is stored in uppercase. SSID 0 is stored without a suffix. At most 32 stations. A hostname in an entry is resolved when the link starts, and it must resolve to one address. This node answers the prompt for a station that is not listed. Bulletin forwarding on AX/UDP is accepted only from a station in this list. The list is also who this node will call. While a session with that station is open, the reply goes to the address the request came from. The next call uses the port in this list again.
 
@@ -62,7 +62,7 @@ A listed station is also a NET/ROM neighbor. Routes learned from those neighbors
 
 ## kiss.tnc
 
-The TCP address of the KISS TNC, such as 127.0.0.1:6700. Leave this empty to keep the radio off. The radio is 1200 baud. A change takes effect on the next start.
+The address of the KISS modem, such as 127.0.0.1:6700 for a modem on this computer. Leave it empty to keep the radio off. Crossbeam sends 1200 baud packet to that modem. The modem turns the text into tones and keys the transmitter. The address is used the next time Crossbeam starts.
 
 An empty value does not open a connection. The value is `host:port`. Port 0 is rejected. A zone id, such as `%eth0`, is rejected. A multicast address is rejected. `0.0.0.0` and `::` are rejected. This value is the address Crossbeam dials. An IP address is stored in canonical form. A hostname is saved without looking it up. At start it must resolve to one address. The behavior of the port is described in `docs/radio.md`.
 
@@ -70,31 +70,31 @@ An empty value does not open a connection. The value is `host:port`. Port 0 is r
 
 ## radio.model
 
-The hamlib model number of the plugged-in radio. Leave this empty to leave the radio alone. Saving a model opens that radio.
+The radio plugged into this computer. Choose it from the list, or leave it off. Saving a choice sets the frequency and mode on that radio. The modem still sends the audio and keys the transmitter.
 
 The settings page lists the radios reported by `rigctl -l`. Hamlib dummy radios are omitted. An empty value does not start the controller. A saved model opens the radio when the settings are saved and again when `crossbeam serve` starts. A failure is shown on the settings page. The rest of the node keeps running. Graywolf still sends the audio and keys the transmitter. The behavior is described in `docs/radio.md`.
 
 ## radio.device
 
-The USB port of the radio, under /dev/serial/by-id. Required when a model is set.
+The USB port of the radio. Choose the stable name from the list. That name lives under /dev/serial/by-id and still matches after a reboot. Required when a radio is selected.
 
 The name is the stable USB name, such as `/dev/serial/by-id/usb-Icom_Inc._IC-7300_02001234-if00`. A bare name is stored with the `/dev/serial/by-id/` prefix. The service can open USB serial ports. Disks and other hardware stay closed.
 
 ## radio.frequency
 
-The frequency in MHz, such as 145.030. Required when a model is set.
+The frequency to send to the radio, in MHz. For example, 145.030 is 145.030 MHz. Required when a radio is selected. Crossbeam does not pick a packet frequency for you.
 
 The value is stored in megahertz. `145.030` is 145030000 hertz. The range is 0.1 MHz to 6000 MHz. There is no default packet frequency.
 
 ## radio.mode
 
-The mode sent to the radio. FM is the usual packet choice. USB, LSB, and AM are also accepted. An empty value uses FM.
+The mode to send to the radio. FM is the usual choice for packet. USB, LSB, and AM are also available. An empty value uses FM. Choosing a mode does not key the transmitter.
 
 The controller does not switch PTT. The modem keys the transmitter.
 
 ## telnet.listen
 
-The host and port for telnet sessions, such as 192.168.1.20:8770. Leave this empty to keep telnet off. Telnet is cleartext. A change takes effect on the next start.
+The address for a keyboard session over telnet, written as host:port, such as 192.168.1.20:8770. Leave it empty to keep telnet off. The session is readable text, with no encryption. The address is used the next time Crossbeam starts.
 
 An empty value does not open a socket. A saved address may be a public address: this is a packet port, and `admin.public` does not apply to it. `0.0.0.0:8770` listens on every IPv4 interface. The session is described in `docs/peers.md`. A proposal on this session exchanges bulletins only when the caller address is listed in `telnet.peers`.
 
@@ -104,7 +104,7 @@ A hostname is saved without looking it up. At start it must resolve to one addre
 
 ## telnet.peers
 
-Stations this node can call over telnet. Separate entries with spaces or commas. Each entry is CALL@host:port, such as W1AW-1@192.168.1.20:8770. A change takes effect on the next start.
+Stations this node will call over telnet. Write each one as CALL@host:port, such as W1AW-1@192.168.1.20:8770. Anyone who can open the port can reach the keyboard prompt. Bulletin forwarding on telnet is accepted only from a station in this list. The list is read the next time Crossbeam starts.
 
 Each callsign is stored in uppercase. SSID 0 is stored without a suffix. At most 32 stations. A hostname is resolved when the node starts, and it must resolve to one address. This list is who this node will call. Answering the telnet prompt does not require the caller to be listed. Bulletin forwarding is accepted only from an address in this list.
 
@@ -112,7 +112,7 @@ Each callsign is stored in uppercase. SSID 0 is stored without a suffix. At most
 
 ## fbb.listen
 
-The host and port for FBB TCP forwarding, such as 192.168.1.20:6300. Leave this empty to keep FBB TCP off. The session is cleartext ASCII. A change takes effect on the next start.
+The address for bulletin forwarding over TCP, written as host:port, such as 192.168.1.20:6300. Leave it empty to keep this forwarding off. The session is the FBB bulletin exchange as readable text, without telnet commands. The address is used the next time Crossbeam starts.
 
 An empty value does not open a socket. The address rules match `telnet.listen`. The bytes are the bulletin exchange in `docs/bulletin.md`, with no telnet commands. 6300 is the port FBB documents for a TCP forward.
 
@@ -120,7 +120,7 @@ An empty value does not open a socket. The address rules match `telnet.listen`. 
 
 ## fbb.peers
 
-Stations this node can forward to over FBB TCP. Separate entries with spaces or commas. Each entry is CALL@host:port, such as W1AW-1@192.168.1.20:6300. A change takes effect on the next start.
+Stations this node will forward bulletins to over TCP. Write each one as CALL@host:port, such as W1AW-1@192.168.1.20:6300. Crossbeam uses this list when the station is not already in the packet-link list. An incoming forward is accepted only from a station in this list. The list is read the next time Crossbeam starts.
 
 The entry rules match `telnet.peers`. `crossbeam bulletin send` uses this list only when the station is not in `link.peers`. An incoming forward is accepted only from an address in this list. The author stored from an accepted proposal is still the callsign written in the proposal.
 
@@ -128,19 +128,19 @@ The entry rules match `telnet.peers`. `crossbeam bulletin send` uses this list o
 
 ## bulletin.to
 
-The category used when this station forwards a bulletin, such as ALL. Letters and digits, at most 12. An empty value uses ALL.
+The category other stations see on a bulletin this station forwards. ALL is the usual category. Use letters and digits, at most 12. An empty value is stored as ALL. The next forward uses a saved change.
 
 This is the `TO` field of an FBB bulletin. `ALL` is the usual category. The value is stored in uppercase. The next forward uses a saved change. Restarting is not required.
 
 ## bulletin.at
 
-The distribution used when this station forwards a bulletin, such as WW. Letters, digits, dots, hashes, and hyphens, at most 40. An empty value uses WW.
+The distribution other stations see on a bulletin this station forwards. WW is the widest distribution. A hierarchical address such as K5LEB.#DFW.TX is also valid. Use letters, digits, dots, hashes, and hyphens, at most 40. An empty value is stored as WW. The next forward uses a saved change.
 
 This is the `@` field. `WW` reaches the widest set of bulletin areas. A hierarchical address such as `K5LEB.#DFW.TX` is also valid. The value is stored in uppercase. The next forward uses a saved change.
 
 ## nomad.pages
 
-The directory for NomadNet pages, such as /var/lib/nomadnetwork/storage/pages. Leave this empty to keep pages in the article store only. A page is a normal .mu file. Publishing uses the saved value immediately.
+A folder where each bulletin is also written as a NomadNet page, such as /var/lib/nomadnetwork/storage/pages. Leave it empty to keep bulletins in Crossbeam only. The folder must already exist. A page is an ordinary .mu file. Publishing and importing use the saved folder immediately.
 
 The directory must already exist. An empty value leaves every article in the store. A relative path is rejected. A path with a `..` segment is rejected. The saved path is cleaned, so a trailing slash is removed. `crossbeam page publish` and `crossbeam page ingest` read this value each time they run. The commands are described in `docs/pages.md`.
 

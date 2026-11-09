@@ -115,8 +115,11 @@ func TestPanelFlow(t *testing.T) {
 		t.Fatalf("settings %d %s", res.StatusCode, page)
 	}
 	for _, field := range settings.Schema {
-		if !strings.Contains(page, field.Key) || !strings.Contains(page, field.Help) {
+		if !strings.Contains(page, field.Key) || !strings.Contains(page, field.Help) || !strings.Contains(page, field.Label) || !strings.Contains(page, `aria-label="About `+field.Label+`"`) {
 			t.Fatalf("settings page missing %s", field.Key)
+		}
+		if field.Example != "" && !strings.Contains(page, `placeholder="`+field.Example+`"`) {
+			t.Fatalf("settings page missing example for %s", field.Key)
 		}
 	}
 	token := csrfFrom(t, page)
@@ -942,7 +945,7 @@ func TestSavedRadioStaysOnTheForm(t *testing.T) {
 	}
 	html := buf.String()
 	for _, want := range []string{
-		"Radio control",
+		"Radio dial",
 		"the radio did not open",
 		`<option value="999999" selected>`,
 		`<option value="/dev/serial/by-id/usb-saved-radio" selected>usb-saved-radio</option>`,

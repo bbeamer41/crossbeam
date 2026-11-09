@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.15
+
+- Each setting on the panel has a plain name, an example in an empty box, and a longer explanation behind the i beside the box.
+
 ## 0.9.14
 
 - The admin panel uses the Texas Packet Radio Society mark, colors, and type. The footer says the panel is presented by the society.

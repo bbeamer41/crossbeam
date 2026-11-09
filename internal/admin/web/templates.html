@@ -51,25 +51,32 @@
 {{end}}
 {{if eq .Kind "settings"}}
 <h1>Settings</h1>
+<p class="lede">Every setting is on this page. An empty box leaves that part off, and the faint text is an example. The i beside a box explains it.</p>
 <form method="post" action="/settings">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
 {{range .Fields}}
-{{if eq .Key "station.callsign"}}<h2 class="group">Station</h2>{{end}}
-{{if eq .Key "admin.listen"}}<h2 class="group">Admin panel</h2>{{end}}
-{{if eq .Key "link.listen"}}<h2 class="group">AX/UDP link</h2>{{end}}
-{{if eq .Key "kiss.tnc"}}<h2 class="group">KISS radio</h2>{{end}}
-{{if eq .Key "radio.model"}}<h2 class="group">Radio control</h2>{{if $.RadioStatus}}<p class="{{if $.RadioOK}}help{{else}}error{{end}}" role="status">{{$.RadioStatus}}</p>{{end}}{{end}}
+{{if eq .Key "station.callsign"}}<h2 class="group">This station</h2>{{end}}
+{{if eq .Key "admin.listen"}}<h2 class="group">This panel</h2>{{end}}
+{{if eq .Key "link.listen"}}<h2 class="group">Packet link</h2>{{end}}
+{{if eq .Key "kiss.tnc"}}<h2 class="group">Radio modem</h2>{{end}}
+{{if eq .Key "radio.model"}}<h2 class="group">Radio dial</h2>{{if $.RadioStatus}}<p class="{{if $.RadioOK}}help{{else}}error{{end}}" role="status">{{$.RadioStatus}}</p>{{end}}{{end}}
 {{if eq .Key "telnet.listen"}}<h2 class="group">Telnet</h2>{{end}}
-{{if eq .Key "fbb.listen"}}<h2 class="group">FBB forwarding</h2>{{end}}
+{{if eq .Key "fbb.listen"}}<h2 class="group">Bulletin forwarding</h2>{{end}}
 {{if eq .Key "bulletin.to"}}<h2 class="group">Bulletins</h2>{{end}}
 {{if eq .Key "nomad.pages"}}<h2 class="group">NomadNet pages</h2>{{end}}
 <div class="field{{if eq .Kind "bool"}} check{{end}}">
-<label for="field-{{.Key}}">{{.Key}}</label>
-<p class="help">{{.Help}}</p>
 {{if eq .Kind "bool"}}
 <input type="hidden" name="{{.Key}}" value="false">
 <input id="field-{{.Key}}" name="{{.Key}}" type="checkbox" value="true"{{if eq .Value "true"}} checked{{end}}>
-{{else if .Options}}
+<div class="check-copy">
+<label for="field-{{.Key}}">{{.Label}}</label>
+<p class="setting-key">{{.Key}}</p>
+</div>
+{{else}}
+<label for="field-{{.Key}}">{{.Label}}</label>
+<p class="setting-key">{{.Key}}</p>
+<div class="entry">
+{{if .Options}}
 <select id="field-{{.Key}}" name="{{.Key}}">
 {{$field := .}}
 {{range $field.Options}}
@@ -77,8 +84,14 @@
 {{end}}
 </select>
 {{else}}
-<input id="field-{{.Key}}" name="{{.Key}}" type="text" value="{{.Value}}" autocomplete="off">
+<input id="field-{{.Key}}" name="{{.Key}}" type="text" value="{{.Value}}"{{if .Example}} placeholder="{{.Example}}"{{end}} autocomplete="off">
 {{end}}
+{{end}}
+<details class="about">
+<summary aria-label="About {{.Label}}"><span aria-hidden="true">i</span></summary>
+<p>{{.Help}}</p>
+</details>
+{{if ne .Kind "bool"}}</div>{{end}}
 </div>
 {{end}}
 <button type="submit">Save settings</button>

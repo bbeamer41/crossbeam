@@ -102,7 +102,8 @@ a:focus-visible,
 button:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
-select:focus-visible {
+select:focus-visible,
+summary:focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 3px;
 }
@@ -256,7 +257,7 @@ form h2.group:first-of-type {
   border-top: 0;
 }
 
-label, .card-author {
+.card-author {
   font-family: "IBM Plex Mono", ui-monospace, "Liberation Mono", monospace;
   font-weight: 500;
   letter-spacing: 0;
@@ -264,9 +265,24 @@ label, .card-author {
 
 label {
   display: block;
-  margin-bottom: 0.28rem;
+  margin-bottom: 0.2rem;
   color: var(--ink);
-  font-size: 0.86rem;
+  font-family: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.lede {
+  margin: -0.15rem 0 1.15rem;
+  font-size: 1.05rem;
+}
+
+.setting-key {
+  margin: 0 0 0.35rem;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", ui-monospace, "Liberation Mono", monospace;
+  font-size: 0.78rem;
+  font-weight: 400;
 }
 
 .help, .card-meta, .empty-board, footer p {
@@ -278,13 +294,16 @@ label {
   font-size: 0.95rem;
 }
 
-.field { margin: 0 0 1.05rem; }
+.field {
+  position: relative;
+  margin: 0 0 1.05rem;
+}
 
 .field.check {
   display: grid;
-  grid-template-columns: 1.15rem 1fr;
+  grid-template-columns: 1.15rem 1fr auto;
   column-gap: 0.7rem;
-  align-items: start;
+  align-items: center;
   padding: 0.75rem 0.85rem;
   background: var(--card);
   border: 1px solid var(--line);
@@ -294,12 +313,77 @@ label {
 
 .field.check input {
   grid-column: 1;
-  grid-row: 1 / span 2;
-  margin-top: 0.28rem;
+  grid-row: 1;
+  margin-top: 0;
 }
 
-.field.check label,
-.field.check .help { grid-column: 2; margin-bottom: 0; }
+.field.check .check-copy { grid-column: 2; }
+.field.check .check-copy label,
+.field.check .setting-key { margin: 0; }
+.field.check .about { grid-column: 3; grid-row: 1; }
+
+.entry {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.entry input,
+.entry select { flex: 1; min-width: 0; }
+
+input::placeholder {
+  color: #8b95a8;
+  opacity: 1;
+}
+
+.about { position: static; flex: 0 0 auto; }
+
+.about summary {
+  display: grid;
+  place-items: center;
+  width: 2.45rem;
+  height: 2.45rem;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--card);
+  color: var(--chrome);
+  font-family: "Source Serif 4", Georgia, "Palatino Linotype", Palatino, serif;
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1;
+  list-style: none;
+  cursor: pointer;
+}
+
+.about summary::-webkit-details-marker { display: none; }
+
+.about summary::marker { content: ""; }
+
+.about[open] summary {
+  background: var(--chrome);
+  border-color: var(--chrome);
+  color: #ffffff;
+}
+
+.about p {
+  position: absolute;
+  z-index: 4;
+  right: 0;
+  top: calc(100% + 0.35rem);
+  width: min(24rem, 100%);
+  margin: 0;
+  padding: 0.8rem 0.9rem;
+  background: var(--card);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--gold);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 28px rgba(26, 35, 50, 0.12);
+  font-size: 0.98rem;
+  font-weight: 400;
+  line-height: 1.5;
+}
 
 input[type="text"], input[type="password"], textarea, select {
   width: 100%;

@@ -257,6 +257,9 @@ func TestSettingsDocument(t *testing.T) {
 		t.Fatalf("schema has %d keys", len(Schema))
 	}
 	for _, field := range Schema {
+		if field.Label == "" {
+			t.Errorf("missing label for %s", field.Key)
+		}
 		if !strings.Contains(doc, field.Key) {
 			t.Errorf("docs/settings.md is missing %s", field.Key)
 		}

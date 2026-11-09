@@ -42,6 +42,8 @@ type optionView struct {
 
 type fieldView struct {
 	Key     string
+	Label   string
+	Example string
 	Help    string
 	Value   string
 	Kind    string
@@ -927,6 +929,8 @@ func (a *app) fieldViews(ctx context.Context, current map[string]string) []field
 		}
 		out = append(out, fieldView{
 			Key:     field.Key,
+			Label:   field.Label,
+			Example: field.Example,
 			Help:    field.Help,
 			Value:   current[field.Key],
 			Kind:    kind,
