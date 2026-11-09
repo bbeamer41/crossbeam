@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.16
+
+- The MCP server can preview an article without saving it, and it can report the panel address and the certificate fingerprint.
+
 ## 0.9.15
 
 - Each setting on the panel has a plain name, an example in an empty box, and a longer explanation behind the i beside the box.

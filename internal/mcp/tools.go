@@ -57,16 +57,19 @@ type articleFull struct {
 func toolDescriptions() []toolDesc {
 	empty := json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)
 	row := json.RawMessage(`{"type":"object","properties":{"row":{"type":"integer","minimum":1,"description":"Article row."}},"required":["row"],"additionalProperties":false}`)
+	preview := json.RawMessage(`{"type":"object","properties":{"title":{"type":"string","description":"Article title."},"body":{"type":"string","description":"Article body."},"author":{"type":"string","description":"Author callsign. Empty uses the station callsign."},"id":{"type":"string","description":"Bulletin id. Empty is allowed."},"created":{"type":"string","description":"RFC3339 time. Empty uses the current time."}},"required":["title","body"],"additionalProperties":false}`)
 	save := json.RawMessage(`{"type":"object","properties":{"title":{"type":"string","description":"Article title."},"body":{"type":"string","description":"Article body."},"author":{"type":"string","description":"Author callsign. Empty uses the station callsign."},"id":{"type":"string","description":"Bulletin id. Empty is allowed."},"created":{"type":"string","description":"RFC3339 time. Empty uses the current time."},"row":{"type":"integer","minimum":1,"description":"Existing row to update. Omit to insert."}},"required":["title","body"],"additionalProperties":false}`)
 	readOnly := &toolNotes{ReadOnlyHint: true}
 	return []toolDesc{
 		{Name: "list_articles", Description: "List stored articles newest first. The result has no bodies.", InputSchema: empty, Annotations: readOnly},
 		{Name: "read_article", Description: "Read one stored article, including its body.", InputSchema: row, Annotations: readOnly},
+		{Name: "preview_article", Description: "Show the packet bulletin and the NomadNet page for an article. Nothing is saved.", InputSchema: preview, Annotations: readOnly},
 		{Name: "save_article", Description: "Save an article. Omit row to insert. Set row to update that article.", InputSchema: save},
 		{Name: "delete_article", Description: "Delete one stored article by row.", InputSchema: row, Annotations: &toolNotes{DestructiveHint: true}},
 		{Name: "publish_pages", Description: "Write stored articles into the NomadNet pages directory.", InputSchema: empty},
 		{Name: "ingest_pages", Description: "Read NomadNet pages into the article store.", InputSchema: empty},
 		{Name: "station", Description: "Report the station callsign, the program version, and whether pages, the link, the radio, telnet, and FBB TCP are configured.", InputSchema: empty, Annotations: readOnly},
+		{Name: "status", Description: "Report the panel address, whether it is public, and the certificate fingerprint. A running service reports the address it opened.", InputSchema: empty, Annotations: readOnly},
 	}
 }
 
@@ -76,6 +79,8 @@ func (s *server) call(ctx context.Context, name string, args json.RawMessage) (t
 		return s.listArticles(ctx, args)
 	case "read_article":
 		return s.readArticle(ctx, args)
+	case "preview_article":
+		return s.previewArticle(ctx, args)
 	case "save_article":
 		return s.saveArticle(ctx, args)
 	case "delete_article":
@@ -86,6 +91,8 @@ func (s *server) call(ctx context.Context, name string, args json.RawMessage) (t
 		return s.ingestPages(ctx, args)
 	case "station":
 		return s.station(ctx, args)
+	case "status":
+		return s.status(ctx, args)
 	default:
 		return toolResult{}, &rpcError{Code: codeInvalidParams, Message: "unknown tool"}
 	}
@@ -117,6 +124,39 @@ func (s *server) readArticle(ctx context.Context, args json.RawMessage) (toolRes
 	}
 	full := articleFull{articleHead: headOf(saved), Body: saved.Article.Body}
 	return toolValue(full)
+}
+
+func (s *server) previewArticle(ctx context.Context, args json.RawMessage) (toolResult, *rpcError) {
+	var in struct {
+		Title   *string `json:"title"`
+		Body    *string `json:"body"`
+		Author  string  `json:"author"`
+		ID      string  `json:"id"`
+		Created string  `json:"created"`
+	}
+	if err := decodeStrict(args, &in); err != nil || in.Title == nil || in.Body == nil {
+		return toolResult{}, &rpcError{Code: codeInvalidParams, Message: "invalid arguments"}
+	}
+	item, err := s.st.Prepare(ctx, store.ArticleIn{
+		ID:      in.ID,
+		Title:   *in.Title,
+		Author:  in.Author,
+		Created: in.Created,
+		Body:    *in.Body,
+		Now:     time.Now(),
+	})
+	if err != nil {
+		return toolError(safeMessage(err, "the article could not be previewed")), nil
+	}
+	packet, err := item.RenderPacket()
+	if err != nil {
+		return toolError(safeMessage(err, "the article could not be previewed")), nil
+	}
+	micron, err := item.RenderMicron()
+	if err != nil {
+		return toolError(safeMessage(err, "the article could not be previewed")), nil
+	}
+	return toolValue(map[string]any{"packet": packet, "micron": micron})
 }
 
 func (s *server) saveArticle(ctx context.Context, args json.RawMessage) (toolResult, *rpcError) {

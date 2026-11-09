@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bbeamer41/crossbeam/internal/admin"
 	"github.com/bbeamer41/crossbeam/internal/settings"
 	"github.com/bbeamer41/crossbeam/internal/store"
 	"github.com/bbeamer41/crossbeam/internal/version"
@@ -56,7 +57,7 @@ func TestInitializeAndTools(t *testing.T) {
 	if err := json.Unmarshal(rawTools, &tools); err != nil {
 		t.Fatal(err)
 	}
-	if len(tools) != 7 {
+	if len(tools) != 9 {
 		t.Fatalf("tools %d", len(tools))
 	}
 	names := map[string]bool{}
@@ -65,11 +66,14 @@ func TestInitializeAndTools(t *testing.T) {
 		if tool.Name == "list_articles" && (tool.Annotations == nil || !tool.Annotations.ReadOnlyHint) {
 			t.Fatalf("list annotations %#v", tool.Annotations)
 		}
+		if tool.Name == "preview_article" && (tool.Annotations == nil || !tool.Annotations.ReadOnlyHint) {
+			t.Fatalf("preview annotations %#v", tool.Annotations)
+		}
 		if tool.Name == "delete_article" && (tool.Annotations == nil || !tool.Annotations.DestructiveHint) {
 			t.Fatalf("delete annotations %#v", tool.Annotations)
 		}
 	}
-	for _, name := range []string{"list_articles", "read_article", "save_article", "delete_article", "publish_pages", "ingest_pages", "station"} {
+	for _, name := range []string{"list_articles", "read_article", "preview_article", "save_article", "delete_article", "publish_pages", "ingest_pages", "station", "status"} {
 		if !names[name] {
 			t.Fatalf("missing %s", name)
 		}
@@ -244,6 +248,62 @@ func TestArticleTools(t *testing.T) {
 	}
 }
 
+func TestPreviewArticle(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "state-secret")
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if _, err := st.Apply(context.Background(), map[string]string{settings.KeyCallsign: "K5LEB"}); err != nil {
+		t.Fatal(err)
+	}
+	body := "The net meets.\n\nBring the list."
+	lines := exchange(t, st,
+		req(1, "initialize", map[string]any{"protocolVersion": "2025-06-18"}),
+		req(2, "tools/call", map[string]any{"name": "preview_article", "arguments": map[string]any{
+			"title": "Hello", "body": body, "id": "NET", "created": "2026-10-18T15:04:05Z",
+		}}),
+		req(3, "tools/call", map[string]any{"name": "list_articles"}),
+		req(4, "tools/call", map[string]any{"name": "preview_article", "arguments": map[string]any{
+			"title": "", "body": "x", "author": "K5LEB",
+		}}),
+		req(5, "tools/call", map[string]any{"name": "preview_article", "arguments": map[string]any{
+			"title": "Hello", "body": "x", "author": "K5LEB", "created": "Thursday",
+		}}),
+		req(6, "tools/call", map[string]any{"name": "preview_article", "arguments": map[string]any{
+			"title": "Hello", "body": "x", "row": 1,
+		}}),
+	)
+	preview := toolData(t, lines[1])
+	raw := string(lines[1])
+	packet, _ := preview.data["packet"].(string)
+	micron, _ := preview.data["micron"].(string)
+	if preview.isError || !strings.Contains(packet, "Title: Hello") || !strings.Contains(packet, "Author: K5LEB") || !strings.Contains(packet, "Created: 2026-10-18T15:04:05Z") || !strings.Contains(packet, "ID: NET") || !strings.Contains(packet, "The net meets.") || !strings.Contains(micron, "> Hello") || !strings.Contains(micron, "----") {
+		t.Fatalf("preview %#v", preview.data)
+	}
+	if strings.Contains(raw, dir) {
+		t.Fatalf("preview leaked %s", raw)
+	}
+	listed := toolData(t, lines[2])
+	articles, _ := listed.data["articles"].([]any)
+	if listed.isError || len(articles) != 0 {
+		t.Fatalf("preview wrote %#v", listed.data)
+	}
+	emptyTitle := toolData(t, lines[3])
+	if !emptyTitle.isError || emptyTitle.text != "title is empty" {
+		t.Fatalf("empty title %#v", emptyTitle)
+	}
+	badTime := toolData(t, lines[4])
+	if !badTime.isError || badTime.text != "created time is not RFC3339" {
+		t.Fatalf("bad time %#v", badTime)
+	}
+	extra := decode(t, lines[5])
+	if extra.err == nil || extra.err.Message != "invalid arguments" {
+		t.Fatalf("extra %#v", extra)
+	}
+}
+
 func TestPagesAndStation(t *testing.T) {
 	dir := t.TempDir()
 	pages := filepath.Join(dir, "pages")
@@ -323,6 +383,72 @@ func TestPagesAndStation(t *testing.T) {
 	}
 }
 
+func TestStatus(t *testing.T) {
+	st := openState(t)
+	if _, err := st.Apply(context.Background(), map[string]string{
+		settings.KeyListen: "192.168.1.20:8443",
+		settings.KeyPublic: "false",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	saved := exchange(t, st,
+		req(1, "initialize", map[string]any{"protocolVersion": "2025-06-18"}),
+		req(2, "tools/call", map[string]any{"name": "status"}),
+		req(3, "tools/call", map[string]any{"name": "status", "arguments": map[string]any{"url": "nope"}}),
+	)
+	offline := toolData(t, saved[1])
+	if offline.isError || offline.data["running"] != false || offline.data["listen"] != "192.168.1.20:8443" || offline.data["public"] != false || offline.data["url"] != "(running process)" || offline.data["cert_sha256"] != "(none)" || offline.data["version"] != version.String {
+		t.Fatalf("offline %#v", offline.data)
+	}
+	if strings.Contains(string(saved[1]), st.Dir()) {
+		t.Fatalf("offline leaked %s", saved[1])
+	}
+	extra := decode(t, saved[2])
+	if extra.err == nil || extra.err.Message != "invalid arguments" {
+		t.Fatalf("extra %#v", extra)
+	}
+
+	missingPath := filepath.Join(t.TempDir(), "secret-socket-name")
+	missing := exchangeConfig(t, st, missingPath,
+		req(1, "initialize", map[string]any{"protocolVersion": "2025-06-18"}),
+		req(2, "tools/call", map[string]any{"name": "status"}),
+	)
+	down := toolData(t, missing[1])
+	if !down.isError || down.text != "socket is not running" || strings.Contains(string(missing[1]), "secret-socket-name") {
+		t.Fatalf("missing %#v %s", down, missing[1])
+	}
+
+	if err := st.SetPassword(context.Background(), "test-password-1"); err != nil {
+		t.Fatal(err)
+	}
+	running, err := admin.Start(context.Background(), st, admin.Config{Listen: "127.0.0.1:0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = running.Close() })
+	live := exchange(t, st,
+		req(1, "initialize", map[string]any{"protocolVersion": "2025-06-18"}),
+		req(2, "tools/call", map[string]any{"name": "status"}),
+	)
+	up := toolData(t, live[1])
+	if up.isError || up.data["running"] != true || up.data["url"] != running.URL || up.data["listen"] != running.Listen || up.data["cert_sha256"] != running.CertSHA256 || up.data["version"] != version.String || up.data["public"] != false {
+		t.Fatalf("live %#v want %s %s %s", up.data, running.URL, running.Listen, running.CertSHA256)
+	}
+	if strings.Contains(string(live[1]), st.Dir()) {
+		t.Fatalf("live leaked %s", live[1])
+	}
+
+	running.Close()
+	after := exchange(t, st,
+		req(1, "initialize", map[string]any{"protocolVersion": "2025-06-18"}),
+		req(2, "tools/call", map[string]any{"name": "status"}),
+	)
+	stopped := toolData(t, after[1])
+	if stopped.isError || stopped.data["running"] != false || stopped.data["listen"] != "192.168.1.20:8443" || stopped.data["url"] != "(running process)" || stopped.data["cert_sha256"] == "(none)" || stopped.data["cert_sha256"] == "" {
+		t.Fatalf("stopped %#v", stopped.data)
+	}
+}
+
 func TestMessageAtTheCapContinues(t *testing.T) {
 	if publicText("sql: database is closed") {
 		t.Fatal("sql text was public")
@@ -393,13 +519,18 @@ func note(method string) string {
 
 func exchange(t *testing.T, st *store.Store, lines ...string) []json.RawMessage {
 	t.Helper()
+	return exchangeConfig(t, st, "", lines...)
+}
+
+func exchangeConfig(t *testing.T, st *store.Store, socket string, lines ...string) []json.RawMessage {
+	t.Helper()
 	var in bytes.Buffer
 	for _, line := range lines {
 		in.WriteString(line)
 		in.WriteByte('\n')
 	}
 	var out bytes.Buffer
-	if err := Serve(context.Background(), st, &in, &out); err != nil {
+	if err := ServeConfig(context.Background(), st, Config{Socket: socket}, &in, &out); err != nil {
 		t.Fatalf("serve: %v\n%s", err, out.String())
 	}
 	sc := bufio.NewScanner(&out)

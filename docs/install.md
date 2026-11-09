@@ -148,10 +148,10 @@ Details are in `docs/pages.md`.
 
 ## MCP
 
-`crossbeam mcp` reads and writes the article store, and it publishes and ingests NomadNet pages. The session is standard input and standard output. It does not open a port. The state directory is mode `0700`, so run it as the user who owns that directory. Details are in `docs/mcp.md`.
+`crossbeam mcp` reads and writes the article store, publishes and ingests NomadNet pages, and can report the panel address. The session is standard input and standard output. It does not open a port. The state directory is mode `0700`, so run it as the user who owns that directory. Details are in `docs/mcp.md`.
 
 ```bash
-sudo -u crossbeam crossbeam mcp --state /var/lib/crossbeam
+sudo -u crossbeam crossbeam mcp --state /var/lib/crossbeam --socket /run/crossbeam/crossbeam.sock
 ```
 
 ## Offline

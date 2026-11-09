@@ -5,8 +5,10 @@
 The operating system user who starts the process is the boundary. There is no password on this channel. The state directory is the `--state` flag. The default is `crossbeam-state`. With the service layout, that directory is mode `0700`, so the `crossbeam` user is the one that can open it.
 
 ```bash
-crossbeam mcp --state /var/lib/crossbeam
+crossbeam mcp --state /var/lib/crossbeam --socket /run/crossbeam/crossbeam.sock
 ```
+
+`--socket` is the admin socket. With the systemd layout that path is `/run/crossbeam/crossbeam.sock`. `status` uses it to report the address the service opened. Without a running socket, `status` reports the saved panel address and the saved certificate.
 
 Messages are JSON-RPC 2.0, one JSON object per line. Standard output is only those messages. A message larger than 2 MiB ends the session.
 
@@ -16,11 +18,13 @@ The tools use the same store and the same page files as `crossbeam article` and 
 
 - `list_articles` lists stored articles, newest first, without their bodies.
 - `read_article` reads one article, including its body.
+- `preview_article` shows the packet bulletin and the NomadNet page. An empty author uses the station callsign. Nothing is saved.
 - `save_article` inserts an article, or updates one when a row is given.
 - `delete_article` deletes one article by row.
 - `publish_pages` writes the stored articles into the NomadNet pages directory.
 - `ingest_pages` reads NomadNet pages into the article store.
 - `station` reports the callsign, the program version, and whether pages, the link, the radio, telnet, and FBB TCP are configured.
+- `status` reports the panel address, whether that address is public, and the certificate fingerprint. A running service reports the address it opened.
 
 `station` reports the callsign, the program version, and whether pages, the link, the radio, telnet, and FBB TCP are configured. A path counts as configured when its listen address or its peer list is set. The radio counts as configured when `kiss.tnc` is set. The report does not include an address, the pages directory, or the admin URL.
 

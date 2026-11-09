@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"io"
 
+	"path/filepath"
+
 	"github.com/bbeamer41/crossbeam/internal/mcp"
 	"github.com/bbeamer41/crossbeam/internal/store"
 )
@@ -18,6 +20,7 @@ func cmdMCP(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	state := fs.String("state", defaultState, "state directory")
+	socket := fs.String("socket", "", "admin socket path")
 	if err := parseArgs(fs, args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -25,9 +28,18 @@ func cmdMCP(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 		return 2
 	}
 	if fs.NArg() != 0 {
-		fmt.Fprintln(stderr, "crossbeam: usage: crossbeam mcp [--state DIR]")
+		fmt.Fprintln(stderr, "crossbeam: usage: crossbeam mcp [--state DIR] [--socket PATH]")
 		return 2
 	}
+	chosen := ""
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "socket" {
+			chosen = *socket
+			if chosen == "" {
+				chosen = filepath.Join(*state, "crossbeam.sock")
+			}
+		}
+	})
 	st, err := store.OpenExisting(*state)
 	if err != nil {
 		if errors.Is(err, store.ErrNoState) || errors.Is(err, store.ErrNoDatabase) {
@@ -38,7 +50,7 @@ func cmdMCP(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 		return 1
 	}
 	defer st.Close()
-	err = mcp.Serve(ctx, st, stdin, stdout)
+	err = mcp.ServeConfig(ctx, st, mcp.Config{Socket: chosen}, stdin, stdout)
 	if err == nil || errors.Is(err, context.Canceled) {
 		return 0
 	}

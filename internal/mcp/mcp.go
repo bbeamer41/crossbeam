@@ -28,7 +28,7 @@ const (
 	codeInternal       = -32603
 
 	protocolLatest = "2025-06-18"
-	instructions   = "Crossbeam article store and NomadNet pages. This process uses the state directory of the user who started it. It does not open a network port."
+	instructions   = "Crossbeam article store and NomadNet pages. This process uses the state directory of the user who started it. It does not open a network port. status reports the panel address."
 )
 
 var errSession = errors.New("mcp session ended")
@@ -39,9 +39,20 @@ var supportedProtocol = map[string]bool{
 	"2025-06-18": true,
 }
 
+// Config chooses optional parts of an MCP session. Socket is the admin
+// socket. An empty Socket lets status look for the socket itself.
+type Config struct {
+	Socket string
+}
+
 // Serve reads newline-delimited JSON-RPC from in and writes JSON-RPC to out.
 // A message longer than 2 MiB ends the session. Clean end of input returns nil.
 func Serve(ctx context.Context, st *store.Store, in io.Reader, out io.Writer) error {
+	return ServeConfig(ctx, st, Config{}, in, out)
+}
+
+// ServeConfig is Serve with a chosen admin socket.
+func ServeConfig(ctx context.Context, st *store.Store, cfg Config, in io.Reader, out io.Writer) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -50,7 +61,7 @@ func Serve(ctx context.Context, st *store.Store, in io.Reader, out io.Writer) er
 	}
 	lines := make(chan scanLine, 1)
 	go readLines(ctx, in, lines)
-	s := &server{st: st, w: out}
+	s := &server{st: st, w: out, socket: cfg.Socket}
 	for {
 		select {
 		case <-ctx.Done():
@@ -113,9 +124,10 @@ func readLines(ctx context.Context, in io.Reader, lines chan<- scanLine) {
 }
 
 type server struct {
-	st *store.Store
-	w  io.Writer
-	on bool
+	st     *store.Store
+	w      io.Writer
+	socket string
+	on     bool
 }
 
 type rpcError struct {

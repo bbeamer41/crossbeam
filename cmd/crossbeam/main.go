@@ -81,7 +81,7 @@ func printHelp(stdout io.Writer) {
 	fmt.Fprintln(stdout, "  crossbeam article delete ROW [--state DIR]")
 	fmt.Fprintln(stdout, "  crossbeam page publish [--state DIR]")
 	fmt.Fprintln(stdout, "  crossbeam page ingest [--state DIR]")
-	fmt.Fprintln(stdout, "  crossbeam mcp [--state DIR]")
+	fmt.Fprintln(stdout, "  crossbeam mcp [--state DIR] [--socket PATH]")
 	fmt.Fprintln(stdout, "  crossbeam version")
 }
 
