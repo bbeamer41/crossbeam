@@ -124,7 +124,7 @@ func (a *app) serve(w http.ResponseWriter, r *http.Request, local bool) {
 		a.logout(w, r, local, true)
 	case r.URL.Path == "/" && r.Method == http.MethodGet:
 		if _, ok := a.session(r); ok || local {
-			http.Redirect(w, r, "/articles", http.StatusSeeOther)
+			http.Redirect(w, r, "/bulletins", http.StatusSeeOther)
 			return
 		}
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
@@ -136,8 +136,10 @@ func (a *app) serve(w http.ResponseWriter, r *http.Request, local bool) {
 		a.composeGet(w, r, local)
 	case r.URL.Path == "/compose" && r.Method == http.MethodPost:
 		a.composePost(w, r, local)
-	case r.URL.Path == "/articles" && r.Method == http.MethodGet:
+	case r.URL.Path == "/bulletins" && r.Method == http.MethodGet:
 		a.articlesPage(w, r, local)
+	case r.URL.Path == "/articles" && r.Method == http.MethodGet:
+		a.redirectSignedIn(w, r, local, "/bulletins")
 	case r.URL.Path == "/api/session" && r.Method == http.MethodGet:
 		a.sessionStatus(w, r, local)
 	case r.URL.Path == "/api/status" && r.Method == http.MethodGet:
@@ -154,8 +156,10 @@ func (a *app) serve(w http.ResponseWriter, r *http.Request, local bool) {
 		a.articlesPost(w, r, local)
 	case strings.HasPrefix(r.URL.Path, "/api/articles/") && (r.Method == http.MethodGet || r.Method == http.MethodPut):
 		a.articleOne(w, r, local)
-	case strings.HasPrefix(r.URL.Path, "/articles/") && r.Method == http.MethodGet:
+	case strings.HasPrefix(r.URL.Path, "/bulletins/") && r.Method == http.MethodGet:
 		a.articlePage(w, r, local)
+	case strings.HasPrefix(r.URL.Path, "/articles/") && r.Method == http.MethodGet:
+		a.redirectSignedIn(w, r, local, "/bulletins"+strings.TrimPrefix(r.URL.Path, "/articles"))
 	default:
 		http.NotFound(w, r)
 	}
@@ -237,7 +241,7 @@ func (a *app) unauth(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) loginPage(w http.ResponseWriter, r *http.Request, local bool, msg string) {
 	if _, ok := a.session(r); ok || local {
-		http.Redirect(w, r, "/articles", http.StatusSeeOther)
+		http.Redirect(w, r, "/bulletins", http.StatusSeeOther)
 		return
 	}
 	a.render(w, http.StatusOK, page{
@@ -319,7 +323,7 @@ func (a *app) login(w http.ResponseWriter, r *http.Request, local, api bool) {
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 		return
 	}
-	http.Redirect(w, r, "/articles", http.StatusSeeOther)
+	http.Redirect(w, r, "/bulletins", http.StatusSeeOther)
 }
 
 func (a *app) readPassword(r *http.Request) (string, error) {
@@ -551,7 +555,7 @@ func (a *app) composePost(w http.ResponseWriter, r *http.Request, local bool) {
 			a.composePage(w, r, local, view)
 			return
 		}
-		http.Redirect(w, r, "/articles/"+strconv.FormatInt(saved.RowID, 10), http.StatusSeeOther)
+		http.Redirect(w, r, "/bulletins/"+strconv.FormatInt(saved.RowID, 10), http.StatusSeeOther)
 		return
 	}
 	preview, packet, micron, err := a.renderArticle(r, in)
@@ -599,12 +603,19 @@ func (a *app) articlesPage(w http.ResponseWriter, r *http.Request, local bool) {
 	a.render(w, http.StatusOK, view)
 }
 
+func (a *app) redirectSignedIn(w http.ResponseWriter, r *http.Request, local bool, dest string) {
+	if _, ok := a.requireSession(w, r, local); !ok {
+		return
+	}
+	http.Redirect(w, r, dest, http.StatusSeeOther)
+}
+
 func (a *app) articlePage(w http.ResponseWriter, r *http.Request, local bool) {
 	csrf, ok := a.requireSession(w, r, local)
 	if !ok {
 		return
 	}
-	rowID, err := rowFromPath(r.URL.Path, "/articles/")
+	rowID, err := rowFromPath(r.URL.Path, "/bulletins/")
 	if err != nil {
 		http.NotFound(w, r)
 		return

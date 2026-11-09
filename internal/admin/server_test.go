@@ -72,7 +72,7 @@ func TestPanelFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	readAll(t, res)
-	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/articles" {
+	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/bulletins" {
 		t.Fatalf("login %d %s", res.StatusCode, res.Header.Get("Location"))
 	}
 	raw := res.Header.Get("Set-Cookie")
@@ -86,7 +86,7 @@ func TestPanelFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	readAll(t, res)
-	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/articles" {
+	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/bulletins" {
 		t.Fatalf("home %d %s", res.StatusCode, res.Header.Get("Location"))
 	}
 
@@ -255,7 +255,7 @@ func TestPanelFlow(t *testing.T) {
 	if res.StatusCode != http.StatusOK || !strings.Contains(page, "Title: Hello") || !strings.Contains(page, "----") || !strings.Contains(page, "The net meets.") || !strings.Contains(page, "/compose?row=") {
 		t.Fatalf("reopen %d %s", res.StatusCode, page)
 	}
-	res, err = client.Get(base + "/articles")
+	res, err = client.Get(base + "/bulletins")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +263,23 @@ func TestPanelFlow(t *testing.T) {
 	if res.StatusCode != http.StatusOK || !strings.Contains(page, `class="pin-card"`) || !strings.Contains(page, `href="`+loc+`"`) || !strings.Contains(page, "The net meets.") || strings.Contains(page, "<table") {
 		t.Fatalf("board %d %s", res.StatusCode, page)
 	}
-	res, err = client.Get(base + "/compose?row=" + strings.TrimPrefix(loc, "/articles/"))
+	res, err = client.Get(base + "/articles")
+	if err != nil {
+		t.Fatal(err)
+	}
+	readAll(t, res)
+	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/bulletins" {
+		t.Fatalf("old board %d %s", res.StatusCode, res.Header.Get("Location"))
+	}
+	res, err = client.Get(base + "/articles/" + strings.TrimPrefix(loc, "/bulletins/"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	readAll(t, res)
+	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != loc {
+		t.Fatalf("old card %d %s", res.StatusCode, res.Header.Get("Location"))
+	}
+	res, err = client.Get(base + "/compose?row=" + strings.TrimPrefix(loc, "/bulletins/"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -755,7 +771,7 @@ func TestUntrustedRequestEdges(t *testing.T) {
 	running, st, client := startPanel(t)
 	anon := trustClient(t, filepath.Join(st.Dir(), "tls", "cert.pem"))
 	anon.Jar = nil
-	for _, path := range []string{"/api/articles/1", "/api/articles/nope", "/articles/1", "/articles/no"} {
+	for _, path := range []string{"/api/articles/1", "/api/articles/nope", "/articles/1", "/articles/no", "/bulletins/1", "/bulletins/no"} {
 		res, err := anon.Get(running.URL + path)
 		if err != nil {
 			t.Fatal(err)

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.12
+
+- The bulletin board is at `/bulletins`. The old `/articles` address opens that page.
+
 ## 0.9.11
 
 - Signing in, and opening the panel, shows the bulletin board.

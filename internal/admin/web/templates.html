@@ -17,7 +17,7 @@
 <nav>
 <a href="/settings"{{if eq .Kind "settings"}} aria-current="page"{{end}}>Settings</a>
 <a href="/compose"{{if eq .Kind "compose"}} aria-current="page"{{end}}>Compose</a>
-<a href="/articles"{{if or (eq .Kind "articles") (eq .Kind "bulletin")}} aria-current="page"{{end}}>Bulletins</a>
+<a href="/bulletins"{{if or (eq .Kind "articles") (eq .Kind "bulletin")}} aria-current="page"{{end}}>Bulletins</a>
 <form method="post" action="/logout">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
 <button type="submit" class="quiet">Log out</button>
@@ -122,7 +122,7 @@
 <ul class="board">
 {{range .Articles}}
 <li>
-<a class="pin-card" href="/articles/{{.RowID}}">
+<a class="pin-card" href="/bulletins/{{.RowID}}">
 <span class="pin" aria-hidden="true"></span>
 <span class="card-author">{{.Author}}</span>
 <span class="card-title">{{.Title}}</span>
@@ -136,7 +136,7 @@
 </ul>
 {{end}}
 {{if eq .Kind "bulletin"}}
-<p class="toolbar"><a href="/articles">All bulletins</a></p>
+<p class="toolbar"><a href="/bulletins">All bulletins</a></p>
 <article class="sheet">
 <span class="pin" aria-hidden="true"></span>
 <p class="card-author">{{.Author}}</p>
