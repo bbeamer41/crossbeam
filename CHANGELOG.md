@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.13
+
+- Logging out returns to the sign-in page when the browser has not trusted the certificate.
+
 ## 0.9.12
 
 - The bulletin board is at `/bulletins`. The old `/articles` address opens that page.

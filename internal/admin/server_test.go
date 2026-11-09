@@ -530,6 +530,16 @@ func TestHostRules(t *testing.T) {
 	if !hostAllowed(api, named) {
 		t.Fatal("null origin was rejected on api login")
 	}
+	out := httptest.NewRequest(http.MethodPost, "https://panel.test:8443/logout", nil)
+	out.Host = "panel.test:8443"
+	out.Header.Set("Origin", "null")
+	if !hostAllowed(out, named) {
+		t.Fatal("null origin was rejected on logout")
+	}
+	out.URL.Path = "/api/logout"
+	if !hostAllowed(out, named) {
+		t.Fatal("null origin was rejected on api logout")
+	}
 	off := httptest.NewRequest(http.MethodPost, "https://panel.test:8443/settings", nil)
 	off.Host = "panel.test:8443"
 	off.Header.Set("Origin", "null")
@@ -551,6 +561,40 @@ type fakeAddr string
 
 func (fakeAddr) Network() string  { return "tcp" }
 func (a fakeAddr) String() string { return string(a) }
+
+func TestLogoutReturnsToSignIn(t *testing.T) {
+	running, _, client := startPanel(t)
+	base := running.URL
+	res, err := client.PostForm(base+"/login", url.Values{"password": {"test-password-1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	readAll(t, res)
+	res, err = client.Get(base + "/bulletins")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := readAll(t, res)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("board %d %s", res.StatusCode, page)
+	}
+	req, err := http.NewRequest(http.MethodPost, base+"/logout", strings.NewReader(url.Values{
+		"csrf": {csrfFrom(t, page)},
+	}.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", "null")
+	res, err = client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := readAll(t, res)
+	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/login" || strings.Contains(body, "host is not allowed") {
+		t.Fatalf("logout %d %s %s", res.StatusCode, res.Header.Get("Location"), body)
+	}
+}
 
 func TestRateLimit(t *testing.T) {
 	running, _, client := startPanel(t)
