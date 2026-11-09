@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.11
+
+- Signing in, and opening the panel, shows the bulletin board.
+
 ## 0.9.10
 
 - The bulletin list is a board of cards. A card opens that bulletin.

@@ -72,14 +72,22 @@ func TestPanelFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	readAll(t, res)
-	if res.StatusCode != http.StatusSeeOther {
-		t.Fatalf("login %d", res.StatusCode)
+	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/articles" {
+		t.Fatalf("login %d %s", res.StatusCode, res.Header.Get("Location"))
 	}
 	raw := res.Header.Get("Set-Cookie")
 	for _, part := range []string{"Secure", "HttpOnly", "SameSite=Strict", "Path=/"} {
 		if !strings.Contains(raw, part) {
 			t.Fatalf("cookie %q missing %s", raw, part)
 		}
+	}
+	res, err = client.Get(base + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	readAll(t, res)
+	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/articles" {
+		t.Fatalf("home %d %s", res.StatusCode, res.Header.Get("Location"))
 	}
 
 	res, err = client.Get(base + "/settings")

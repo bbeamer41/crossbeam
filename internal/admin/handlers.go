@@ -124,7 +124,7 @@ func (a *app) serve(w http.ResponseWriter, r *http.Request, local bool) {
 		a.logout(w, r, local, true)
 	case r.URL.Path == "/" && r.Method == http.MethodGet:
 		if _, ok := a.session(r); ok || local {
-			http.Redirect(w, r, "/settings", http.StatusSeeOther)
+			http.Redirect(w, r, "/articles", http.StatusSeeOther)
 			return
 		}
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
@@ -237,7 +237,7 @@ func (a *app) unauth(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) loginPage(w http.ResponseWriter, r *http.Request, local bool, msg string) {
 	if _, ok := a.session(r); ok || local {
-		http.Redirect(w, r, "/settings", http.StatusSeeOther)
+		http.Redirect(w, r, "/articles", http.StatusSeeOther)
 		return
 	}
 	a.render(w, http.StatusOK, page{
@@ -319,7 +319,7 @@ func (a *app) login(w http.ResponseWriter, r *http.Request, local, api bool) {
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 		return
 	}
-	http.Redirect(w, r, "/settings", http.StatusSeeOther)
+	http.Redirect(w, r, "/articles", http.StatusSeeOther)
 }
 
 func (a *app) readPassword(r *http.Request) (string, error) {
