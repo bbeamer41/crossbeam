@@ -1,14 +1,71 @@
 /* Copyright (C) 2026 K5LEB */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Palette and type match tprs.beaming.technology. The fonts are bundled. */
+
+@font-face {
+  font-family: "Source Sans 3";
+  font-style: normal;
+  font-weight: 200 900;
+  font-display: swap;
+  src: url("fonts/source-sans-3-latin.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Source Sans 3";
+  font-style: italic;
+  font-weight: 200 900;
+  font-display: swap;
+  src: url("fonts/source-sans-3-italic-latin.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Source Serif 4";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("fonts/source-serif-4-600-latin.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Source Serif 4";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("fonts/source-serif-4-700-latin.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("fonts/ibm-plex-mono-400-latin.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("fonts/ibm-plex-mono-500-latin.woff2") format("woff2");
+}
 
 :root {
   color-scheme: light;
-  --paper: #f3efe6;
-  --ink: #1a1916;
-  --green: #1e4d3a;
-  --line: #d9d0c2;
-  --card: #fffdf8;
-  --muted: #5e584e;
+  --bg: #f7f4ef;
+  --ink: #1a2332;
+  --chrome: #002868;
+  --muted: #3d4f72;
+  --line: #d5d0c8;
+  --card: #fffaf6;
+  --link: #bf0a30;
+  --link-hover: #8f0824;
+  --focus: #002868;
+  --accent: #bf0a30;
+  --accent-hover: #8f0824;
+  --oak: #3f5d4a;
+  --gold: #d4a017;
+  --radius: 0.3rem;
 }
 
 * { box-sizing: border-box; }
@@ -16,100 +73,209 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-    radial-gradient(1200px 480px at 50% -180px, rgba(30, 77, 58, 0.08), transparent 60%),
-    var(--paper);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
   color: var(--ink);
-  font-family: "Liberation Sans", "Segoe UI", sans-serif;
-  font-size: 1.02rem;
-  line-height: 1.5;
+  font-family: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  font-size: 1.05rem;
+  line-height: 1.6;
 }
 
-header {
-  background: var(--green);
-  color: var(--paper);
+.skip {
+  position: absolute;
+  left: 0.75rem;
+  top: -3rem;
+  background: var(--chrome);
+  color: #ffffff;
+  padding: 0.4rem 0.7rem;
+  z-index: 10;
 }
 
-.bar, main, footer {
-  max-width: 52rem;
+.skip:focus { top: 0.75rem; }
+
+a { color: var(--link); }
+
+a:hover { color: var(--link-hover); }
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+
+.wrap {
+  width: min(46rem, calc(100% - 2rem));
   margin: 0 auto;
 }
 
-.bar {
+header.site {
+  background: var(--bg);
+  border-top: 4px solid var(--accent);
+  border-bottom: 1px solid var(--line);
+}
+
+header.site .header-inner {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem 1.25rem;
-  padding: 0.95rem 1.25rem;
-}
-
-.brand, h1, h2 {
-  font-family: "Liberation Serif", "Palatino Linotype", Palatino, serif;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  gap: 0.45rem 1.5rem;
+  padding: 0.85rem 0 0.15rem;
 }
 
 .brand {
-  margin: 0;
-  font-size: 1.45rem;
-  line-height: 1.1;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.85rem;
+  min-height: 0;
+  max-width: 100%;
+  color: var(--chrome);
+  text-decoration: none;
 }
 
-nav {
+.brand:hover { color: var(--chrome); }
+
+.brand-mark {
+  display: block;
+  width: auto;
+  height: 112px;
+  flex: 0 0 auto;
+}
+
+.brand-lockup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.brand-full {
+  font-family: "Source Serif 4", Georgia, "Palatino Linotype", Palatino, serif;
+  font-weight: 700;
+  font-size: clamp(1.2rem, 2.4vw, 1.55rem);
+  line-height: 1.15;
+  color: var(--chrome);
+  max-width: 14rem;
+}
+
+.brand-station {
+  color: var(--muted);
+  font-size: 0.98rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+header.site nav {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+header.site nav ul {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.35rem 1rem;
+  column-gap: 1.05rem;
+  row-gap: 0.35rem;
+  list-style: none;
+  padding: 0.15rem 0 0.85rem;
+  margin: 0;
 }
 
-nav a {
-  color: var(--paper);
-  font-weight: 700;
+header.site nav li { margin: 0; }
+
+header.site nav form { margin: 0; }
+
+header.site nav a,
+header.site nav button {
+  color: var(--chrome);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0.2rem 0;
+  font-family: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  font-size: 0.98rem;
+  font-weight: 400;
+  line-height: 1.2;
   text-decoration: none;
-  border-bottom: 2px solid transparent;
-  padding: 0.15rem 0;
+  cursor: pointer;
 }
 
-nav a:hover,
-nav a[aria-current="page"] { border-bottom-color: rgba(243, 239, 230, 0.85); }
+header.site nav a:hover,
+header.site nav button:hover {
+  color: var(--chrome);
+  background: transparent;
+  text-decoration: underline;
+  text-underline-offset: 0.28rem;
+}
 
-nav form { margin: 0; }
+header.site nav a[aria-current="page"] {
+  text-decoration: underline;
+  text-decoration-color: var(--accent);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.28rem;
+}
 
 main {
-  margin-top: 1.4rem;
-  margin-bottom: 1.5rem;
-  padding: 1.45rem 1.4rem 1.55rem;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  box-shadow: 0 16px 40px rgba(26, 25, 22, 0.06);
+  flex: 1;
+  padding: 1.75rem 0 2.5rem;
 }
 
-h1 { font-size: 1.85rem; margin: 0 0 1.1rem; }
-h2 { font-size: 1.05rem; margin: 0 0 0.45rem; }
+h1, h2, .card-title {
+  font-family: "Source Serif 4", Georgia, "Palatino Linotype", Palatino, serif;
+  font-weight: 600;
+  color: var(--chrome);
+  text-wrap: balance;
+}
+
+h1 {
+  font-size: clamp(1.7rem, 4vw, 2.05rem);
+  line-height: 1.15;
+  margin: 0 0 0.85rem;
+}
+
+h2 {
+  font-size: 1.28rem;
+  line-height: 1.25;
+  margin: 0 0 0.45rem;
+}
 
 h2.group {
-  margin: 1.45rem 0 0.75rem;
-  padding-bottom: 0.35rem;
-  border-bottom: 1px solid var(--line);
-  font-size: 1.02rem;
+  margin: 1.75rem 0 0.8rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line);
+  font-size: 1.28rem;
 }
 
-form h2.group:first-of-type { margin-top: 0.1rem; }
+form h2.group:first-of-type {
+  margin-top: 0.1rem;
+  padding-top: 0;
+  border-top: 0;
+}
+
+label, .card-author {
+  font-family: "IBM Plex Mono", ui-monospace, "Liberation Mono", monospace;
+  font-weight: 500;
+  letter-spacing: 0;
+}
 
 label {
   display: block;
   margin-bottom: 0.28rem;
-  font-family: ui-monospace, "Liberation Mono", monospace;
+  color: var(--ink);
   font-size: 0.86rem;
-  font-weight: 700;
 }
 
-.help, footer p {
-  margin: 0.15rem 0 0.45rem;
+.help, .card-meta, .empty-board, footer p {
   color: var(--muted);
-  font-size: 0.92rem;
+}
+
+.help {
+  margin: 0.1rem 0 0.4rem;
+  font-size: 0.95rem;
 }
 
 .field { margin: 0 0 1.05rem; }
@@ -119,16 +285,17 @@ label {
   grid-template-columns: 1.15rem 1fr;
   column-gap: 0.7rem;
   align-items: start;
-  padding: 0.75rem 0.8rem;
-  background: #faf7f1;
+  padding: 0.75rem 0.85rem;
+  background: var(--card);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-left: 3px solid var(--oak);
+  border-radius: var(--radius);
 }
 
 .field.check input {
   grid-column: 1;
   grid-row: 1 / span 2;
-  margin-top: 0.2rem;
+  margin-top: 0.28rem;
 }
 
 .field.check label,
@@ -137,46 +304,56 @@ label {
 input[type="text"], input[type="password"], textarea, select {
   width: 100%;
   padding: 0.55rem 0.7rem;
-  border: 1px solid #cfc6b7;
-  border-radius: 8px;
-  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #ffffff;
   color: var(--ink);
   font: inherit;
 }
 
 textarea {
   min-height: 12rem;
-  font-family: ui-monospace, "Liberation Mono", monospace;
+  font-family: "IBM Plex Mono", ui-monospace, "Liberation Mono", monospace;
+  font-size: 0.92rem;
+  font-weight: 400;
   line-height: 1.45;
 }
 
 input[type="checkbox"] {
   width: 1.05rem;
   height: 1.05rem;
-  accent-color: var(--green);
+  accent-color: var(--chrome);
 }
 
 button, .button-link {
   display: inline-block;
-  background: var(--green);
-  color: var(--paper);
-  border: 1px solid var(--green);
-  border-radius: 8px;
-  padding: 0.48rem 0.9rem;
+  background: var(--accent);
+  color: #ffffff;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  padding: 0.72rem 1.1rem;
   font: inherit;
-  font-weight: 700;
+  font-weight: 600;
+  line-height: 1.2;
   text-decoration: none;
   cursor: pointer;
 }
 
-button.quiet {
-  background: transparent;
-  color: var(--green);
+button:hover, .button-link:hover,
+.button-link:visited, button:visited {
+  background: var(--accent-hover);
+  color: #ffffff;
 }
 
-header button.quiet {
-  color: var(--paper);
-  border-color: rgba(243, 239, 230, 0.7);
+button.quiet {
+  background: transparent;
+  color: var(--chrome);
+  border: 1px solid var(--line);
+}
+
+button.quiet:hover {
+  background: var(--card);
+  color: var(--chrome);
 }
 
 .actions {
@@ -204,21 +381,18 @@ header button.quiet {
   margin-top: 0.35rem;
 }
 
-a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
-  outline: 3px solid var(--ink);
-  outline-offset: 2px;
+input:focus-visible, textarea:focus-visible, select:focus-visible {
+  border-color: var(--chrome);
 }
-
-input:focus-visible, textarea:focus-visible, select:focus-visible { border-color: var(--green); }
 
 .error {
   margin: 0 0 1rem;
-  padding: 0.65rem 0.8rem;
-  font-weight: 700;
-  color: #6d2e1f;
-  background: #f8ebe3;
-  border: 1px solid #e2c2b2;
-  border-radius: 8px;
+  padding: 0.7rem 0.85rem;
+  font-weight: 600;
+  color: var(--link-hover);
+  background: #fff5f6;
+  border: 1px solid #e7c3c9;
+  border-radius: var(--radius);
 }
 
 #preview-status:empty {
@@ -232,14 +406,14 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { border-color
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1rem;
-  margin-top: 1.2rem;
+  margin-top: 1.25rem;
 }
 
 .previews section {
-  padding: 0.85rem 0.9rem 0.95rem;
-  background: #faf7f1;
+  padding: 0.85rem 1rem 1rem;
+  background: var(--card);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius);
 }
 
 pre {
@@ -251,40 +425,23 @@ pre {
   background: transparent;
   color: var(--ink);
   border: 0;
-  font-family: ui-monospace, "Liberation Mono", monospace;
+  font-family: "IBM Plex Mono", ui-monospace, "Liberation Mono", monospace;
+  font-size: 0.84rem;
+  font-weight: 400;
+  line-height: 1.45;
 }
 
-body.kind-articles,
-body.kind-bulletin {
-  background:
-    linear-gradient(180deg, rgba(255, 253, 248, 0.35), transparent 12rem),
-    #e4d7c3;
-}
-
-body.kind-articles .bar,
-body.kind-articles main,
-body.kind-articles footer,
-body.kind-bulletin .bar,
-body.kind-bulletin main,
-body.kind-bulletin footer {
-  max-width: 68rem;
-}
-
-body.kind-articles main,
-body.kind-bulletin main {
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-  padding-left: 0.2rem;
-  padding-right: 0.2rem;
+body.kind-articles .wrap,
+body.kind-bulletin .wrap {
+  width: min(68rem, calc(100% - 2rem));
 }
 
 .board {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
-  gap: 1.15rem;
+  grid-template-columns: repeat(auto-fill, minmax(16.5rem, 1fr));
+  gap: 1rem;
   margin: 0;
-  padding: 0.2rem 0 0.4rem;
+  padding: 0.15rem 0 0.4rem;
   list-style: none;
 }
 
@@ -292,9 +449,9 @@ body.kind-bulletin main {
   position: relative;
   background: var(--card);
   color: var(--ink);
-  border: 1px solid #e6dccb;
-  border-radius: 2px;
-  box-shadow: 0 10px 22px rgba(62, 44, 22, 0.08);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--gold);
+  border-radius: var(--radius);
 }
 
 .pin-card {
@@ -302,59 +459,55 @@ body.kind-bulletin main {
   flex-direction: column;
   gap: 0.35rem;
   min-height: 11.5rem;
-  padding: 1.45rem 1rem 0.9rem;
+  padding: 1.15rem 1rem 0.95rem;
   text-decoration: none;
 }
 
-.sheet { padding: 1.7rem 1.35rem 1.15rem; }
+.pin-card:hover, .pin-card:focus-visible, .pin-card:visited {
+  color: var(--ink);
+  text-decoration: none;
+  border-color: var(--chrome);
+  border-top-color: var(--gold);
+}
+
+.pin-card:hover, .pin-card:focus-visible {
+  transform: translateY(-2px);
+}
+
+.sheet {
+  max-width: 42rem;
+  padding: 1.25rem 1.25rem 1.15rem;
+}
 
 .pin {
   position: absolute;
-  top: 0.55rem;
-  left: 50%;
-  width: 0.8rem;
-  height: 0.8rem;
-  margin-left: -0.4rem;
+  top: -0.32rem;
+  left: 1.15rem;
+  width: 0.62rem;
+  height: 0.62rem;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #f2e4b8, #8d6b32 58%, #5c4318);
-  box-shadow: 0 1px 1px rgba(62, 44, 22, 0.35);
-}
-
-.board li:nth-child(4n+1) .pin-card { transform: rotate(-0.6deg); }
-.board li:nth-child(4n+2) .pin-card { transform: rotate(0.45deg); }
-.board li:nth-child(4n+3) .pin-card { transform: rotate(0.15deg); }
-.board li:nth-child(4n+4) .pin-card { transform: rotate(-0.35deg); }
-
-.pin-card:hover, .pin-card:focus-visible {
-  transform: translateY(-3px);
-  box-shadow: 0 16px 28px rgba(62, 44, 22, 0.14);
+  background: var(--gold);
+  box-shadow: 0 0 0 3px var(--card);
 }
 
 .card-author {
-  color: var(--green);
-  font-family: ui-monospace, "Liberation Mono", monospace;
+  color: var(--oak);
   font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
 .card-title {
-  font-family: "Liberation Serif", "Palatino Linotype", Palatino, serif;
   font-size: 1.28rem;
-  font-weight: 700;
   line-height: 1.25;
 }
 
 .card-excerpt {
   color: var(--ink);
-  font-size: 0.95rem;
+  font-size: 0.98rem;
 }
 
-.card-meta, .empty-board {
-  color: var(--muted);
-  font-size: 0.86rem;
-}
+.card-meta, .empty-board { font-size: 0.9rem; }
 
 .pin-card .card-meta { margin-top: auto; }
 
@@ -364,95 +517,44 @@ body.kind-bulletin main {
 
 .sheet-body {
   white-space: pre-wrap;
-  font-size: 1.02rem;
+  font-size: 1.05rem;
   line-height: 1.55;
 }
 
-.sheet .actions { margin: 1.1rem 0 0; }
+.sheet .actions { margin: 1.15rem 0 0; }
 
-.empty-board {
-  padding: 1.2rem 0.2rem;
-}
-
-.table-wrap { overflow-x: auto; }
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-th, td {
-  text-align: left;
-  padding: 0.7rem 0.45rem;
-  border-bottom: 1px solid var(--line);
-  vertical-align: top;
-}
-
-th {
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-tbody tr:hover td { background: #faf7f1; }
-
-td a {
-  color: var(--green);
-  font-weight: 700;
-}
-
-th:nth-child(2), td:nth-child(2),
-th:nth-child(3), td:nth-child(3) {
-  width: 1%;
-  white-space: nowrap;
-}
-
-tr.empty td { color: var(--muted); }
+.empty-board { padding: 0.4rem 0; }
 
 .toolbar { margin: 0 0 1rem; }
 
-.toolbar a:not(.button-link) {
-  color: var(--green);
-  font-weight: 700;
-}
+.toolbar a:not(.button-link) { font-weight: 600; }
 
 footer {
-  padding: 0 1.25rem 1.6rem;
+  border-top: 1px solid var(--line);
   color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+  padding: 1.2rem 0 1.8rem;
 }
 
-footer p { margin: 0; }
+footer p { margin: 0.2rem 0; }
 
-body.kind-login main {
-  width: min(28rem, calc(100% - 2rem));
-  margin-top: 8vh;
-}
-
-body.kind-login .bar { justify-content: center; }
-
-body.kind-login footer {
-  width: min(28rem, calc(100% - 2rem));
-  text-align: center;
-}
+body.kind-login form { max-width: 26rem; }
 
 body.kind-login button[type="submit"] {
   width: 100%;
-  margin-top: 0.35rem;
+  margin-top: 0.25rem;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pin-card, .board li:nth-child(4n+1) .pin-card,
-  .board li:nth-child(4n+2) .pin-card,
-  .board li:nth-child(4n+3) .pin-card,
-  .board li:nth-child(4n+4) .pin-card,
   .pin-card:hover, .pin-card:focus-visible { transform: none; }
 }
 
 @media (max-width: 800px) {
+  .brand-mark { height: 84px; }
+  .brand-full { max-width: 11rem; }
   .previews, #compose { grid-template-columns: 1fr; }
-  main { margin-top: 0.8rem; padding: 1.1rem 1rem 1.2rem; }
-  .bar, footer { padding-left: 1rem; padding-right: 1rem; }
-  .board li .pin-card { transform: none; }
+  main { padding: 1.35rem 0 1.8rem; }
+  header.site nav ul { column-gap: 0.85rem; }
+  .sheet { max-width: none; }
 }

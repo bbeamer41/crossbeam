@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.14
+
+- The admin panel uses the Texas Packet Radio Society mark, colors, and type. The footer says the panel is presented by the society.
+
 ## 0.9.13
 
 - Logging out returns to the sign-in page when the browser has not trusted the certificate.

@@ -46,8 +46,24 @@ func TestPanelFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	body = readAll(t, res)
-	if res.StatusCode != http.StatusOK || !strings.Contains(body, "#f3efe6") || res.Header.Get("X-Content-Type-Options") != "nosniff" {
+	if res.StatusCode != http.StatusOK || !strings.Contains(body, "#f7f4ef") || res.Header.Get("X-Content-Type-Options") != "nosniff" {
 		t.Fatalf("css %d %s", res.StatusCode, res.Header.Get("Content-Type"))
+	}
+	res, err = anon.Get(base + "/mark.svg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = readAll(t, res)
+	if res.StatusCode != http.StatusOK || res.Header.Get("Content-Type") != "image/svg+xml" || !strings.Contains(body, "Texas") {
+		t.Fatalf("mark %d %s", res.StatusCode, res.Header.Get("Content-Type"))
+	}
+	res, err = anon.Get(base + "/fonts/source-sans-3-latin.woff2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	readAll(t, res)
+	if res.StatusCode != http.StatusOK || res.Header.Get("Content-Type") != "font/woff2" {
+		t.Fatalf("font %d %s", res.StatusCode, res.Header.Get("Content-Type"))
 	}
 	res, err = anon.Get(base + "/app.js")
 	if err != nil {
@@ -63,7 +79,7 @@ func TestPanelFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	body = readAll(t, res)
-	if res.StatusCode != http.StatusUnauthorized || !strings.Contains(body, "The password is not right.") {
+	if res.StatusCode != http.StatusUnauthorized || !strings.Contains(body, "The password is not right.") || !strings.Contains(body, "Texas Packet Radio Society") || !strings.Contains(body, "Presented by Texas Packet Radio Society") {
 		t.Fatalf("bad login %d %s", res.StatusCode, body)
 	}
 
@@ -742,9 +758,19 @@ func TestWebAssets(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(css)
-	for _, needle := range []string{"#f3efe6", "#1a1916", "#1e4d3a", "focus-visible", "max-width: 800px"} {
+	for _, needle := range []string{"#f7f4ef", "#1a2332", "#002868", "focus-visible", "max-width: 800px"} {
 		if !strings.Contains(text, needle) {
 			t.Errorf("css missing %s", needle)
+		}
+	}
+	html, err := webFS.ReadFile("web/templates.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageText := string(html)
+	for _, needle := range []string{"Texas Packet Radio Society", "Presented by Texas Packet Radio Society", "/mark.svg"} {
+		if !strings.Contains(pageText, needle) {
+			t.Errorf("template missing %s", needle)
 		}
 	}
 	if _, err := ParseSocketMode("0666"); err == nil {

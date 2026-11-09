@@ -7,26 +7,39 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}} — {{.Station}}</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/app.css">
 </head>
 <body class="kind-{{.Kind}}">
-<header>
-<div class="bar">
-<p class="brand">{{.Station}}</p>
+<a class="skip" href="#content">Skip to content</a>
+<header class="site">
+<div class="wrap header-inner">
+<a class="brand" href="/">
+<img class="brand-mark" src="/mark.svg" width="152" height="148" alt="">
+<span class="brand-lockup">
+<span class="brand-full">Texas Packet Radio Society</span>
+<span class="brand-station">{{.Station}}</span>
+</span>
+</a>
 {{if .Authed}}
-<nav>
-<a href="/settings"{{if eq .Kind "settings"}} aria-current="page"{{end}}>Settings</a>
-<a href="/compose"{{if eq .Kind "compose"}} aria-current="page"{{end}}>Compose</a>
-<a href="/bulletins"{{if or (eq .Kind "articles") (eq .Kind "bulletin")}} aria-current="page"{{end}}>Bulletins</a>
+<nav aria-label="Primary">
+<ul>
+<li><a href="/settings"{{if eq .Kind "settings"}} aria-current="page"{{end}}>Settings</a></li>
+<li><a href="/compose"{{if eq .Kind "compose"}} aria-current="page"{{end}}>Compose</a></li>
+<li><a href="/bulletins"{{if or (eq .Kind "articles") (eq .Kind "bulletin")}} aria-current="page"{{end}}>Bulletins</a></li>
+<li>
 <form method="post" action="/logout">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
 <button type="submit" class="quiet">Log out</button>
 </form>
+</li>
+</ul>
 </nav>
 {{end}}
 </div>
 </header>
-<main>
+<main id="content">
+<div class="wrap">
 {{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
 {{if eq .Kind "login"}}
 <h1>Sign in</h1>
@@ -156,8 +169,14 @@
 </section>
 </div>
 {{end}}
+</div>
 </main>
-<footer><p>Crossbeam {{.Version}}</p></footer>
+<footer>
+<div class="wrap">
+<p>Presented by Texas Packet Radio Society</p>
+<p>Crossbeam {{.Version}}</p>
+</div>
+</footer>
 </body>
 </html>
 {{end}}

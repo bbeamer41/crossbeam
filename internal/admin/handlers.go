@@ -104,9 +104,13 @@ func (a *app) serve(w http.ResponseWriter, r *http.Request, local bool) {
 		http.Error(w, "host is not allowed", http.StatusForbidden)
 		return
 	}
+	if r.Method == http.MethodGet {
+		if spec, ok := publicAssets[r.URL.Path]; ok {
+			a.static(w, r, spec.name, spec.ctype)
+			return
+		}
+	}
 	switch {
-	case r.URL.Path == "/app.css" && r.Method == http.MethodGet:
-		a.static(w, r, "web/app.css", "text/css; charset=utf-8")
 	case r.URL.Path == "/app.js" && r.Method == http.MethodGet:
 		if _, ok := a.requireSession(w, r, local); !ok {
 			return
@@ -163,6 +167,26 @@ func (a *app) serve(w http.ResponseWriter, r *http.Request, local bool) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// webAsset is one file the panel serves without a session.
+// The mark, the favicon, the stylesheet, and the fonts are public.
+// app.js stays behind the session check.
+type webAsset struct {
+	name  string
+	ctype string
+}
+
+var publicAssets = map[string]webAsset{
+	"/app.css":                         {name: "web/app.css", ctype: "text/css; charset=utf-8"},
+	"/mark.svg":                        {name: "web/mark.svg", ctype: "image/svg+xml"},
+	"/favicon.svg":                     {name: "web/favicon.svg", ctype: "image/svg+xml"},
+	"/fonts/source-sans-3-latin.woff2": {name: "web/fonts/source-sans-3-latin.woff2", ctype: "font/woff2"},
+	"/fonts/source-sans-3-italic-latin.woff2": {name: "web/fonts/source-sans-3-italic-latin.woff2", ctype: "font/woff2"},
+	"/fonts/source-serif-4-600-latin.woff2":   {name: "web/fonts/source-serif-4-600-latin.woff2", ctype: "font/woff2"},
+	"/fonts/source-serif-4-700-latin.woff2":   {name: "web/fonts/source-serif-4-700-latin.woff2", ctype: "font/woff2"},
+	"/fonts/ibm-plex-mono-400-latin.woff2":    {name: "web/fonts/ibm-plex-mono-400-latin.woff2", ctype: "font/woff2"},
+	"/fonts/ibm-plex-mono-500-latin.woff2":    {name: "web/fonts/ibm-plex-mono-500-latin.woff2", ctype: "font/woff2"},
 }
 
 func (a *app) static(w http.ResponseWriter, r *http.Request, name, contentType string) {
