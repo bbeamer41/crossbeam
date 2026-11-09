@@ -2,7 +2,7 @@
 
 Crossbeam runs as one program on Debian. The package installs the admin panel. It does not install a modem, and it does not change any other packet service on the machine.
 
-The archive is amd64. `apt update` reads it. `apt upgrade` installs a newer Crossbeam when one is published.
+The archive is amd64. `apt update` reads it. `apt install crossbeam` installs this package and leaves the rest of the system as it is. `apt install --only-upgrade crossbeam` installs a newer Crossbeam the same way. `apt upgrade` installs a newer Crossbeam and also upgrades every other pending package.
 
 ## Package
 
@@ -31,12 +31,15 @@ The package adds the `crossbeam` user, creates `/var/lib/crossbeam` at mode `070
 
 The unit in the package uses `/usr/bin/crossbeam`. Do not also copy `deploy/crossbeam.service` to `/etc/systemd/system`, because that file would override the packaged unit and would still expect `/usr/local/bin/crossbeam`.
 
-When a newer package is in the archive:
+When a newer package is in the archive, this installs that package and leaves the rest of the system as it is:
 
 ```bash
 sudo apt update
-sudo apt upgrade
+sudo apt install --only-upgrade crossbeam
+sudo systemctl restart crossbeam
 ```
+
+`sudo apt upgrade` installs the newer Crossbeam and also upgrades every other pending package. The package does not restart the service, so restart it after that command too.
 
 ## Password
 
