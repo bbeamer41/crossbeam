@@ -12,7 +12,15 @@ Messages are JSON-RPC 2.0, one JSON object per line. Standard output is only tho
 
 The protocol versions `2024-11-05`, `2025-03-26`, and `2025-06-18` are accepted. Any other version is answered with `2025-06-18`.
 
-The tools read and write articles, publish pages, and ingest pages. They use the same store and the same page files as `crossbeam article` and `crossbeam page`. They do not change settings, dial a station, or send a bulletin.
+The tools use the same store and the same page files as `crossbeam article` and `crossbeam page`. They do not change settings, dial a station, or send a bulletin.
+
+- `list_articles` lists stored articles, newest first, without their bodies.
+- `read_article` reads one article, including its body.
+- `save_article` inserts an article, or updates one when a row is given.
+- `delete_article` deletes one article by row.
+- `publish_pages` writes the stored articles into the NomadNet pages directory.
+- `ingest_pages` reads NomadNet pages into the article store.
+- `station` reports the callsign, the program version, and whether pages, the link, the radio, telnet, and FBB TCP are configured.
 
 `station` reports the callsign, the program version, and whether pages, the link, the radio, telnet, and FBB TCP are configured. A path counts as configured when its listen address or its peer list is set. The radio counts as configured when `kiss.tnc` is set. The report does not include an address, the pages directory, or the admin URL.
 

@@ -25,6 +25,26 @@ sudo systemctl restart crossbeam
 
 `sudo apt upgrade` upgrades Crossbeam and every other pending package. The package does not restart the service. The signing key and the rest of the setup are in `docs/install.md`.
 
+## MCP
+
+The package includes a local MCP server. It uses standard input and standard output. It does not open a network port. On a machine where the service is installed, start it as the user who owns the state directory:
+
+```bash
+sudo -u crossbeam crossbeam mcp --state /var/lib/crossbeam
+```
+
+It can:
+
+- List stored articles, without their bodies.
+- Read one article, including its body.
+- Save a new article, or update an existing one.
+- Delete one article.
+- Write the stored articles into the NomadNet pages directory.
+- Read NomadNet pages back into the article store.
+- Report the callsign, the program version, and whether pages, the packet link, the radio, telnet, and bulletin forwarding are turned on.
+
+It does not change settings, dial a station, or send a bulletin. The operating system user who starts it is the only access control. Details are in `docs/mcp.md`.
+
 ## This build
 
 Version 0.9.15 is the admin panel, the article store, an AX/UDP link, ASCII FBB bulletins, NomadNet pages, NET/ROM routing, a KISS radio, telnet, and FBB TCP. The settings page can choose a plugged-in radio and set its frequency and mode. Each setting has a plain name, an example in an empty box, and a longer explanation beside the box. It serves HTTPS on a LAN address, with one sysop login and no default password. The same settings can be changed in the browser and with the `crossbeam` command. Compose shows a packet bulletin and a Micron page for one article. When the link is configured, `crossbeam connect` reaches another node's prompt over UDP port 10093, and `crossbeam bulletin send` publishes stored articles and ingests the peer's bulletins. A listed station is dialed directly. A station in `telnet.peers` is dialed over telnet. A station that a listed neighbor has announced is reached over NET/ROM, across more than one hop. When `kiss.tnc` is set, a station with no listing and no route is dialed over KISS at 1200 baud. `crossbeam bulletin send` uses FBB TCP when the station is in `fbb.peers` and not in `link.peers`. `crossbeam page publish` writes each stored article into a NomadNet pages directory, and `crossbeam page ingest` reads a page back. The article stays in the store when that directory is unavailable. `crossbeam mcp` serves that store and those pages over standard input and output. It does not open a network port. The Debian package is published in the apt archive and installs `/usr/bin/crossbeam`. It does not enable the service.
