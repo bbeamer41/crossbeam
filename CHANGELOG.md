@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.17
+
+- A MeshCore companion radio announces the station callsign. A MeshCore user messages it like any other contact. LIST and READ use the same bulletin list, and a plain sentence gets a short reply in that conversation.
+- A packet-radio transmission is sent only when the FCC lists both stations as active amateur licenses. That check runs again for each radio session.
+
 ## 0.9.16
 
 - The MCP server can preview an article without saving it, and it can report the panel address and the certificate fingerprint.

@@ -64,6 +64,7 @@
 {{if eq .Key "fbb.listen"}}<h2 class="group">Bulletin forwarding</h2>{{end}}
 {{if eq .Key "bulletin.to"}}<h2 class="group">Bulletins</h2>{{end}}
 {{if eq .Key "nomad.pages"}}<h2 class="group">NomadNet pages</h2>{{end}}
+{{if eq .Key "mesh.device"}}<h2 class="group">MeshCore</h2>{{end}}
 <div class="field{{if eq .Kind "bool"}} check{{end}}">
 {{if eq .Kind "bool"}}
 <input type="hidden" name="{{.Key}}" value="false">

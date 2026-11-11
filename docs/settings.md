@@ -4,7 +4,7 @@ The admin panel and the `crossbeam` command change the same settings. A setting 
 
 The state directory is not a setting either. Pass it as `--state`. The database, the session list, and the TLS certificate live in that directory. The directory is mode `0700`. The database and the private key are mode `0600`.
 
-A change to `admin.listen`, `admin.public`, `link.listen`, `link.peers`, `kiss.tnc`, `telnet.listen`, `telnet.peers`, `fbb.listen`, or `fbb.peers` is saved immediately and used the next time `crossbeam serve` starts. The running panel keeps the address it already bound. The running link keeps the peers, the TNC address, and the TCP ports it already resolved.
+A change to `admin.listen`, `admin.public`, `link.listen`, `link.peers`, `kiss.tnc`, `telnet.listen`, `telnet.peers`, `fbb.listen`, `fbb.peers`, or `mesh.device` is saved immediately and used the next time `crossbeam serve` starts. The running panel keeps the address it already bound. The running link keeps the peers, the TNC address, and the TCP ports it already resolved. The running MeshCore port stays the one opened at start.
 
 A change to `radio.model`, `radio.device`, `radio.frequency`, or `radio.mode` is applied when it is saved. `crossbeam serve` applies it again at startup. An empty `radio.model` leaves the radio alone.
 
@@ -64,7 +64,7 @@ A listed station is also a NET/ROM neighbor. Routes learned from those neighbors
 
 The address of the KISS modem, such as 127.0.0.1:6700 for a modem on this computer. Leave it empty to keep the radio off. Crossbeam sends 1200 baud packet to that modem. The modem turns the text into tones and keys the transmitter. The address is used the next time Crossbeam starts.
 
-An empty value does not open a connection. The value is `host:port`. Port 0 is rejected. A zone id, such as `%eth0`, is rejected. A multicast address is rejected. `0.0.0.0` and `::` are rejected. This value is the address Crossbeam dials. An IP address is stored in canonical form. A hostname is saved without looking it up. At start it must resolve to one address. The behavior of the port is described in `docs/radio.md`.
+An empty value does not open a connection. The value is `host:port`. Port 0 is rejected. A zone id, such as `%eth0`, is rejected. A multicast address is rejected. `0.0.0.0` and `::` are rejected. This value is the address Crossbeam dials. An IP address is stored in canonical form. A hostname is saved without looking it up. At start it must resolve to one address. The radio does not send a connected frame until the FCC lists this station, and the station it is calling, as an active amateur license. The behavior of the port is described in `docs/radio.md`.
 
 `--kiss` on `crossbeam serve` uses another address for this start and does not change the saved setting.
 
@@ -143,6 +143,12 @@ This is the `@` field. `WW` reaches the widest set of bulletin areas. A hierarch
 A folder where each bulletin is also written as a NomadNet page, such as /var/lib/nomadnetwork/storage/pages. Leave it empty to keep bulletins in Crossbeam only. The folder must already exist. A page is an ordinary .mu file. Publishing and importing use the saved folder immediately.
 
 The directory must already exist. An empty value leaves every article in the store. A relative path is rejected. A path with a `..` segment is rejected. The saved path is cleaned, so a trailing slash is removed. `crossbeam page publish` and `crossbeam page ingest` read this value each time they run. The commands are described in `docs/pages.md`.
+
+## mesh.device
+
+The serial port of a MeshCore companion radio, such as /dev/ttyACM0. Leave it empty to keep MeshCore off. The radio stays in companion firmware. The station announces its callsign, and a MeshCore user messages it like any other contact. Crossbeam answers LIST and READ from the same bulletin list over a direct message. The port is used the next time Crossbeam starts.
+
+The path is `/dev/ttyACM` or `/dev/ttyUSB` followed by a number, or a name under `/dev/serial/by-id/`. A relative path, a parent directory, and any other device name are rejected. An empty value leaves MeshCore off. The service opens the port the next time it starts. The commands and the cable are described in `docs/meshcore.md`.
 
 ## Command
 

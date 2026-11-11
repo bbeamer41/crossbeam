@@ -30,6 +30,12 @@ func (n *Node) kissLoop(addr string) {
 		if !n.alive() {
 			return
 		}
+		if d := n.selfQuiet(); d > 0 {
+			if !n.waitKiss(d) {
+				return
+			}
+			continue
+		}
 		conn, err := n.dialKiss(addr)
 		if err != nil {
 			if !n.waitKiss(wait) {
@@ -43,10 +49,16 @@ func (n *Node) kissLoop(addr string) {
 			_ = conn.Close()
 			return
 		}
+		gen := n.beginRadio()
+		go n.approveSelf(gen)
+		// Timing bytes are modem setup. Connected frames wait until this
+		// station's license check has finished.
 		err = n.writeKissRaw(kiss.Parameters())
-		if err == nil {
+		ctx, cancel := n.kissLife()
+		if err == nil && n.waitRadio(ctx) {
 			n.readKiss(conn)
 		}
+		cancel()
 		n.clearKissConn(conn)
 		_ = conn.Close()
 		if !n.waitKiss(wait) {
@@ -164,6 +176,11 @@ func (n *Node) writeKissRaw(p []byte) error {
 }
 
 func (n *Node) writeKiss(frame ax25.Frame) {
+	// CmdData is what keys the transmitter. Both this station and the
+	// station in the address have to be approved before those bytes move.
+	if !n.radioUp() || !n.radioGranted(frame.Dest.Call) {
+		return
+	}
 	_ = n.writeKissRaw(kiss.Encode(kiss.CmdData, frame.EncodeBody()))
 }
 
@@ -200,6 +217,11 @@ func (n *Node) takeKiss(item kiss.Frame) {
 	if udp {
 		return
 	}
+	// Drop the frame until the FCC check passes. Injecting it would make
+	// the engine key the radio for a UA, or for a DM when it refuses.
+	if !n.radioUp() || !n.radioAdmit(frame.Src.Call) {
+		return
+	}
 	n.sw.Inject(frame)
 }
 
@@ -207,13 +229,18 @@ func (n *Node) takeKiss(item kiss.Frame) {
 func (n *Node) Kiss() string { return n.kissAddr }
 
 // dialRadio opens an AX.25 session on the KISS port. The callsign does
-// not have to be listed. Bulletin forwarding does not use this path.
+// not have to be listed. It does have to be an active FCC amateur
+// license, and so does this station. Bulletin forwarding does not use
+// this path.
 func (n *Node) dialRadio(ctx context.Context, addr ax25.Address) (*ax25.Stream, error) {
 	if n.kissAddr == "" || n.sw == nil {
 		return nil, errors.New("radio is off")
 	}
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if !n.waitRadio(ctx) || !n.approveRadio(ctx, addr.Call) {
+		return nil, errors.New("station license was not confirmed")
 	}
 	return n.sw.Dial(ctx, addr)
 }

@@ -28,7 +28,7 @@ The article is the center. The canonical fields and the two renderings are speci
 
 ## Status
 
-Goals 1-8 and 10 are in this tree. Goal 9 waits. BPQ chat linking and a Winlink RMS gateway stay deferred. The work stays on the BBS and the Reticulum bridge.
+Goals 1-8 and 10 are in this tree. Goal 9 waits. BPQ chat linking and a Winlink RMS gateway stay deferred. The work stays on the BBS and the Reticulum bridge. A MeshCore companion radio lists and reads the same articles. The station announces its callsign, and a MeshCore user messages it like any other contact. `LIST` and `READ` are on the station prompt and in a direct message to that radio. An empty `mesh.device` leaves the radio off. Sending a bulletin onto the mesh waits. A packet-radio transmission is sent only when the FCC lists the station as an active amateur license. That check runs again for each radio session.
 
 ## Goals
 

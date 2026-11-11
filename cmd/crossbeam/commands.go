@@ -24,7 +24,9 @@ import (
 	"github.com/bbeamer41/crossbeam/internal/article"
 	"github.com/bbeamer41/crossbeam/internal/ax25"
 	"github.com/bbeamer41/crossbeam/internal/bulletin"
+	"github.com/bbeamer41/crossbeam/internal/fcc"
 	"github.com/bbeamer41/crossbeam/internal/link"
+	"github.com/bbeamer41/crossbeam/internal/meshcore"
 	"github.com/bbeamer41/crossbeam/internal/page"
 	"github.com/bbeamer41/crossbeam/internal/radio"
 	"github.com/bbeamer41/crossbeam/internal/settings"
@@ -146,6 +148,31 @@ func cmdServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	} else if note, ok := tuner.Status(); ok && note != "" {
 		fmt.Fprintf(stdout, "radio %s\n", note)
 	}
+	if device := strings.TrimSpace(current[settings.KeyMesh]); device != "" {
+		name := strings.TrimSpace(current[settings.KeyCallsign])
+		if name == "" {
+			name = strings.TrimSpace(current[settings.KeyName])
+		}
+		if name == "" {
+			name = "BBS"
+		}
+		meshCtx, meshCancel := context.WithCancel(ctx)
+		meshDone := make(chan struct{})
+		go func() {
+			defer close(meshDone)
+			meshcore.Run(meshCtx, device, st, name)
+		}()
+		defer func() {
+			meshCancel()
+			timer := time.NewTimer(5 * time.Second)
+			defer timer.Stop()
+			select {
+			case <-meshDone:
+			case <-timer.C:
+			}
+		}()
+		fmt.Fprintf(stdout, "meshcore on\n")
+	}
 	err = waitServe(ctx, running)
 	if err != nil {
 		fmt.Fprintf(stderr, "crossbeam: %s\n", err)
@@ -236,6 +263,10 @@ func startLink(ctx context.Context, st *store.Store, socketPath string, mode os.
 			return nil, errors.New("station.callsign must be an AX.25 callsign when FBB TCP is on")
 		}
 	}
+	var license func(context.Context, string) (bool, error)
+	if kissAddr != "" {
+		license = fcc.New().Active
+	}
 	return link.Listen(link.Config{
 		Bind:         bind,
 		Kiss:         kissAddr,
@@ -243,6 +274,7 @@ func startLink(ctx context.Context, st *store.Store, socketPath string, mode os.
 		TelnetPeers:  telnetPeers,
 		FBB:          fbbAddr,
 		FBBPeers:     fbbPeers,
+		License:      license,
 		Local:        call,
 		Peers:        peersText,
 		TerminalPath: filepath.Join(filepath.Dir(socketPath), "terminal.sock"),

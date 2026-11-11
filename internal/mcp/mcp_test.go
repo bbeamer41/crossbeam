@@ -316,6 +316,7 @@ func TestPagesAndStation(t *testing.T) {
 		settings.KeyCallsign:  "K5LEB",
 		settings.KeyPages:     pages,
 		settings.KeyLinkPeers: secretPeer,
+		settings.KeyMesh:      "/dev/ttyACM0",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -344,10 +345,10 @@ func TestPagesAndStation(t *testing.T) {
 	if station.isError || station.data["callsign"] != "K5LEB" || station.data["version"] != version.String {
 		t.Fatalf("station %#v", station.data)
 	}
-	if station.data["pages"] != true || station.data["link"] != true || station.data["radio"] != false || station.data["telnet"] != false || station.data["fbb"] != false {
+	if station.data["pages"] != true || station.data["link"] != true || station.data["radio"] != false || station.data["telnet"] != false || station.data["fbb"] != false || station.data["mesh"] != true {
 		t.Fatalf("flags %#v", station.data)
 	}
-	if strings.Contains(rawStation, pages) || strings.Contains(rawStation, "192.168.1.21") || strings.Contains(rawStation, "W1AW") {
+	if strings.Contains(rawStation, pages) || strings.Contains(rawStation, "192.168.1.21") || strings.Contains(rawStation, "W1AW") || strings.Contains(rawStation, "ttyACM") {
 		t.Fatalf("station leaked %s", rawStation)
 	}
 	wrote := toolData(t, lines[3])

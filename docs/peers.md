@@ -19,12 +19,12 @@ crossbeam settings set telnet.peers W1AW-1@192.168.1.21:8770 --state /var/lib/cr
 The remote prompt looks the same as an AX.25 session:
 
 ```text
-[CROSSBEAM-0.9.16-FHM$]
+[CROSSBEAM-0.9.17-FHM$]
 Crossbeam K5LEB
 K5LEB>
 ```
 
-`?` lists the commands. `BYE` disconnects. A session with nothing passing disconnects after 15 minutes. Each port accepts 8 sessions. The next one is told the station is busy and then closed.
+`?` lists the commands. `LIST` lists the bulletins. `READ` and a number reads one. `BYE` disconnects. A session with nothing passing disconnects after 15 minutes. Each port accepts 8 sessions. The next one is told the station is busy and then closed.
 
 `--telnet` and `--telnet-peers` on `crossbeam serve` override one start and are not saved.
 

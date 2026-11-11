@@ -2,7 +2,7 @@
 
 Crossbeam speaks AX.25 connected mode over UDP so a terminal can reach another node's prompt. The usual port is 10093. This is the encapsulation in RFC 1226, carried in UDP instead of IP protocol 93: one AX.25 frame per datagram, without HDLC flags or bit stuffing, with the 16-bit frame check sequence. The frame is readable text. It is not encrypted.
 
-The link is off until `link.listen` is set. Each node lists the stations it will call in `link.peers`. A node answers a station that calls it. A listed station is accepted only from the IP address in that list. While that session is open, the reply uses the UDP port the packet came from. The next call uses the port in `link.peers` again. A listed callsign from any other address is dropped, and that drop is logged. Any other caller is answered at the address it used and can use the prompt. Bulletin forwarding on AX/UDP is accepted only from a listed station. A station on the KISS port can still forward, because that port has no peer list. A NET/ROM circuit does not accept a forward. The log records the callsign and address of every session. A forward this station starts is logged on this station, including a failure to connect. Each accepted bulletin is logged with its id and author.
+The link is off until `link.listen` is set. Each node lists the stations it will call in `link.peers`. A node answers a station that calls it. A listed station is accepted only from the IP address in that list. While that session is open, the reply uses the UDP port the packet came from. The next call uses the port in `link.peers` again. A listed callsign from any other address is dropped, and that drop is logged. Any other caller is answered at the address it used and can use the prompt. Bulletin forwarding on AX/UDP is accepted only from a listed station. A station on the KISS port can forward only after the FCC lists that callsign as an active amateur license. The check is described in `docs/radio.md`. A NET/ROM circuit does not accept a forward. The log records the callsign and address of every session. A forward this station starts is logged on this station, including a failure to connect. Each accepted bulletin is logged with its id and author.
 
 ## Settings
 
@@ -24,17 +24,17 @@ crossbeam connect W1AW-1 --state /var/lib/crossbeam
 
 A callsign in `link.peers` is dialed directly. A callsign in `telnet.peers` is dialed over telnet when it is not in `link.peers`. See `docs/peers.md`. Any other callsign is dialed as a NET/ROM circuit when a route exists. See `docs/netrom.md`. When none of those paths is available, and `kiss.tnc` is set, the callsign is dialed on the radio. See `docs/radio.md`. A failed dial is not tried on the next path.
 
-With the systemd layout the terminal socket is `/run/crossbeam/terminal.sock`. The command prints nothing until the session is up, then it shows the remote bytes. At a keyboard it edits a line locally and sends it when you press Enter. `?` lists the remote commands. `BYE` disconnects. Ctrl-C closes the local terminal.
+With the systemd layout the terminal socket is `/run/crossbeam/terminal.sock`. The command prints nothing until the session is up, then it shows the remote bytes. At a keyboard it edits a line locally and sends it when you press Enter. `?` lists the remote commands. `LIST` lists the bulletins. `READ` and a number reads one. `BYE` disconnects. Ctrl-C closes the local terminal.
 
 The prompt from a Crossbeam node looks like this:
 
 ```text
-[CROSSBEAM-0.9.16-FHM$]
+[CROSSBEAM-0.9.17-FHM$]
 Crossbeam K5LEB
 K5LEB>
 ```
 
-The first line is the FBB station id. Its version is the program version. `?` still lists the commands, and `BYE` still disconnects. Bulletin forwarding is described in `docs/bulletin.md`.
+The first line is the FBB station id. Its version is the program version. `?` still lists the commands. `LIST` lists the bulletins and `READ` followed by a number reads one. `BYE` still disconnects. Bulletin forwarding is described in `docs/bulletin.md`.
 
 Lines on the air end with a carriage return.
 

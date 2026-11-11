@@ -34,6 +34,16 @@ Frames on a KISS port other than 0 are ignored. Commands other than data are ign
 
 One session is open to a given callsign at a time.
 
+## License
+
+A connected frame is sent only when the FCC lists both stations as active amateur licenses. The SSID is not a separate license: `K5LEB-1` is checked as `K5LEB`. The record has to be amateur service (HA or HV), status Active, and not past its expiration date. A canceled, expired, or terminated license stays off the air. A callsign the FCC does not list stays off the air, including a tactical call and a call from outside the FCC database.
+
+The check runs when the TNC connection comes up, for this station. It runs again when a radio session is approved, for the other station. An open session is not checked again until it ends. The next session is checked again. A callsign that was not approved is not asked again for one minute, so a retry does not hammer the FCC.
+
+The license-view query is used when the FCC returns a license document. When that query does not return one, Crossbeam reads the FCC amateur publication (`l_amat.zip`) and any daily file newer than that publication. The first read is large and can take a minute. The radio stays quiet when neither source can be read, including when this machine has no route to the FCC. The rest of the node keeps working. AX/UDP, telnet, FBB TCP, NET/ROM, and MeshCore do not use this check.
+
+KISS timing bytes are still sent, so a hardware TNC still gets its parameters. No UA, DM, or other connected frame is sent for a station that has not been approved. The log names the callsign. It does not include the licensee name, the address, or the FRN.
+
 ## Connecting
 
 `crossbeam connect CALL` tries these paths in order:
@@ -41,7 +51,7 @@ One session is open to a given callsign at a time.
 1. A callsign in `link.peers` is dialed on AX/UDP. A failure stays a failure.
 2. Otherwise a callsign in `telnet.peers` is dialed over telnet. A failure stays a failure. See `docs/peers.md`.
 3. Otherwise a NET/ROM route is used when one exists. A failure stays a failure. See `docs/netrom.md`.
-4. Otherwise, when `kiss.tnc` is set, the callsign is dialed on the radio. It does not have to be listed.
+4. Otherwise, when `kiss.tnc` is set, the callsign is dialed on the radio when the FCC lists it as an active amateur license. It does not have to be in `link.peers`.
 5. Otherwise the command reports that the callsign is not listed.
 
 `crossbeam bulletin send` uses a listed AX/UDP station, or else an `fbb.peers` station. It does not use telnet, the radio, or a NET/ROM circuit. NET/ROM broadcasts stay on AX/UDP.

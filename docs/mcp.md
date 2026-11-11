@@ -23,9 +23,9 @@ The tools use the same store and the same page files as `crossbeam article` and 
 - `delete_article` deletes one article by row.
 - `publish_pages` writes the stored articles into the NomadNet pages directory.
 - `ingest_pages` reads NomadNet pages into the article store.
-- `station` reports the callsign, the program version, and whether pages, the link, the radio, telnet, and FBB TCP are configured.
+- `station` reports the callsign, the program version, and whether pages, the link, the radio, telnet, FBB TCP, and MeshCore are configured.
 - `status` reports the panel address, whether that address is public, and the certificate fingerprint. A running service reports the address it opened.
 
-`station` reports the callsign, the program version, and whether pages, the link, the radio, telnet, and FBB TCP are configured. A path counts as configured when its listen address or its peer list is set. The radio counts as configured when `kiss.tnc` is set. The report does not include an address, the pages directory, or the admin URL.
+`station` reports the callsign, the program version, and whether pages, the link, the radio, telnet, FBB TCP, and MeshCore are configured. A path counts as configured when its listen address or its peer list is set. The radio counts as configured when `kiss.tnc` is set. MeshCore counts as configured when `mesh.device` is set. The report does not include an address, the pages directory, the serial port, or the admin URL.
 
 A tool that cannot finish returns a short sentence. The sentence does not include a filesystem path or a database message. A missing article is `article not found`.

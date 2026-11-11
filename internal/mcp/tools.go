@@ -68,7 +68,7 @@ func toolDescriptions() []toolDesc {
 		{Name: "delete_article", Description: "Delete one stored article by row.", InputSchema: row, Annotations: &toolNotes{DestructiveHint: true}},
 		{Name: "publish_pages", Description: "Write stored articles into the NomadNet pages directory.", InputSchema: empty},
 		{Name: "ingest_pages", Description: "Read NomadNet pages into the article store.", InputSchema: empty},
-		{Name: "station", Description: "Report the station callsign, the program version, and whether pages, the link, the radio, telnet, and FBB TCP are configured.", InputSchema: empty, Annotations: readOnly},
+		{Name: "station", Description: "Report the station callsign, the program version, and whether pages, the link, the radio, telnet, FBB TCP, and MeshCore are configured.", InputSchema: empty, Annotations: readOnly},
 		{Name: "status", Description: "Report the panel address, whether it is public, and the certificate fingerprint. A running service reports the address it opened.", InputSchema: empty, Annotations: readOnly},
 	}
 }
@@ -259,6 +259,7 @@ func (s *server) station(ctx context.Context, args json.RawMessage) (toolResult,
 		"radio":    current[settings.KeyKiss] != "",
 		"telnet":   current[settings.KeyTelnetListen] != "" || current[settings.KeyTelnetPeers] != "",
 		"fbb":      current[settings.KeyFBBListen] != "" || current[settings.KeyFBBPeers] != "",
+		"mesh":     current[settings.KeyMesh] != "",
 	}
 	return toolValue(body)
 }

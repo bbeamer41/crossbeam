@@ -21,6 +21,7 @@ import (
 
 	"github.com/bbeamer41/crossbeam/internal/article"
 	"github.com/bbeamer41/crossbeam/internal/ax25"
+	"github.com/bbeamer41/crossbeam/internal/bbs"
 	"github.com/bbeamer41/crossbeam/internal/fbb"
 	"github.com/bbeamer41/crossbeam/internal/settings"
 	"github.com/bbeamer41/crossbeam/internal/store"
@@ -112,7 +113,7 @@ func Serve(ctx context.Context, st *store.Store, local ax25.Address, rw io.ReadW
 			noteSession("forward", label)
 			return serveForward(ctx, st, local, rw, rd, line, label)
 		}
-		return human(rw, rd, name, line)
+		return human(ctx, st, rw, rd, name, line)
 	}
 }
 
@@ -301,10 +302,10 @@ func logCall(raw string) string {
 	return text
 }
 
-func human(w io.Writer, rd *reader, name, first string) error {
+func human(ctx context.Context, st *store.Store, w io.Writer, rd *reader, name, first string) error {
 	line := first
 	for {
-		bye, err := humanCommand(w, name, line)
+		bye, err := bbs.Command(ctx, st, name, line, w)
 		if err != nil || bye {
 			return peerGone(err)
 		}
@@ -323,19 +324,6 @@ func human(w io.Writer, rd *reader, name, first string) error {
 			return err
 		}
 		line = next
-	}
-}
-
-func humanCommand(w io.Writer, name, line string) (bool, error) {
-	switch strings.ToUpper(strings.TrimSpace(line)) {
-	case "":
-		return false, writeAll(w, name+">\r")
-	case "?", "HELP":
-		return false, writeAll(w, "Commands:\r?        This list\rBYE      Disconnect\r"+name+">\r")
-	case "BYE", "QUIT", "EXIT":
-		return true, writeAll(w, "Bye\r")
-	default:
-		return false, writeAll(w, "Unknown command. Send ? for help.\r"+name+">\r")
 	}
 }
 

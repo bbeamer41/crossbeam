@@ -97,11 +97,11 @@ sudo systemctl restart crossbeam
 crossbeam connect W1AW-1 --socket /run/crossbeam/terminal.sock
 ```
 
-`?` lists the commands. `BYE` disconnects. The terminal socket is mode `0660`, next to the admin socket, so a user in the `crossbeam` group can connect without reading the state directory.
+`?` lists the commands. `LIST` lists the bulletins. `READ` and a number reads one. `BYE` disconnects. The terminal socket is mode `0660`, next to the admin socket, so a user in the `crossbeam` group can connect without reading the state directory.
 
 ## Radio
 
-The radio stays off until `kiss.tnc` is set. Crossbeam dials a KISS TNC. It does not modulate audio and it does not start the modem. Graywolf in modem mode is the supported TNC, on 1200 baud AFSK, with its digipeater and iGate off. The usual address on the same machine is `127.0.0.1:6700`. Details are in `docs/radio.md`.
+The radio stays off until `kiss.tnc` is set. Crossbeam dials a KISS TNC. It does not modulate audio and it does not start the modem. Graywolf in modem mode is the supported TNC, on 1200 baud AFSK, with its digipeater and iGate off. The usual address on the same machine is `127.0.0.1:6700`. The radio stays quiet until the FCC lists this station and the other station as active amateur licenses. The rest of the node still runs when that check cannot be made. Details are in `docs/radio.md`.
 
 The package depends on `libhamlib-utils`. Plug the radio in, then choose its model, the USB port under `/dev/serial/by-id`, the frequency in MHz, and the mode. Saving those settings tunes the radio. An empty `radio.model` leaves the radio alone. Graywolf still sends the audio and keys the transmitter. The package adds the `crossbeam` user to the `dialout` group when that group exists. The group applies the next time the service starts.
 
@@ -145,6 +145,15 @@ sudo -u crossbeam crossbeam page ingest --state /var/lib/crossbeam
 ```
 
 Details are in `docs/pages.md`.
+
+## MeshCore
+
+MeshCore stays off until `mesh.device` is a companion radio on `/dev/ttyACM`, `/dev/ttyUSB`, or `/dev/serial/by-id/`. The radio stays in companion firmware. The station announces its callsign, and a MeshCore user messages it like any other contact. A direct message can send `LIST` and `READ`, and the list is the same article store as the packet prompt and the NomadNet pages. A plain sentence gets a short reply in that thread. A channel message is ignored. The port is opened the next time the service starts. Details are in `docs/meshcore.md`.
+
+```bash
+sudo -u crossbeam crossbeam settings set mesh.device /dev/ttyACM0 --state /var/lib/crossbeam
+sudo systemctl restart crossbeam
+```
 
 ## MCP
 

@@ -49,6 +49,7 @@ const (
 	KeyBulletinTo     = "bulletin.to"
 	KeyBulletinAt     = "bulletin.at"
 	KeyPages          = "nomad.pages"
+	KeyMesh           = "mesh.device"
 )
 
 // Field is one setting. Label is the plain name on the panel. Example
@@ -208,6 +209,14 @@ var Schema = []Field{
 		Kind:     KindLine,
 		MaxRunes: 256,
 	},
+	{
+		Key:      KeyMesh,
+		Label:    "Companion port",
+		Example:  "/dev/ttyACM0",
+		Help:     "The serial port of a MeshCore companion radio, such as /dev/ttyACM0. Leave it empty to keep MeshCore off. The radio stays in companion firmware. The station announces its callsign, and a MeshCore user messages it like any other contact. Crossbeam answers LIST and READ from the same bulletin list over a direct message. The port is used the next time Crossbeam starts.",
+		Kind:     KindLine,
+		MaxRunes: 256,
+	},
 }
 
 // Defaults returns a copy of the default value for every key.
@@ -270,10 +279,59 @@ func Validate(values map[string]string) (map[string]string, error) {
 		return nil, err
 	}
 	out[KeyPages] = pages
+	mesh, err := canonicalMesh(out[KeyMesh])
+	if err != nil {
+		return nil, err
+	}
+	out[KeyMesh] = mesh
 	if err := validateRadio(out); err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+func canonicalMesh(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", nil
+	}
+	if strings.Contains(value, "..") {
+		return "", fmt.Errorf("mesh.device must be a ttyACM, ttyUSB, or /dev/serial/by-id path")
+	}
+	cleaned := filepath.Clean(value)
+	if !meshDevice(cleaned) && !meshByID(cleaned) {
+		return "", fmt.Errorf("mesh.device must be a ttyACM, ttyUSB, or /dev/serial/by-id path")
+	}
+	return cleaned, nil
+}
+
+func meshByID(path string) bool {
+	rest, ok := strings.CutPrefix(path, "/dev/serial/by-id/")
+	return ok && rest != "" && !strings.Contains(rest, "/")
+}
+
+func meshDevice(path string) bool {
+	rest, ok := strings.CutPrefix(path, "/dev/tty")
+	if !ok {
+		return false
+	}
+	switch {
+	case strings.HasPrefix(rest, "ACM"):
+		rest = rest[len("ACM"):]
+	case strings.HasPrefix(rest, "USB"):
+		rest = rest[len("USB"):]
+	default:
+		return false
+	}
+	if rest == "" {
+		return false
+	}
+	for i := 0; i < len(rest); i++ {
+		if rest[i] < '0' || rest[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func validateBulletin(out map[string]string) error {

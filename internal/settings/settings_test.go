@@ -253,7 +253,7 @@ func TestSettingsDocument(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc := string(text)
-	if len(Schema) != 18 {
+	if len(Schema) != 19 {
 		t.Fatalf("schema has %d keys", len(Schema))
 	}
 	for _, field := range Schema {
@@ -461,5 +461,32 @@ func TestPagesSetting(t *testing.T) {
 	}
 	if _, err := Validate(map[string]string{KeyPages: "   "}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestMeshSetting(t *testing.T) {
+	got, err := Validate(map[string]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[KeyMesh] != "" {
+		t.Fatalf("default %q", got[KeyMesh])
+	}
+	got, err = Validate(map[string]string{KeyMesh: "  /dev/ttyACM0  "})
+	if err != nil || got[KeyMesh] != "/dev/ttyACM0" {
+		t.Fatalf("acm %q %v", got[KeyMesh], err)
+	}
+	got, err = Validate(map[string]string{KeyMesh: "/dev/ttyUSB12"})
+	if err != nil || got[KeyMesh] != "/dev/ttyUSB12" {
+		t.Fatalf("usb %q %v", got[KeyMesh], err)
+	}
+	got, err = Validate(map[string]string{KeyMesh: "/dev/serial/by-id/usb-MeshCore-123"})
+	if err != nil || got[KeyMesh] != "/dev/serial/by-id/usb-MeshCore-123" {
+		t.Fatalf("by-id %q %v", got[KeyMesh], err)
+	}
+	for _, bad := range []string{"ttyACM0", "/dev/ttyS0", "/dev/ttyACM0/extra", "/dev/../dev/ttyACM0", "/etc/passwd", "/dev/serial/by-id/../ttyACM0"} {
+		if _, err := Validate(map[string]string{KeyMesh: bad}); err == nil || !strings.Contains(err.Error(), "ttyACM, ttyUSB") {
+			t.Fatalf("%s: %v", bad, err)
+		}
 	}
 }

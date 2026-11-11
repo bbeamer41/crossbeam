@@ -25,8 +25,10 @@ import (
 	"time"
 
 	"github.com/bbeamer41/crossbeam/internal/ax25"
+	"github.com/bbeamer41/crossbeam/internal/bbs"
 	"github.com/bbeamer41/crossbeam/internal/netrom"
 	"github.com/bbeamer41/crossbeam/internal/settings"
+	"github.com/bbeamer41/crossbeam/internal/store"
 )
 
 const (
@@ -69,6 +71,8 @@ type Config struct {
 	N2           int
 	Lookup       settings.LookupIP
 	Handler      func(ax25.Address, io.ReadWriteCloser)
+	// Store answers LIST and READ on the prompt used when Handler is nil.
+	Store *store.Store
 	// Forward runs one FBB exchange on a dialed session. The string is
 	// the OK detail. Nil refuses the FORWARD terminal command.
 	Forward func(context.Context, io.ReadWriteCloser) (string, error)
@@ -86,6 +90,11 @@ type Config struct {
 	FBB string
 	// FBBPeers is the same text form as link.peers, for FBB TCP calls.
 	FBBPeers string
+	// License approves one base callsign for the radio. The callsign has
+	// no SSID. A false result or an error keeps that station off the air.
+	// It may block. The AX.25 engine does not call it. Nil denies every
+	// connected KISS frame.
+	License func(context.Context, string) (bool, error)
 }
 
 // Node is a running AX/UDP station.
@@ -137,6 +146,22 @@ type Node struct {
 	kissMu    sync.Mutex
 	kissWrite sync.Mutex
 	kissConn  net.Conn
+	license   func(context.Context, string) (bool, error)
+
+	radioMu        sync.Mutex
+	radioGen       int
+	radioReady     bool
+	radioDecided   bool
+	radioWait      chan struct{}
+	radioDeny      map[string]time.Time
+	radioAllow     map[string]time.Time
+	radioOpen      map[string]int
+	radioSess      map[string]int
+	radioJobs      map[string]*radioJob
+	radioBusy      int
+	radioNote      map[string]time.Time
+	radioSelfCall  string
+	radioSelfUntil time.Time
 
 	telnetLn net.Listener
 	fbbLn    net.Listener
@@ -238,6 +263,7 @@ func Listen(cfg Config) (*Node, error) {
 		wake:      make(chan struct{}, 1),
 		kissAddr:  kissAddr,
 		kissWait:  cfg.KissRetry,
+		license:   cfg.License,
 		telnetTo:  map[string]string{},
 		fbbTo:     map[string]string{},
 		tcpLive:   map[net.Conn]struct{}{},
@@ -245,7 +271,8 @@ func Listen(cfg Config) (*Node, error) {
 	n.user = cfg.Handler
 	if n.user == nil {
 		local := cfg.Local
-		n.user = func(_ ax25.Address, rw io.ReadWriteCloser) { servePrompt(local, rw) }
+		board := cfg.Store
+		n.user = func(_ ax25.Address, rw io.ReadWriteCloser) { servePrompt(board, local, rw) }
 	}
 	paclen := cfg.Paclen
 	if paclen < 1 || paclen > ax25.DefaultPaclen {
@@ -966,6 +993,7 @@ func (n *Node) refuseSession(remote ax25.Address) {
 func (n *Node) beginSession(remote ax25.Address, inbound bool) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	n.trackRadio(remote, true)
 	key := remote.String()
 	n.live[key] = true
 	// An outbound call keeps the configured port for its SABM. The peer's
@@ -1000,6 +1028,7 @@ func cloneUDP(from *net.UDPAddr) *net.UDPAddr {
 func (n *Node) endSession(remote ax25.Address) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	n.trackRadio(remote, false)
 	key := remote.String()
 	delete(n.live, key)
 	delete(n.peerPort, key)
@@ -1378,32 +1407,25 @@ func readCRLF(r io.Reader, max int) (string, error) {
 	}
 }
 
-func servePrompt(local ax25.Address, st io.ReadWriteCloser) {
-	defer st.Close()
+func servePrompt(board *store.Store, local ax25.Address, rw io.ReadWriteCloser) {
+	defer rw.Close()
 	name := local.String()
-	if _, err := fmt.Fprintf(st, "Crossbeam %s\r%s>\r", name, name); err != nil {
+	if _, err := fmt.Fprintf(rw, "Crossbeam %s\r%s>\r", name, name); err != nil {
 		return
 	}
-	in := &crReader{r: st}
+	in := &crReader{r: rw}
 	for {
 		line, err := in.read(236)
 		if err != nil {
 			if errors.Is(err, errLong) {
-				fmt.Fprintf(st, "The line is too long.\r%s>\r", name)
+				fmt.Fprintf(rw, "The line is too long.\r%s>\r", name)
 				continue
 			}
 			return
 		}
-		switch strings.ToUpper(strings.TrimSpace(line)) {
-		case "":
-			fmt.Fprintf(st, "%s>\r", name)
-		case "?", "HELP":
-			fmt.Fprintf(st, "Commands:\r?        This list\rBYE      Disconnect\r%s>\r", name)
-		case "BYE", "QUIT", "EXIT":
-			fmt.Fprintf(st, "Bye\r")
+		bye, err := bbs.Command(context.Background(), board, name, line, rw)
+		if err != nil || bye {
 			return
-		default:
-			fmt.Fprintf(st, "Unknown command. Send ? for help.\r%s>\r", name)
 		}
 	}
 }

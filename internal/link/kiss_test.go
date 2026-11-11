@@ -9,6 +9,7 @@ import (
 	"net"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -89,6 +90,10 @@ func TestKissUIAndDigipeatDoNotOpenASession(t *testing.T) {
 	if _, err := conn.Write(kiss.Encode(kiss.CmdData, sabm.EncodeBody())); err != nil {
 		t.Fatal(err)
 	}
+	time.Sleep(40 * time.Millisecond)
+	if _, err := conn.Write(kiss.Encode(kiss.CmdData, sabm.EncodeBody())); err != nil {
+		t.Fatal(err)
+	}
 	uas := 0
 	_ = readKissUntil(t, conn, dec, 2*time.Second, func(all []kiss.Frame) bool {
 		uas = countUA(all)
@@ -102,9 +107,17 @@ func TestKissUIAndDigipeatDoNotOpenASession(t *testing.T) {
 func TestListedCallStaysOnUDP(t *testing.T) {
 	ln := listenTCP(t)
 	got := acceptOne(t, ln)
+	checked := make(chan string, 8)
 	node, err := Listen(Config{
 		Bind: "127.0.0.1:0", Local: mustCall(t, "K5LEB"), Kiss: ln.Addr().String(),
 		KissRetry: 30 * time.Millisecond, T1: 150 * time.Millisecond, N2: 4,
+		License: func(_ context.Context, call string) (bool, error) {
+			select {
+			case checked <- call:
+			default:
+			}
+			return true, nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -135,6 +148,16 @@ func TestListedCallStaysOnUDP(t *testing.T) {
 	if countCmd(frames, kiss.CmdData) != 0 {
 		t.Fatal("listed call went to the radio")
 	}
+	for {
+		select {
+		case call := <-checked:
+			if call == "W1AW" {
+				t.Fatal("udp station was checked for the radio")
+			}
+		default:
+			return
+		}
+	}
 }
 
 func TestListedCallerOnTheRadioIsIgnored(t *testing.T) {
@@ -143,6 +166,7 @@ func TestListedCallerOnTheRadioIsIgnored(t *testing.T) {
 	node, err := Listen(Config{
 		Bind: "127.0.0.1:0", Local: mustCall(t, "K5LEB"), Kiss: ln.Addr().String(),
 		KissRetry: 30 * time.Millisecond, T1: 150 * time.Millisecond, N2: 4,
+		License: allowRadio,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -178,6 +202,7 @@ func TestKissOnlyDoesNotMoveAListedCall(t *testing.T) {
 	node, err := Listen(Config{
 		Local: mustCall(t, "K5LEB"), Kiss: ln.Addr().String(),
 		KissRetry: 30 * time.Millisecond, T1: 150 * time.Millisecond, N2: 4,
+		License: allowRadio,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -235,11 +260,259 @@ func TestKissDialsAgain(t *testing.T) {
 	_ = node
 }
 
+func TestUnlicensedStationDoesNotTransmit(t *testing.T) {
+	ln := listenTCP(t)
+	got := acceptOne(t, ln)
+	node, err := Listen(Config{
+		Local: mustCall(t, "K5LEB"), Kiss: ln.Addr().String(),
+		KissRetry: time.Minute, T1: 150 * time.Millisecond, N2: 4,
+		License: func(context.Context, string) (bool, error) { return false, nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { node.Close() })
+	conn := waitConn(t, got, 2*time.Second)
+	defer conn.Close()
+	sabm := ax25.Frame{Dest: node.Local(), Src: mustCall(t, "N0CALL"), Command: true, Control: ax25.SABM | 0x10}
+	_, _ = conn.Write(kiss.Encode(kiss.CmdData, sabm.EncodeBody()))
+	dec := &kiss.Decoder{}
+	frames := readKissUntil(t, conn, dec, 500*time.Millisecond, func(all []kiss.Frame) bool {
+		return countCmd(all, kiss.CmdData) > 0
+	})
+	if countCmd(frames, kiss.CmdData) != 0 || countUA(frames) != 0 {
+		t.Fatalf("unlicensed frames %+v", frames)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	_, err = node.dialRadio(ctx, mustCall(t, "N0CALL"))
+	cancel()
+	if err == nil {
+		t.Fatal("dialed an unlicensed station")
+	}
+}
+
+func TestRadioCallIsTheLicenseWithoutSSID(t *testing.T) {
+	ln := listenTCP(t)
+	got := acceptOne(t, ln)
+	saw := make(chan string, 4)
+	node, err := Listen(Config{
+		Local: mustCall(t, "K5LEB-1"), Kiss: ln.Addr().String(),
+		KissRetry: 30 * time.Millisecond, T1: 150 * time.Millisecond, N2: 4,
+		License: func(_ context.Context, call string) (bool, error) {
+			select {
+			case saw <- call:
+			default:
+			}
+			return call == "K5LEB", nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { node.Close() })
+	conn := waitConn(t, got, 2*time.Second)
+	defer conn.Close()
+	select {
+	case call := <-saw:
+		if call != "K5LEB" {
+			t.Fatalf("checked %s", call)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("station was not checked")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	_, err = node.dialRadio(ctx, mustCall(t, "N0CALL-2"))
+	cancel()
+	if err == nil {
+		t.Fatal("dialed")
+	}
+	var remote string
+	select {
+	case remote = <-saw:
+	case <-time.After(time.Second):
+		t.Fatal("remote was not checked")
+	}
+	if remote != "N0CALL" {
+		t.Fatalf("remote %s", remote)
+	}
+	dec := &kiss.Decoder{}
+	frames := readKissUntil(t, conn, dec, 300*time.Millisecond, func(all []kiss.Frame) bool {
+		return countCmd(all, kiss.CmdData) > 0
+	})
+	if countCmd(frames, kiss.CmdData) != 0 {
+		t.Fatal("denied dial keyed the radio")
+	}
+}
+
+func TestRadioApprovalEndsWithTheSession(t *testing.T) {
+	var mu sync.Mutex
+	calls := 0
+	node := &Node{
+		quit:     make(chan struct{}),
+		local:    mustCall(t, "K5LEB"),
+		kissAddr: "127.0.0.1:9",
+		license: func(context.Context, string) (bool, error) {
+			mu.Lock()
+			calls++
+			mu.Unlock()
+			return true, nil
+		},
+	}
+	if node.radioAdmit("W1AW-1") {
+		t.Fatal("admitted before the check")
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		node.radioMu.Lock()
+		_, ok := node.radioAllow["W1AW"]
+		node.radioMu.Unlock()
+		if ok {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !node.radioAdmit("W1AW") {
+		t.Fatal("retry was not approved")
+	}
+	mu.Lock()
+	if calls != 1 {
+		t.Fatalf("checks %d", calls)
+	}
+	mu.Unlock()
+	node.mu.Lock()
+	node.trackRadio(mustCall(t, "W1AW-1"), true)
+	node.mu.Unlock()
+	if !node.radioAdmit("W1AW-1") {
+		t.Fatal("open session asked again")
+	}
+	mu.Lock()
+	if calls != 1 {
+		t.Fatalf("session checks %d", calls)
+	}
+	mu.Unlock()
+	node.mu.Lock()
+	node.trackRadio(mustCall(t, "W1AW-1"), false)
+	node.mu.Unlock()
+	if node.radioAdmit("W1AW") {
+		t.Fatal("ended session kept the approval")
+	}
+	deadline = time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		got := calls
+		mu.Unlock()
+		if got >= 2 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("the next session was not checked")
+}
+
+func TestConnectedFrameNeedsAGrant(t *testing.T) {
+	left, right := net.Pipe()
+	t.Cleanup(func() {
+		_ = left.Close()
+		_ = right.Close()
+	})
+	node := &Node{
+		quit:     make(chan struct{}),
+		local:    mustCall(t, "K5LEB"),
+		kissAddr: "127.0.0.1:9",
+		peers:    map[string]*net.UDPAddr{"N0CALL": {IP: net.ParseIP("127.0.0.1"), Port: 10093}},
+	}
+	node.setKissConn(left)
+	node.radioMu.Lock()
+	node.radioReady = true
+	node.radioDecided = true
+	node.radioMu.Unlock()
+	remote := mustCall(t, "N0CALL")
+	frame := ax25.Frame{Dest: remote, Src: node.local, Command: true, Control: ax25.SABM | 0x10}
+	// A listed station stays on UDP, including after that route is removed.
+	quiet := make(chan []kiss.Frame, 1)
+	go func() { quiet <- readPipe(right, 80*time.Millisecond) }()
+	node.transmit(remote, frame)
+	delete(node.peers, remote.String())
+	node.transmit(remote, frame)
+	if frames := <-quiet; len(frames) != 0 {
+		t.Fatalf("ungranted %+v", frames)
+	}
+	node.radioMu.Lock()
+	node.radioAllow = map[string]time.Time{"N0CALL": time.Now().Add(time.Minute)}
+	node.radioMu.Unlock()
+	if !node.radioGranted("N0CALL-2") {
+		t.Fatal("ssid was treated as another license")
+	}
+	got := make(chan []kiss.Frame, 1)
+	go func() { got <- readPipe(right, time.Second) }()
+	node.transmit(remote, frame)
+	if frames := <-got; countCmd(frames, kiss.CmdData) != 1 {
+		t.Fatalf("granted %+v", frames)
+	}
+	node.radioMu.Lock()
+	node.radioReady = false
+	node.radioMu.Unlock()
+	quiet = make(chan []kiss.Frame, 1)
+	go func() { quiet <- readPipe(right, 80*time.Millisecond) }()
+	node.transmit(remote, frame)
+	if frames := <-quiet; len(frames) != 0 {
+		t.Fatalf("own license was down %+v", frames)
+	}
+}
+
+func TestFailedCheckDropsAStaleApproval(t *testing.T) {
+	node := &Node{
+		quit:     make(chan struct{}),
+		local:    mustCall(t, "K5LEB"),
+		kissAddr: "127.0.0.1:9",
+		license: func(context.Context, string) (bool, error) {
+			return false, nil
+		},
+	}
+	node.radioMu.Lock()
+	node.radioAllow = map[string]time.Time{"N0CALL": time.Now().Add(time.Minute)}
+	node.radioMu.Unlock()
+	job := node.startRadio("N0CALL", false)
+	if job == nil {
+		t.Fatal("check did not start")
+	}
+	select {
+	case <-job.done:
+	case <-time.After(time.Second):
+		t.Fatal("check hung")
+	}
+	if node.radioGranted("N0CALL") {
+		t.Fatal("failed check left the approval")
+	}
+}
+
+func readPipe(conn net.Conn, d time.Duration) []kiss.Frame {
+	_ = conn.SetReadDeadline(time.Now().Add(d))
+	dec := &kiss.Decoder{}
+	var frames []kiss.Frame
+	buf := make([]byte, 1024)
+	for {
+		n, err := conn.Read(buf)
+		if n > 0 {
+			frames = append(frames, dec.Push(buf[:n])...)
+			if len(frames) > 0 {
+				return frames
+			}
+		}
+		if err != nil {
+			return frames
+		}
+	}
+}
+
+func allowRadio(context.Context, string) (bool, error) { return true, nil }
+
 func startKiss(t *testing.T, call, tnc string, terminal bool) *Node {
 	t.Helper()
 	cfg := Config{
 		Local: mustCall(t, call), Kiss: tnc, KissRetry: 30 * time.Millisecond,
 		T1: 150 * time.Millisecond, N2: 6, Paclen: 128, Window: 4,
+		License: allowRadio,
 	}
 	if terminal {
 		cfg.TerminalPath = filepath.Join(t.TempDir(), "terminal.sock")
