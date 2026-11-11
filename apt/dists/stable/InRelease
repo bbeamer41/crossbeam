@@ -5,26 +5,26 @@ Origin: Crossbeam
 Label: Crossbeam
 Suite: stable
 Codename: stable
-Date: Mon, 09 Nov 2026 13:56:24 +0000
+Date: Wed, 11 Nov 2026 17:49:03 +0000
 Architectures: amd64
 Components: main
 Description: Crossbeam packet-radio node
 MD5Sum:
- 79a38875a929e0f44bef7bc23d6767ef 668 main/binary-amd64/Packages
- 2478f20d38071afdf30cb653321afffa 467 main/binary-amd64/Packages.gz
+ 9e5e7c29962e2764bc786cc8fa502619 668 main/binary-amd64/Packages
+ 9931519a66e9eaceb98b57bc885cf9b6 466 main/binary-amd64/Packages.gz
 SHA1:
- eec262f1560892ca878e71d55ee57679d163447f 668 main/binary-amd64/Packages
- 1a4f29dc6e340cf76b9caa8f39b785155068b6ce 467 main/binary-amd64/Packages.gz
+ 0bb9822199429d331e5ea977a609af98b25c75ec 668 main/binary-amd64/Packages
+ d3b7a297314057d6475e96f16d96cfd14a7e47be 466 main/binary-amd64/Packages.gz
 SHA256:
- bf6eecc4c42684fe3a64d508b265cccc13aa60d25f8bc8e3e4cae52c09b6b22e 668 main/binary-amd64/Packages
- 5fbfd04327f839eeed3264247442f2178a1625d3f08cb49f5d80bf23c01ebc6f 467 main/binary-amd64/Packages.gz
+ 3aca1aae66623571a382122b97f9356396b907e3ba83da908ef6d2c0b6db11a7 668 main/binary-amd64/Packages
+ 0214cc57f55a76c632f014efc5515c60ad85672cd9fe5130c334c5f8ff8b018a 466 main/binary-amd64/Packages.gz
 SHA512:
- 7552da44fd72f866962115372bda56ad9b137499168a3bbf409fe17935bfbb6de44c77b81e636a91d29dc061759a14d6e7ca0b93f22271945792706250c4ad18 668 main/binary-amd64/Packages
- eba35f6d5c00e8fb04140c1aec40882fa54783270a49f0f26d3af7969a6d5b8f4463058af4fb0d9f224a24cc7c099b7787b77407c0c9889049e20e128eb466a8 467 main/binary-amd64/Packages.gz
+ a0c339b3e75e4c73de3b192dee05591c8d8be80838b8490f50536510d03a7acbbf4be3500bb2ff6f702e75bd191727e0e797b4784024d6557e8a41e937099337 668 main/binary-amd64/Packages
+ 958a470ddf4d758f86dbdc4897af6d6f633c24c24d88b6593c3696ce9fdd46afea85cb30ca1ab74be73ea14f0b5e4744ca7b398c6ae575feb811802733f3290e 466 main/binary-amd64/Packages.gz
 -----BEGIN PGP SIGNATURE-----
 
-iHUEARYKAB0WIQTmt6m1S2OhXjfAl5/Et//hqw1gNAUCavHRCAAKCRDEt//hqw1g
-NA/OAP49sIVTUlCwsFBPU+gBiPCM6B0/L59oTdELZOLUidHOtgD+Mef65z0n3UNZ
-vcNEvlXhOAMB62KFBtAX8m5jqGUUqwY=
-=9AWv
+iHUEARYKAB0WIQTmt6m1S2OhXjfAl5/Et//hqw1gNAUCavSqjwAKCRDEt//hqw1g
+NBZ3AP95pci1Lo0TTD+hm/gYKAHkGan2DL3L59NKk8VEq+aoXwD/W4wfj1PajWc1
+fqKqozw2FOzAfDkh6od2qL2oMjpPNAo=
+=PrHK
 -----END PGP SIGNATURE-----
