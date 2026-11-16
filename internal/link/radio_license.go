@@ -90,9 +90,16 @@ func (n *Node) finishSelf(gen int, ok bool) {
 	n.radioDecided = true
 	n.radioReady = ok
 	n.wakeRadioLocked()
-	conn := n.kissConn
 	n.radioMu.Unlock()
-	if ok || conn == nil || !n.alive() {
+	if ok || !n.alive() {
+		return
+	}
+	// kissConn belongs to kissMu. Close writes it under that lock, so
+	// this read has to wait until radioMu is released.
+	n.kissMu.Lock()
+	conn := n.kissConn
+	n.kissMu.Unlock()
+	if conn == nil {
 		return
 	}
 	n.clearKissConn(conn)

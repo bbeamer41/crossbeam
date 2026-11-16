@@ -6,6 +6,7 @@ package fcc
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +16,15 @@ import (
 	"testing"
 	"time"
 )
+
+// testContext ends when the test ends. testing.T.Context needs Go 1.24,
+// and this module stays on Go 1.22.
+func testContext(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	return ctx
+}
 
 func TestAPIAllowsAnActiveAmateurCall(t *testing.T) {
 	const secret = "SECRET NAME 0009999999"
@@ -37,11 +47,11 @@ func TestAPIAllowsAnActiveAmateurCall(t *testing.T) {
 	client := testClient(t, srv)
 	client.Weekly = ""
 	client.Daily = ""
-	ok, err := client.Active(t.Context(), "k5leb-1")
+	ok, err := client.Active(testContext(t), "k5leb-1")
 	if err != nil || !ok {
 		t.Fatalf("allow %v %v", ok, err)
 	}
-	ok, err = client.Active(t.Context(), "N0CALL")
+	ok, err = client.Active(testContext(t), "N0CALL")
 	if err != nil || ok {
 		t.Fatalf("other call %v %v", ok, err)
 	}
@@ -63,16 +73,16 @@ func TestAPIObjectAndRejects(t *testing.T) {
 	defer srv.Close()
 	client := testClient(t, srv)
 	client.Weekly = ""
-	if ok, err := client.Active(t.Context(), "K5LEB"); err != nil || !ok {
+	if ok, err := client.Active(testContext(t), "K5LEB"); err != nil || !ok {
 		t.Fatalf("object %v %v", ok, err)
 	}
-	if ok, err := client.Active(t.Context(), "N0CALL"); err != nil || ok {
+	if ok, err := client.Active(testContext(t), "N0CALL"); err != nil || ok {
 		t.Fatalf("expired %v %v", ok, err)
 	}
-	if ok, err := client.Active(t.Context(), "W1AW"); err != nil || ok {
+	if ok, err := client.Active(testContext(t), "W1AW"); err != nil || ok {
 		t.Fatalf("cancelled %v %v", ok, err)
 	}
-	if ok, err := client.Active(t.Context(), "K1JT"); err != nil || ok {
+	if ok, err := client.Active(testContext(t), "K1JT"); err != nil || ok {
 		t.Fatalf("missing %v %v", ok, err)
 	}
 }
@@ -103,7 +113,7 @@ func TestDatabaseWhenTheQueryIsBlocked(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 	client := testClient(t, srv)
-	ok, err := client.Active(t.Context(), "K5LEB-1")
+	ok, err := client.Active(testContext(t), "K5LEB-1")
 	if err != nil || !ok {
 		t.Fatalf("licensed %v %v", ok, err)
 	}
@@ -111,12 +121,12 @@ func TestDatabaseWhenTheQueryIsBlocked(t *testing.T) {
 		t.Fatal("secret leaked")
 	}
 	for _, call := range []string{"N0CALL", "W1AW", "K1JT", "NOCALL"} {
-		ok, err = client.Active(t.Context(), call)
+		ok, err = client.Active(testContext(t), call)
 		if err != nil || ok {
 			t.Fatalf("%s %v %v", call, ok, err)
 		}
 	}
-	if _, err := client.Active(t.Context(), "K5LEB"); err != nil {
+	if _, err := client.Active(testContext(t), "K5LEB"); err != nil {
 		t.Fatal(err)
 	}
 	if weeklyGets.Load() != 1 {
@@ -146,10 +156,10 @@ func TestDailyFileReplacesTheWeeklyRecord(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 	client := testClient(t, srv)
-	if ok, err := client.Active(t.Context(), "K5LEB"); err != nil || ok {
+	if ok, err := client.Active(testContext(t), "K5LEB"); err != nil || ok {
 		t.Fatalf("revoked %v %v", ok, err)
 	}
-	if ok, err := client.Active(t.Context(), "W1AW"); err != nil || !ok {
+	if ok, err := client.Active(testContext(t), "W1AW"); err != nil || !ok {
 		t.Fatalf("added %v %v", ok, err)
 	}
 }
@@ -169,11 +179,11 @@ func TestExpirationUsesEasternTime(t *testing.T) {
 	client.API = ""
 	// 02:30 UTC on the 11th is still the evening of the 10th in New York.
 	client.Now = func() time.Time { return time.Date(2026, 11, 11, 2, 30, 0, 0, time.UTC) }
-	if ok, err := client.Active(t.Context(), "K5LEB"); err != nil || !ok {
+	if ok, err := client.Active(testContext(t), "K5LEB"); err != nil || !ok {
 		t.Fatalf("expiration day %v %v", ok, err)
 	}
 	client.Now = func() time.Time { return time.Date(2026, 11, 11, 8, 0, 0, 0, time.UTC) }
-	if ok, err := client.Active(t.Context(), "K5LEB"); err != nil || ok {
+	if ok, err := client.Active(testContext(t), "K5LEB"); err != nil || ok {
 		t.Fatalf("next morning %v %v", ok, err)
 	}
 }
@@ -186,7 +196,7 @@ func TestLookupFailureHidesTheBody(t *testing.T) {
 	defer srv.Close()
 	client := testClient(t, srv)
 	client.Weekly = srv.URL + "/complete/l_amat.zip"
-	_, err := client.Active(t.Context(), "K5LEB")
+	_, err := client.Active(testContext(t), "K5LEB")
 	if err == nil || err.Error() != "fcc license lookup failed" || strings.Contains(err.Error(), secret) {
 		t.Fatalf("err %v", err)
 	}
@@ -200,7 +210,7 @@ func TestLookupFailureHidesTheBody(t *testing.T) {
 	client.API = ""
 	client.Weekly = huge.URL + "/complete/l_amat.zip"
 	client.Daily = ""
-	_, err = client.Active(t.Context(), "K5LEB")
+	_, err = client.Active(testContext(t), "K5LEB")
 	if err == nil || strings.Contains(err.Error(), "9999999999") {
 		t.Fatalf("size err %v", err)
 	}
@@ -215,7 +225,7 @@ func TestPlainFCCRedirectIsRejected(t *testing.T) {
 	client.API = ""
 	client.Weekly = srv.URL + "/complete/l_amat.zip"
 	client.Daily = ""
-	ok, err := client.Active(t.Context(), "K5LEB")
+	ok, err := client.Active(testContext(t), "K5LEB")
 	if err == nil || ok || err.Error() != "fcc license lookup failed" {
 		t.Fatalf("%v %v", ok, err)
 	}

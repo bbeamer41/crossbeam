@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.18
+
+- Closing the packet radio after a failed license check no longer races the KISS connection.
+- The install guide covers a backup of `/var/lib/crossbeam` and adding operators back to the `crossbeam` group after a purge. A Crossbeam 0.9.2 plain checksum is not accepted.
+
 ## 0.9.17
 
 - A MeshCore companion radio announces the station callsign. A MeshCore user messages it like any other contact. LIST and READ use the same bulletin list, and a plain sentence gets a short reply in that conversation.
