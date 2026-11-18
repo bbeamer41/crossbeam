@@ -957,6 +957,12 @@ func radioOptions(ctx context.Context, key string, current map[string]string) []
 			opts = append(opts, optionView{Value: device, Label: deviceLabel(device)})
 		}
 		return ensureOption(opts, current[key], deviceLabel(current[key]))
+	case settings.KeyAIBackend:
+		opts := []optionView{
+			{Value: settings.AIBackendOllama, Label: "Ollama"},
+			{Value: settings.AIBackendOpenAI, Label: "OpenAI-compatible (Open WebUI, LM Studio, llama.cpp)"},
+		}
+		return ensureOption(opts, current[key], current[key])
 	case settings.KeyRadioMode:
 		opts := []optionView{
 			{Value: "FM", Label: "FM"},

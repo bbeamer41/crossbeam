@@ -6,6 +6,8 @@ The state directory is not a setting either. Pass it as `--state`. The database,
 
 A change to `admin.listen`, `admin.public`, `link.listen`, `link.peers`, `kiss.tnc`, `telnet.listen`, `telnet.peers`, `fbb.listen`, `fbb.peers`, or `mesh.device` is saved immediately and used the next time `crossbeam serve` starts. The running panel keeps the address it already bound. The running link keeps the peers, the TNC address, and the TCP ports it already resolved. The running MeshCore port stays the one opened at start.
 
+A change to any `ai.` setting applies to the next AI question. The API key is not a setting. It is saved with `crossbeam ai key` in the file `ai-key` in the state directory, mode `0600`, and it is never shown on the panel, by `crossbeam settings`, or in a log.
+
 A change to `radio.model`, `radio.device`, `radio.frequency`, or `radio.mode` is applied when it is saved. `crossbeam serve` applies it again at startup. An empty `radio.model` leaves the radio alone.
 
 ## station.callsign
@@ -149,6 +151,66 @@ The directory must already exist. An empty value leaves every article in the sto
 The serial port of a MeshCore companion radio, such as /dev/ttyACM0. Leave it empty to keep MeshCore off. The radio stays in companion firmware. The station announces its callsign, and a MeshCore user messages it like any other contact. Crossbeam answers LIST and READ from the same bulletin list over a direct message. The port is used the next time Crossbeam starts.
 
 The path is `/dev/ttyACM` or `/dev/ttyUSB` followed by a number, or a name under `/dev/serial/by-id/`. A relative path, a parent directory, and any other device name are rejected. An empty value leaves MeshCore off. The service opens the port the next time it starts. The commands and the cable are described in `docs/meshcore.md`.
+
+## ai.enabled
+
+Let callers chat with an AI model that runs on a computer on your own network. A caller types AI at the station prompt to start, and /EXIT to come back. It is off until you turn it on. You are still the control operator for every reply this station sends, and each question and reply is written to the AI log so you can review it.
+
+The only values are `true` and `false`. The default is `false`. While it is false, AI at the station prompt answers that the assistant is not turned on, and nothing is sent to the AI server. When it is true, `ai.url` and `ai.model` must be set. See `docs/ai.md`.
+
+## ai.backend
+
+The kind of AI server. Choose Ollama for an Ollama computer. Choose OpenAI-compatible for Open WebUI, LM Studio, llama.cpp, or another server that speaks the OpenAI chat format.
+
+`ollama` or `openai`. An empty value is stored as `ollama`. `ollama` posts to `/api/chat`. `openai` posts to `/v1/chat/completions`, or to the full address in `ai.url` when it already has a path, such as Open WebUI's `/api/chat/completions`.
+
+## ai.url
+
+The web address of the AI server, such as http://192.168.1.50:11434 for Ollama or http://192.168.1.50:3000/api/chat/completions for Open WebUI. Use an address on your own network. Required when the assistant is on.
+
+An `http` or `https` address, at most 256 runes, with no user name, password, query, or fragment. A trailing slash is removed. For Ollama a bare `http://host:11434` is enough. For an OpenAI-compatible server, a bare host gets `/v1/chat/completions`, an address ending in `/v1` or `/api` gets `/chat/completions`, and any other path is used as-is. Crossbeam never uses an HTTP proxy from the environment for this address. An API key is not part of the address; save it with `crossbeam ai key`.
+
+## ai.model
+
+The name of the model to ask, exactly as the AI server lists it, such as llama3.2:3b. A small model answers faster. Required when the assistant is on.
+
+One line, at most 128 runes, with no spaces. It is sent as the model name. Crossbeam does not download or check the model.
+
+## ai.users
+
+Callsigns allowed to use the assistant, separated by spaces or commas. Leave it empty to allow anyone who connects over the radio, where Crossbeam has already checked their license with the FCC. A listed callsign may also use it over the packet link or NET/ROM. Telnet callers have no callsign, so they cannot use it.
+
+Each entry must be an AX.25 callsign. Entries are stored in uppercase without the SSID, because the license belongs to the base callsign, and duplicates are dropped. At most 256 callsigns. An empty list allows only sessions heard over the KISS radio. A MeshCore message is governed by `ai.mesh` instead.
+
+## ai.hourly
+
+How many questions one callsign may ask in an hour. This keeps the channel and the AI computer from being tied up by one station. Use a number from 1 to 600. An empty value is stored as 20.
+
+A whole number from 1 to 600. The count is per base callsign, over the last hour, and it is kept in memory until `crossbeam serve` stops.
+
+## ai.reply
+
+The most characters one reply may use. At 1200 baud, 600 characters take about five seconds of air time. A longer reply is cut short. Use a number from 80 to 4000. An empty value is stored as 600.
+
+A whole number from 80 to 4000. The model is asked for about that length, and a longer answer is cut at a word with ` [cut]`. A MeshCore reply is at most 400 characters. A connected session shows a long reply in pages of 12 lines.
+
+## ai.timeout
+
+How many seconds to wait for the AI server before giving up on a question. Use a number from 5 to 600. An empty value is stored as 90.
+
+A whole number from 5 to 600. A MeshCore question waits at most 45 seconds, because the companion radio waits with it.
+
+## ai.instructions
+
+Optional instructions added to what the assistant is always told. Crossbeam already tells it to answer briefly in plain English, with no profanity, no codes, and no business. Use this for anything about your station or club.
+
+One line, at most 500 runes. It is added after the station's own instructions, which cannot be turned off.
+
+## ai.mesh
+
+Also answer a MeshCore direct message that starts with AI, such as AI what is a repeater. Each message is one question with no memory of the last one. Leave this off to keep the assistant on packet only.
+
+The only values are `true` and `false`. The default is `false`. A MeshCore contact is identified by its key prefix, not a callsign, so `ai.users` does not apply. The question limit is counted per contact.
 
 ## Command
 

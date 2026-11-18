@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/bbeamer41/crossbeam/internal/admin"
+	"github.com/bbeamer41/crossbeam/internal/ai"
 	"github.com/bbeamer41/crossbeam/internal/article"
 	"github.com/bbeamer41/crossbeam/internal/ax25"
 	"github.com/bbeamer41/crossbeam/internal/bulletin"
@@ -112,7 +113,8 @@ func cmdServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		fmt.Fprintf(stderr, "crossbeam: %s\n", err)
 		return 1
 	}
-	node, err := startLink(ctx, st, running.SocketPath, mode, fs, *linkFlag, *peersFlag, *kissFlag, *telnetFlag, *telnetPeersFlag, *fbbFlag, *fbbPeersFlag)
+	assistant := ai.New(st.Settings, st.Dir())
+	node, err := startLink(ctx, st, assistant, running.SocketPath, mode, fs, *linkFlag, *peersFlag, *kissFlag, *telnetFlag, *telnetPeersFlag, *fbbFlag, *fbbPeersFlag)
 	if err != nil {
 		running.Close()
 		fmt.Fprintf(stderr, "crossbeam: %s\n", err)
@@ -148,6 +150,9 @@ func cmdServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	} else if note, ok := tuner.Status(); ok && note != "" {
 		fmt.Fprintf(stdout, "radio %s\n", note)
 	}
+	if current[settings.KeyAIEnabled] == "true" {
+		fmt.Fprintf(stdout, "ai assistant on, model %s\n", current[settings.KeyAIModel])
+	}
 	if device := strings.TrimSpace(current[settings.KeyMesh]); device != "" {
 		name := strings.TrimSpace(current[settings.KeyCallsign])
 		if name == "" {
@@ -160,7 +165,7 @@ func cmdServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		meshDone := make(chan struct{})
 		go func() {
 			defer close(meshDone)
-			meshcore.Run(meshCtx, device, st, name)
+			meshcore.RunAI(meshCtx, device, st, name, assistant)
 		}()
 		defer func() {
 			meshCancel()
@@ -181,7 +186,7 @@ func cmdServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	return 0
 }
 
-func startLink(ctx context.Context, st *store.Store, socketPath string, mode os.FileMode, fs *flag.FlagSet, linkFlag, peersFlag, kissFlag, telnetFlag, telnetPeersFlag, fbbFlag, fbbPeersFlag string) (*link.Node, error) {
+func startLink(ctx context.Context, st *store.Store, assistant *ai.Service, socketPath string, mode os.FileMode, fs *flag.FlagSet, linkFlag, peersFlag, kissFlag, telnetFlag, telnetPeersFlag, fbbFlag, fbbPeersFlag string) (*link.Node, error) {
 	current, err := st.Settings(ctx)
 	if err != nil {
 		return nil, err
@@ -279,7 +284,7 @@ func startLink(ctx context.Context, st *store.Store, socketPath string, mode os.
 		Peers:        peersText,
 		TerminalPath: filepath.Join(filepath.Dir(socketPath), "terminal.sock"),
 		TerminalMode: mode,
-		Handler:      bulletin.Answer(st, call),
+		Handler:      bulletin.AnswerAI(st, call, assistant),
 		ForwardReady: func(ctx context.Context) error {
 			return bulletin.Check(ctx, st, call)
 		},

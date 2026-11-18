@@ -110,3 +110,19 @@ func openStore(t *testing.T) *store.Store {
 	t.Cleanup(func() { st.Close() })
 	return st
 }
+
+func TestHelpListsAIWhenOn(t *testing.T) {
+	var off, on strings.Builder
+	if _, err := Command(context.Background(), nil, "K5LEB", "?", &off); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(off.String(), "AI ") {
+		t.Fatalf("AI listed while off: %q", off.String())
+	}
+	if _, err := CommandWith(context.Background(), nil, "K5LEB", "?", &on, Options{AI: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(on.String(), "AI       Chat with the AI assistant\rBYE") {
+		t.Fatalf("help %q", on.String())
+	}
+}

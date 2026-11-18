@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- An AI assistant on the station prompt. A connected packet caller types `AI` to chat with a model on Ollama or an OpenAI-compatible server such as Open WebUI on the local network, and `/EXIT` to return. Each chat keeps its last six turns. Replies are plain ASCII, cut to `ai.reply` characters, and paged for 1200 baud. A dropped link or `/STOP` cancels a question. It is off by default, open to radio callers or the callsigns in `ai.users`, limited per callsign per hour, filtered for profanity and encoded text, and logged to `ai-log.jsonl` for the control operator. `ai.mesh` answers one-shot `AI` questions over MeshCore. `crossbeam ai key`, `crossbeam ai test`, and `crossbeam ai log` manage the API key, check the server, and show the log. See `docs/ai.md`.
+
 ## 0.9.18
 
 - Closing the packet radio after a failed license check no longer races the KISS connection.

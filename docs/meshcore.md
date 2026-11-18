@@ -35,6 +35,8 @@ Bye
 
 A reply longer than 133 characters is split, and each piece starts with a mark such as `[1/3]`. At most 16 pieces are sent. The last piece says the rest of the bulletin is on the packet board. The article in the store is unchanged.
 
+When `ai.mesh` and `ai.enabled` are on, a message that starts with `AI` is one question for the AI assistant. See `docs/ai.md`.
+
 The companion link sends one frame at a time. Crossbeam does not read channel secrets, and it does not store them.
 
 One station gets twelve answers a minute. The radio answers at most thirty direct messages a minute. A message past either cap is ignored until that minute has passed. A direct message longer than the MeshCore text limit is ignored, and so is a message that contains a zero byte.
