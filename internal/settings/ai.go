@@ -25,6 +25,13 @@ const (
 	KeyAITimeout      = "ai.timeout"
 	KeyAIInstructions = "ai.instructions"
 	KeyAIMesh         = "ai.mesh"
+	KeyAIReticulum    = "ai.reticulum"
+)
+
+// Defaults for a model on this computer.
+const (
+	AIDefaultURL   = "http://127.0.0.1:11434"
+	AIDefaultModel = "llama3.2:3b"
 )
 
 // AI backend names stored in ai.backend.
@@ -38,14 +45,14 @@ var aiFields = []Field{
 	{
 		Key:     KeyAIEnabled,
 		Label:   "AI assistant",
-		Help:    "Let callers chat with an AI model that runs on a computer on your own network. A caller types AI at the station prompt to start, and /EXIT to come back. It is off until you turn it on. You are still the control operator for every reply this station sends, and each question and reply is written to the AI log so you can review it.",
+		Help:    "Let callers chat with an AI model that runs on a computer on your own network. A caller types AI at the station prompt to start, /EXIT to come back to the prompt, and BYE to disconnect. It is off until you turn it on. You are still the control operator for every reply this station sends, and each question and reply is written to the AI log so you can review it.",
 		Kind:    KindBool,
 		Default: "false",
 	},
 	{
 		Key:      KeyAIBackend,
 		Label:    "AI server type",
-		Help:     "The kind of AI server. Choose Ollama for an Ollama computer. Choose OpenAI-compatible for Open WebUI, LM Studio, llama.cpp, or another server that speaks the OpenAI chat format.",
+		Help:     "The kind of AI server. Ollama is the usual choice: Crossbeam talks to Ollama directly, with nothing else in between. Choose OpenAI-compatible only for Open WebUI, LM Studio, llama.cpp, or another server that speaks the OpenAI chat format.",
 		Kind:     KindLine,
 		Default:  AIBackendOllama,
 		MaxRunes: 16,
@@ -54,23 +61,25 @@ var aiFields = []Field{
 		Key:      KeyAIURL,
 		Label:    "AI server address",
 		Example:  "http://192.168.1.50:11434",
-		Help:     "The web address of the AI server, such as http://192.168.1.50:11434 for Ollama or http://192.168.1.50:3000/api/chat/completions for Open WebUI. Use an address on your own network. Required when the assistant is on.",
+		Help:     "The web address of the AI server. The default, http://127.0.0.1:11434, is Ollama on this computer. For Ollama on another computer, use its address, such as http://192.168.1.50:11434. For Open WebUI, use an address such as http://192.168.1.50:3000/api/chat/completions. Use an address on your own network.",
 		Kind:     KindLine,
+		Default:  AIDefaultURL,
 		MaxRunes: 256,
 	},
 	{
 		Key:      KeyAIModel,
 		Label:    "AI model",
 		Example:  "llama3.2:3b",
-		Help:     "The name of the model to ask, exactly as the AI server lists it, such as llama3.2:3b. A small model answers faster. Required when the assistant is on.",
+		Help:     "The name of the model to ask, exactly as the AI server lists it. The default is llama3.2:3b. On the Ollama computer, download it once with: ollama pull llama3.2:3b. A smaller model answers faster.",
 		Kind:     KindLine,
+		Default:  AIDefaultModel,
 		MaxRunes: 128,
 	},
 	{
 		Key:      KeyAIUsers,
 		Label:    "Who may use it",
 		Example:  "K5LEB W5ABC",
-		Help:     "Callsigns allowed to use the assistant, separated by spaces or commas. Leave it empty to allow anyone who connects over the radio, where Crossbeam has already checked their license with the FCC. A listed callsign may also use it over the packet link or NET/ROM. Telnet callers have no callsign, so they cannot use it.",
+		Help:     "Optional. Leave it empty, the usual choice, and anyone who connects over the radio may use the assistant, because Crossbeam has already checked their license with the FCC. Callsigns listed here, separated by spaces or commas, may also use it over the packet link or NET/ROM. Telnet callers have no callsign, so they cannot use it.",
 		Kind:     KindLine,
 		MaxRunes: 1024,
 	},
@@ -112,7 +121,14 @@ var aiFields = []Field{
 	{
 		Key:     KeyAIMesh,
 		Label:   "AI over MeshCore",
-		Help:    "Also answer a MeshCore direct message that starts with AI, such as AI what is a repeater. Each message is one question with no memory of the last one. Leave this off to keep the assistant on packet only.",
+		Help:    "Also answer a MeshCore direct message that starts with AI, such as AI what is a repeater. The assistant remembers the last few questions from that contact for 30 minutes. Send AI /NEW to start over. Leave this off to keep the assistant off MeshCore.",
+		Kind:    KindBool,
+		Default: "false",
+	},
+	{
+		Key:     KeyAIReticulum,
+		Label:   "AI over Reticulum",
+		Help:    "Also answer an LXMF message sent to this station over Reticulum, such as from Sideband or NomadNet, when it starts with AI. It needs the separate Crossbeam LXMF bridge running on this computer. The assistant remembers the last few questions from that sender for 30 minutes. Reticulum messages are encrypted, so do not carry them on an amateur radio interface. Leave this off to keep the assistant off Reticulum.",
 		Kind:    KindBool,
 		Default: "false",
 	},

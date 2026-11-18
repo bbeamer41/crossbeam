@@ -250,10 +250,13 @@ func (s *session) reply(ctx context.Context, frame []byte) error {
 		return nil
 	}
 	var out string
-	if s.ai != nil && ai.IsCommand(msg.text) {
-		who := ai.Caller{Call: hex.EncodeToString(msg.prefix), Mesh: true, Via: "meshcore"}
-		out = s.ai.Ask(ctx, who, ai.Question(msg.text))
+	who := ai.Caller{Call: hex.EncodeToString(msg.prefix), Mesh: true, Via: "meshcore"}
+	if reply, ok := s.askAI(ctx, who, msg.text); ok {
+		out = reply
 	} else if greet, ok := meshGreeting(s.name, msg.text); ok {
+		if s.aiOn(ctx) {
+			greet += " Or AI and a question for the AI."
+		}
 		out = greet
 	} else {
 		var buf strings.Builder
@@ -275,6 +278,24 @@ func (s *session) reply(ctx context.Context, frame []byte) error {
 		}
 	}
 	return s.flush(ctx)
+}
+
+// aiOn reports whether the assistant answers MeshCore messages.
+func (s *session) aiOn(ctx context.Context) bool {
+	if s.ai == nil {
+		return false
+	}
+	cfg, err := s.ai.Config(ctx)
+	return err == nil && cfg.Enabled && cfg.Mesh
+}
+
+// askAI answers a message that starts with AI when the assistant is on
+// for MeshCore. Otherwise the message is a prompt command or a greeting.
+func (s *session) askAI(ctx context.Context, who ai.Caller, text string) (string, bool) {
+	if !ai.IsCommand(text) || !s.aiOn(ctx) {
+		return "", false
+	}
+	return s.ai.Message(ctx, who, text)
 }
 
 // meshGreeting answers a sentence that is not a station-prompt command.

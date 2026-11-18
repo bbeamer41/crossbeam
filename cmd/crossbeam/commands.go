@@ -153,6 +153,26 @@ func cmdServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	if current[settings.KeyAIEnabled] == "true" {
 		fmt.Fprintf(stdout, "ai assistant on, model %s\n", current[settings.KeyAIModel])
 	}
+	// The LXMF bridge socket is always open, beside the admin socket and
+	// with its mode. ai.reticulum decides on each message whether it is
+	// answered, so the panel switch works without a restart.
+	bridgePath := filepath.Join(filepath.Dir(running.SocketPath), ai.SocketName)
+	if ln, err := ai.ListenBridge(bridgePath, mode); err != nil {
+		fmt.Fprintf(stderr, "crossbeam: ai bridge socket: %s\n", err)
+	} else {
+		bridgeCtx, bridgeCancel := context.WithCancel(ctx)
+		bridgeDone := make(chan struct{})
+		go func() {
+			defer close(bridgeDone)
+			assistant.ServeBridge(bridgeCtx, ln)
+		}()
+		defer func() {
+			bridgeCancel()
+			<-bridgeDone
+			_ = os.Remove(bridgePath)
+		}()
+		fmt.Fprintf(stdout, "ai bridge socket %s\n", bridgePath)
+	}
 	if device := strings.TrimSpace(current[settings.KeyMesh]); device != "" {
 		name := strings.TrimSpace(current[settings.KeyCallsign])
 		if name == "" {

@@ -35,7 +35,7 @@ Bye
 
 A reply longer than 133 characters is split, and each piece starts with a mark such as `[1/3]`. At most 16 pieces are sent. The last piece says the rest of the bulletin is on the packet board. The article in the store is unchanged.
 
-When `ai.mesh` and `ai.enabled` are on, a message that starts with `AI` is one question for the AI assistant. See `docs/ai.md`.
+When `ai.mesh` and `ai.enabled` are on, a message that starts with `AI` is a question for the AI assistant, and the greeting says so. Each contact keeps a short history for 30 minutes. See `docs/ai.md`.
 
 The companion link sends one frame at a time. Crossbeam does not read channel secrets, and it does not store them.
 

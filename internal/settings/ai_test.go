@@ -13,7 +13,7 @@ func TestAIDefaultsOff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got[KeyAIEnabled] != "false" || got[KeyAIBackend] != "ollama" || got[KeyAIHourly] != "20" || got[KeyAIReply] != "600" || got[KeyAITimeout] != "90" || got[KeyAIMesh] != "false" {
+	if got[KeyAIEnabled] != "false" || got[KeyAIBackend] != "ollama" || got[KeyAIHourly] != "20" || got[KeyAIReply] != "600" || got[KeyAITimeout] != "90" || got[KeyAIMesh] != "false" || got[KeyAIReticulum] != "false" || got[KeyAIURL] != AIDefaultURL || got[KeyAIModel] != AIDefaultModel || got[KeyAIUsers] != "" {
 		t.Fatalf("defaults %v", got)
 	}
 }
@@ -38,8 +38,8 @@ func TestAISettings(t *testing.T) {
 		patch map[string]string
 		want  string
 	}{
-		{map[string]string{KeyAIEnabled: "true", KeyAIModel: "m"}, "ai.url is required"},
-		{map[string]string{KeyAIEnabled: "true", KeyAIURL: "http://h:1"}, "ai.model is required"},
+		{map[string]string{KeyAIEnabled: "true", KeyAIURL: ""}, "ai.url is required"},
+		{map[string]string{KeyAIEnabled: "true", KeyAIModel: " "}, "ai.model is required"},
 		{map[string]string{KeyAIBackend: "gemini"}, "ai.backend"},
 		{map[string]string{KeyAIURL: "ftp://h"}, "ai.url"},
 		{map[string]string{KeyAIURL: "http://user:pw@h:1"}, "crossbeam ai key"},
@@ -54,5 +54,17 @@ func TestAISettings(t *testing.T) {
 		if _, err := Validate(c.patch); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%v: %v", c.patch, err)
 		}
+	}
+}
+
+// Turning the assistant on needs nothing else: Ollama on this computer,
+// llama3.2:3b, and radio callers with no list.
+func TestAIEnableAlone(t *testing.T) {
+	got, err := Validate(map[string]string{KeyAIEnabled: "true"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[KeyAIURL] != "http://127.0.0.1:11434" || got[KeyAIModel] != "llama3.2:3b" || got[KeyAIBackend] != "ollama" || got[KeyAIUsers] != "" {
+		t.Fatalf("%v", got)
 	}
 }

@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+# Copyright (C) 2026 K5LEB
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Crossbeam LXMF bridge for the AI assistant.
+
+This is a separate program. Crossbeam does not speak Reticulum, so this
+bridge receives LXMF messages sent to the station, passes each one to the
+running Crossbeam over its local ai.sock, and sends Crossbeam's reply back
+over LXMF. Crossbeam decides what to answer: only messages that start
+with AI, only while ai.enabled and ai.reticulum are on, with the same
+limits, filter, and log as packet. See docs/ai.md.
+
+Needs the Reticulum and LXMF Python packages: pip install rns lxmf
+"""
+
+import argparse
+import concurrent.futures
+import json
+import os
+import socket
+import sys
+import threading
+import time
+
+import RNS
+import LXMF
+
+APP_NAME = "crossbeam-lxmf-ai"
+
+
+def log(msg):
+    RNS.log(f"[{APP_NAME}] {msg}", RNS.LOG_NOTICE)
+
+
+def ask_crossbeam(path, sender_hex, text, timeout):
+    """Send one message to Crossbeam and return its reply, or None."""
+    req = json.dumps({"from": sender_hex, "text": text}) + "\n"
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+        s.settimeout(timeout)
+        s.connect(path)
+        s.sendall(req.encode("utf-8"))
+        buf = b""
+        while not buf.endswith(b"\n"):
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            buf += chunk
+            if len(buf) > 64 * 1024:
+                raise ValueError("reply too long")
+    out = json.loads(buf.decode("utf-8"))
+    if out.get("error"):
+        log(f"Crossbeam refused a request: {out['error']}")
+        return None
+    if out.get("ignore"):
+        return None
+    return out.get("reply") or None
+
+
+class Bridge:
+    def __init__(self, args):
+        self.args = args
+        self.reticulum = RNS.Reticulum(configdir=args.rnsconfig)
+        os.makedirs(args.storage, mode=0o700, exist_ok=True)
+        id_path = os.path.join(args.storage, "identity")
+        if os.path.isfile(id_path):
+            self.identity = RNS.Identity.from_file(id_path)
+        else:
+            self.identity = RNS.Identity()
+            self.identity.to_file(id_path)
+            os.chmod(id_path, 0o600)
+        self.router = LXMF.LXMRouter(identity=self.identity, storagepath=args.storage)
+        self.dest = self.router.register_delivery_identity(self.identity, display_name=args.name)
+        self.router.register_delivery_callback(self.received)
+        # Two at a time, the same as the Crossbeam server queue.
+        self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+        log(f"LXMF address {RNS.prettyhexrep(self.dest.hash)} as {args.name!r}")
+
+    def announce_loop(self):
+        while True:
+            self.router.announce(self.dest.hash)
+            log("announced")
+            time.sleep(self.args.announce)
+
+    def received(self, message):
+        if message.unverified_reason == LXMF.LXMessage.SIGNATURE_INVALID:
+            log("dropped a message with a bad signature")
+            return
+        try:
+            text = message.content_as_string() or ""
+        except Exception:
+            return
+        # Cheap check here; Crossbeam makes the real decision.
+        if not text.strip().upper().startswith("AI"):
+            return
+        self.pool.submit(self.answer, message.source_hash, text)
+
+    def recall(self, source_hash):
+        ident = RNS.Identity.recall(source_hash)
+        if ident is not None:
+            return ident
+        RNS.Transport.request_path(source_hash)
+        deadline = time.time() + self.args.path_wait
+        while time.time() < deadline:
+            time.sleep(0.5)
+            ident = RNS.Identity.recall(source_hash)
+            if ident is not None:
+                return ident
+        return None
+
+    def answer(self, source_hash, text):
+        sender = source_hash.hex()
+        try:
+            reply = ask_crossbeam(self.args.socket, sender, text, self.args.timeout)
+        except Exception as e:
+            log(f"Crossbeam is not answering on {self.args.socket}: {e}")
+            return
+        if not reply:
+            return
+        ident = self.recall(source_hash)
+        if ident is None:
+            log(f"no path to {RNS.prettyhexrep(source_hash)}; reply dropped")
+            return
+        out = RNS.Destination(ident, RNS.Destination.OUT, RNS.Destination.SINGLE, "lxmf", "delivery")
+        method = LXMF.LXMessage.DIRECT if self.args.method == "direct" else LXMF.LXMessage.OPPORTUNISTIC
+        msg = LXMF.LXMessage(out, self.dest, reply, title="", desired_method=method)
+        self.router.handle_outbound(msg)
+
+
+def main():
+    p = argparse.ArgumentParser(description="Answer LXMF messages with the Crossbeam AI assistant.")
+    p.add_argument("--socket", default="/run/crossbeam/ai.sock", help="Crossbeam AI bridge socket (default %(default)s)")
+    p.add_argument("--storage", default=os.path.expanduser("~/.crossbeam-lxmf-ai"), help="identity and LXMF storage directory")
+    p.add_argument("--rnsconfig", default=None, help="Reticulum config directory (default: the usual ~/.reticulum)")
+    p.add_argument("--name", default="Crossbeam AI", help="display name in announces, such as 'K5LEB AI'")
+    p.add_argument("--announce", type=int, default=1800, help="seconds between announces (default %(default)s)")
+    p.add_argument("--method", choices=["direct", "opportunistic"], default="direct", help="how replies are sent")
+    p.add_argument("--timeout", type=int, default=660, help="seconds to wait for Crossbeam (default %(default)s)")
+    p.add_argument("--path-wait", type=int, default=20, help="seconds to wait for a path to an unknown sender")
+    args = p.parse_args()
+    if args.announce < 60:
+        p.error("--announce must be at least 60 seconds")
+    bridge = Bridge(args)
+    threading.Thread(target=bridge.announce_loop, daemon=True).start()
+    try:
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

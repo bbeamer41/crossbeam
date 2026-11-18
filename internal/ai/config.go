@@ -30,6 +30,7 @@ type Config struct {
 	Timeout      time.Duration
 	Instructions string
 	Mesh         bool
+	Reticulum    bool
 	Station      string
 }
 
@@ -53,6 +54,7 @@ func FromSettings(current map[string]string, key string) Config {
 		Timeout:      time.Duration(number(current[settings.KeyAITimeout], 90)) * time.Second,
 		Instructions: strings.TrimSpace(current[settings.KeyAIInstructions]),
 		Mesh:         current[settings.KeyAIMesh] == "true",
+		Reticulum:    current[settings.KeyAIReticulum] == "true",
 		Station:      station,
 	}
 }
@@ -74,6 +76,9 @@ type Caller struct {
 	Radio bool
 	// Mesh is true for a MeshCore direct message.
 	Mesh bool
+	// Reticulum is true for an LXMF message from the Reticulum bridge.
+	// Call is then the sender's LXMF address in hex.
+	Reticulum bool
 	// Via is a short label for the log, such as "radio" or "netrom".
 	Via string
 }
@@ -87,6 +92,12 @@ func (c Config) Allowed(who Caller) (bool, string) {
 	if who.Mesh {
 		if !c.Mesh {
 			return false, "The AI assistant is not offered over MeshCore here."
+		}
+		return true, ""
+	}
+	if who.Reticulum {
+		if !c.Reticulum {
+			return false, "The AI assistant is not offered over Reticulum here."
 		}
 		return true, ""
 	}
@@ -113,6 +124,9 @@ func (c Config) Allowed(who Caller) (bool, string) {
 func limitKey(who Caller) string {
 	if who.Mesh {
 		return "mesh:" + who.Call
+	}
+	if who.Reticulum {
+		return "rns:" + who.Call
 	}
 	if addr, err := ax25.Parse(who.Call); err == nil {
 		return addr.Call

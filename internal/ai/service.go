@@ -42,6 +42,7 @@ type Service struct {
 	limits   limiter
 	slots    chan struct{}
 	now      func() time.Time
+	threads  threads
 }
 
 // New returns the assistant. read is the settings reader, usually
@@ -106,6 +107,7 @@ type result struct {
 	text    string // the reply, or the sentence the caller sees instead
 	outcome string
 	ok      bool
+	err     error // the server error, for crossbeam ai test only
 }
 
 // ask runs one question with the history of this chat.
@@ -154,7 +156,7 @@ func (s *Service) ask(ctx context.Context, cfg Config, who Caller, history []Mes
 		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
 			return finish(result{text: "Cancelled.", outcome: OutCancelled})
 		}
-		return finish(result{text: publicError(err), outcome: OutError})
+		return finish(result{text: publicError(err), outcome: OutError, err: err})
 	}
 	text := Cut(Plain(raw), max)
 	if Profane(text) || Encoded(text) {
@@ -184,32 +186,6 @@ func plural(n int, word string) string {
 		return "1 " + word
 	}
 	return fmt.Sprintf("%d %ss", n, word)
-}
-
-// Ask answers one question with no chat memory, for a MeshCore direct
-// message. The reply uses LF line breaks.
-func (s *Service) Ask(ctx context.Context, who Caller, question string) string {
-	cfg, err := s.Config(ctx)
-	if err != nil {
-		return "The AI assistant is not available."
-	}
-	if ok, why := cfg.Allowed(who); !ok {
-		return why
-	}
-	question = strings.TrimSpace(question)
-	if question == "" {
-		return "Send AI and a question, such as AI what is a repeater."
-	}
-	max := cfg.Reply
-	if max > meshReply {
-		max = meshReply
-	}
-	wait := cfg.Timeout
-	if wait > meshWait {
-		wait = meshWait
-	}
-	r := s.ask(ctx, cfg, who, nil, question, max, wait)
-	return r.text
 }
 
 // IsCommand reports whether line starts the assistant: AI, or AI and a
@@ -262,6 +238,9 @@ func (s *Service) Test(ctx context.Context, question string) (string, error) {
 	}
 	who := Caller{Call: "SYSOP", Via: "test"}
 	r := s.ask(ctx, cfg, who, nil, question, cfg.Reply, cfg.Timeout)
+	if r.err != nil {
+		return "", sysopError(cfg, r.err)
+	}
 	if !r.ok {
 		return "", errors.New(strings.TrimSuffix(r.text, "."))
 	}

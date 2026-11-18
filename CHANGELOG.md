@@ -1,8 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.10.0
 
-- An AI assistant on the station prompt. A connected packet caller types `AI` to chat with a model on Ollama or an OpenAI-compatible server such as Open WebUI on the local network, and `/EXIT` to return. Each chat keeps its last six turns. Replies are plain ASCII, cut to `ai.reply` characters, and paged for 1200 baud. A dropped link or `/STOP` cancels a question. It is off by default, open to radio callers or the callsigns in `ai.users`, limited per callsign per hour, filtered for profanity and encoded text, and logged to `ai-log.jsonl` for the control operator. `ai.mesh` answers one-shot `AI` questions over MeshCore. `crossbeam ai key`, `crossbeam ai test`, and `crossbeam ai log` manage the API key, check the server, and show the log. See `docs/ai.md`.
+- An AI assistant on the station prompt. A connected packet caller types `AI` to chat with a model on Ollama, which Crossbeam talks to directly, or on an OpenAI-compatible server such as Open WebUI. The defaults are Ollama on this computer and `llama3.2:3b`. `/EXIT` returns to the prompt, and `BYE` signs off and disconnects. Each chat keeps its last six turns. Replies are plain ASCII, cut to `ai.reply` characters, and paged for 1200 baud. A dropped link or `/STOP` cancels a question.
+- The assistant is off by default. It is open to radio callers whose license was checked, or to the callsigns in `ai.users`. It is limited per caller per hour, filtered for profanity and encoded text, and every question and reply is logged to `ai-log.jsonl` for the control operator.
+- `ai.mesh` answers a MeshCore direct message that starts with `AI`, with a short history for each contact.
+- `ai.reticulum` answers an LXMF message that starts with `AI`, through the separate Crossbeam LXMF bridge in `contrib/reticulum`. Crossbeam itself still does not speak Reticulum. Each sender keeps a short history.
+- `crossbeam ai key`, `crossbeam ai test`, and `crossbeam ai log` save the API key, check the server, and show the log. `ai test` says what to fix when Ollama cannot be reached or the model is not pulled. See `docs/ai.md`.
 
 ## 0.9.18
 

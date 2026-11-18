@@ -154,33 +154,33 @@ The path is `/dev/ttyACM` or `/dev/ttyUSB` followed by a number, or a name under
 
 ## ai.enabled
 
-Let callers chat with an AI model that runs on a computer on your own network. A caller types AI at the station prompt to start, and /EXIT to come back. It is off until you turn it on. You are still the control operator for every reply this station sends, and each question and reply is written to the AI log so you can review it.
+Let callers chat with an AI model that runs on a computer on your own network. A caller types AI at the station prompt to start, /EXIT to come back to the prompt, and BYE to disconnect. It is off until you turn it on. You are still the control operator for every reply this station sends, and each question and reply is written to the AI log so you can review it.
 
-The only values are `true` and `false`. The default is `false`. While it is false, AI at the station prompt answers that the assistant is not turned on, and nothing is sent to the AI server. When it is true, `ai.url` and `ai.model` must be set. See `docs/ai.md`.
+The only values are `true` and `false`. The default is `false`. While it is false, AI at the station prompt answers that the assistant is not turned on, and nothing is sent to the AI server. When it is true, `ai.url` and `ai.model` must not be empty. Their defaults are enough for Ollama on this computer. See `docs/ai.md`.
 
 ## ai.backend
 
-The kind of AI server. Choose Ollama for an Ollama computer. Choose OpenAI-compatible for Open WebUI, LM Studio, llama.cpp, or another server that speaks the OpenAI chat format.
+The kind of AI server. Ollama is the usual choice: Crossbeam talks to Ollama directly, with nothing else in between. Choose OpenAI-compatible only for Open WebUI, LM Studio, llama.cpp, or another server that speaks the OpenAI chat format.
 
 `ollama` or `openai`. An empty value is stored as `ollama`. `ollama` posts to `/api/chat`. `openai` posts to `/v1/chat/completions`, or to the full address in `ai.url` when it already has a path, such as Open WebUI's `/api/chat/completions`.
 
 ## ai.url
 
-The web address of the AI server, such as http://192.168.1.50:11434 for Ollama or http://192.168.1.50:3000/api/chat/completions for Open WebUI. Use an address on your own network. Required when the assistant is on.
+The web address of the AI server. The default, http://127.0.0.1:11434, is Ollama on this computer. For Ollama on another computer, use its address, such as http://192.168.1.50:11434. For Open WebUI, use an address such as http://192.168.1.50:3000/api/chat/completions. Use an address on your own network.
 
-An `http` or `https` address, at most 256 runes, with no user name, password, query, or fragment. A trailing slash is removed. For Ollama a bare `http://host:11434` is enough. For an OpenAI-compatible server, a bare host gets `/v1/chat/completions`, an address ending in `/v1` or `/api` gets `/chat/completions`, and any other path is used as-is. Crossbeam never uses an HTTP proxy from the environment for this address. An API key is not part of the address; save it with `crossbeam ai key`.
+The default is `http://127.0.0.1:11434`, Ollama on this computer. An `http` or `https` address, at most 256 runes, with no user name, password, query, or fragment. A trailing slash is removed. For Ollama a bare `http://host:11434` is enough. For an OpenAI-compatible server, a bare host gets `/v1/chat/completions`, an address ending in `/v1` or `/api` gets `/chat/completions`, and any other path is used as-is. Crossbeam never uses an HTTP proxy from the environment for this address. An API key is not part of the address; save it with `crossbeam ai key`.
 
 ## ai.model
 
-The name of the model to ask, exactly as the AI server lists it, such as llama3.2:3b. A small model answers faster. Required when the assistant is on.
+The name of the model to ask, exactly as the AI server lists it. The default is llama3.2:3b. On the Ollama computer, download it once with: ollama pull llama3.2:3b. A smaller model answers faster.
 
-One line, at most 128 runes, with no spaces. It is sent as the model name. Crossbeam does not download or check the model.
+The default is `llama3.2:3b`. One line, at most 128 runes, with no spaces. It is sent as the model name. Crossbeam does not download the model. `crossbeam ai test` says so when the server does not have it.
 
 ## ai.users
 
-Callsigns allowed to use the assistant, separated by spaces or commas. Leave it empty to allow anyone who connects over the radio, where Crossbeam has already checked their license with the FCC. A listed callsign may also use it over the packet link or NET/ROM. Telnet callers have no callsign, so they cannot use it.
+Optional. Leave it empty, the usual choice, and anyone who connects over the radio may use the assistant, because Crossbeam has already checked their license with the FCC. Callsigns listed here, separated by spaces or commas, may also use it over the packet link or NET/ROM. Telnet callers have no callsign, so they cannot use it.
 
-Each entry must be an AX.25 callsign. Entries are stored in uppercase without the SSID, because the license belongs to the base callsign, and duplicates are dropped. At most 256 callsigns. An empty list allows only sessions heard over the KISS radio. A MeshCore message is governed by `ai.mesh` instead.
+The default is empty. Each entry must be an AX.25 callsign. Entries are stored in uppercase without the SSID, because the license belongs to the base callsign, and duplicates are dropped. At most 256 callsigns. An empty list allows only sessions heard over the KISS radio. A MeshCore message is governed by `ai.mesh` instead.
 
 ## ai.hourly
 
@@ -192,7 +192,7 @@ A whole number from 1 to 600. The count is per base callsign, over the last hour
 
 The most characters one reply may use. At 1200 baud, 600 characters take about five seconds of air time. A longer reply is cut short. Use a number from 80 to 4000. An empty value is stored as 600.
 
-A whole number from 80 to 4000. The model is asked for about that length, and a longer answer is cut at a word with ` [cut]`. A MeshCore reply is at most 400 characters. A connected session shows a long reply in pages of 12 lines.
+A whole number from 80 to 4000. The model is asked for about that length, and a longer answer is cut at a word with ` [cut]`. A MeshCore reply is at most 400 characters. A connected session shows a long reply in pages of 12 lines. A Reticulum reply is one LXMF message.
 
 ## ai.timeout
 
@@ -208,9 +208,15 @@ One line, at most 500 runes. It is added after the station's own instructions, w
 
 ## ai.mesh
 
-Also answer a MeshCore direct message that starts with AI, such as AI what is a repeater. Each message is one question with no memory of the last one. Leave this off to keep the assistant on packet only.
+Also answer a MeshCore direct message that starts with AI, such as AI what is a repeater. The assistant remembers the last few questions from that contact for 30 minutes. Send AI /NEW to start over. Leave this off to keep the assistant off MeshCore.
 
-The only values are `true` and `false`. The default is `false`. A MeshCore contact is identified by its key prefix, not a callsign, so `ai.users` does not apply. The question limit is counted per contact.
+The only values are `true` and `false`. The default is `false`. `ai.enabled` must also be on. A MeshCore contact is identified by its key prefix, not a callsign, so `ai.users` does not apply. The question limit and the history are kept per contact.
+
+## ai.reticulum
+
+Also answer an LXMF message sent to this station over Reticulum, such as from Sideband or NomadNet, when it starts with AI. It needs the separate Crossbeam LXMF bridge running on this computer. The assistant remembers the last few questions from that sender for 30 minutes. Reticulum messages are encrypted, so do not carry them on an amateur radio interface. Leave this off to keep the assistant off Reticulum.
+
+The only values are `true` and `false`. The default is `false`. `ai.enabled` must also be on. Crossbeam opens `ai.sock` beside the admin socket, with the same mode, at every start. The bridge in `contrib/reticulum` sends each LXMF message there. While this is false, every message is ignored and nothing is sent back. A Reticulum sender is identified by its LXMF address, not a callsign, so `ai.users` does not apply. The question limit and the history are kept per sender. A change applies to the next message.
 
 ## Command
 

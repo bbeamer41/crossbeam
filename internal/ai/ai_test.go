@@ -119,7 +119,7 @@ func TestOllamaRequest(t *testing.T) {
 	if err := WriteKey(dir, "sk-secret-123"); err != nil {
 		t.Fatal(err)
 	}
-	got := svc.Ask(context.Background(), Caller{Call: "ab12", Mesh: true}, "what is packet")
+	got, _ := svc.Message(context.Background(), Caller{Call: "ab12", Mesh: true}, "AI what is packet")
 	if !strings.Contains(got, "not offered over MeshCore") {
 		t.Fatalf("mesh off: %q", got)
 	}
@@ -392,17 +392,92 @@ func TestCommandParse(t *testing.T) {
 	}
 }
 
-
-func TestMeshAsk(t *testing.T) {
-	fake := newFake(t, settings.AIBackendOllama, func(fakeRequest) (int, string, time.Duration) {
-		return 200, strings.Repeat("Mesh answer. ", 80), 0
+func TestMeshMessage(t *testing.T) {
+	fake := newFake(t, settings.AIBackendOllama, func(r fakeRequest) (int, string, time.Duration) {
+		if r.Msgs[len(r.Msgs)-1].Content == "long" {
+			return 200, strings.Repeat("Mesh answer. ", 80), 0
+		}
+		return 200, "Answer to " + r.Msgs[len(r.Msgs)-1].Content, 0
 	})
 	svc, _ := newService(t, map[string]string{settings.KeyAIURL: fake.URL, settings.KeyAIMesh: "true"})
-	got := svc.Ask(context.Background(), Caller{Call: "a1b2c3", Mesh: true, Via: "meshcore"}, "hello")
+	mesh := Caller{Call: "a1b2c3", Mesh: true, Via: "meshcore"}
+	if _, ok := svc.Message(context.Background(), mesh, "LIST"); ok {
+		t.Fatal("LIST was taken as an AI message")
+	}
+	got, _ := svc.Message(context.Background(), mesh, "AI long")
 	if len(got) > meshReply || !strings.HasSuffix(got, "[cut]") {
 		t.Fatalf("mesh reply %d %q", len(got), got)
 	}
-	if got := svc.Ask(context.Background(), Caller{Call: "a1b2c3", Mesh: true}, ""); !strings.Contains(got, "Send AI and a question") {
-		t.Fatalf("empty %q", got)
+	if got, _ := svc.Message(context.Background(), mesh, "AI"); got != MessageHelp {
+		t.Fatalf("help %q", got)
 	}
+	svc.Message(context.Background(), mesh, "AI first")
+	svc.Message(context.Background(), mesh, "AI second")
+	reqs := fake.all()
+	last := reqs[len(reqs)-1].Msgs
+	if len(last) != 6 || last[3].Content != "first" {
+		t.Fatalf("history not kept per contact: %+v", last)
+	}
+	// Another contact has its own history.
+	svc.Message(context.Background(), Caller{Call: "ffff", Mesh: true}, "AI other")
+	if n := len(fake.all()[len(fake.all())-1].Msgs); n != 2 {
+		t.Fatalf("other contact saw %d messages", n)
+	}
+	if got, _ := svc.Message(context.Background(), mesh, "ai /new"); !strings.Contains(got, "new conversation") {
+		t.Fatalf("/new %q", got)
+	}
+	svc.Message(context.Background(), mesh, "AI third")
+	if n := len(fake.all()[len(fake.all())-1].Msgs); n != 2 {
+		t.Fatalf("after /NEW %d messages", n)
+	}
+	// History expires after 30 idle minutes.
+	svc.Message(context.Background(), mesh, "AI fourth")
+	later := time.Now().Add(31 * time.Minute)
+	svc.now = func() time.Time { return later }
+	svc.Message(context.Background(), mesh, "AI fifth")
+	if n := len(fake.all()[len(fake.all())-1].Msgs); n != 2 {
+		t.Fatalf("after idle %d messages", n)
+	}
+}
+
+func TestSysopErrors(t *testing.T) {
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = io.WriteString(w, `{"error":"model \"llama3.2:3b\" not found, try pulling it first"}`)
+	}))
+	defer fake.Close()
+	svc, _ := newService(t, map[string]string{settings.KeyAIURL: fake.URL})
+	_, err := svc.Test(context.Background(), "hi")
+	if err == nil || !strings.Contains(err.Error(), "ollama pull llama3.2:3b") {
+		t.Fatalf("model missing: %v", err)
+	}
+	down, _ := newService(t, map[string]string{settings.KeyAIURL: "http://127.0.0.1:1"})
+	_, err = down.Test(context.Background(), "hi")
+	if err == nil || !strings.Contains(err.Error(), "Ollama at http://127.0.0.1:1 could not be reached") || !strings.Contains(err.Error(), "OLLAMA_HOST=0.0.0.0:11434") {
+		t.Fatalf("unreachable: %v", err)
+	}
+	// A caller on the air sees a short sentence, not the address.
+	cfg, _ := svc.Config(context.Background())
+	if r := svc.ask(context.Background(), cfg, radioCaller, nil, "hi", 600, time.Second); r.text != "The AI model is not available right now." {
+		t.Fatalf("caller text %q", r.text)
+	}
+}
+
+func TestDefaultsTalkToOllamaDirectly(t *testing.T) {
+	cfg := FromSettings(mustValidate(t, map[string]string{}), "")
+	if cfg.Backend != "ollama" || cfg.URL != "http://127.0.0.1:11434" || cfg.Model != "llama3.2:3b" || cfg.Enabled || cfg.Mesh || cfg.Reticulum || len(cfg.Users) != 0 {
+		t.Fatalf("%+v", cfg)
+	}
+	if got := ollamaEndpoint(cfg.URL); got != "http://127.0.0.1:11434/api/chat" {
+		t.Fatalf("endpoint %s", got)
+	}
+}
+
+func mustValidate(t *testing.T, m map[string]string) map[string]string {
+	t.Helper()
+	got, err := settings.Validate(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
 }

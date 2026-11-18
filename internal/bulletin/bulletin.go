@@ -330,8 +330,14 @@ func (p *prompt) run(ctx context.Context, first string) error {
 	line := first
 	for {
 		if p.assistant != nil && ai.IsCommand(line) {
-			if err := p.assistant.Converse(ctx, p.who, p.w, p.readLine, line); err != nil {
+			leave, err := p.assistant.Converse(ctx, p.who, p.w, p.readLine, line)
+			if err != nil {
 				return peerGone(err)
+			}
+			if leave == ai.Disconnect {
+				// BYE in chat ends the session the way BYE at the prompt
+				// does: Serve closes the stream, which disconnects AX.25.
+				return nil
 			}
 			line = ""
 		}

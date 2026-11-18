@@ -1,8 +1,8 @@
 # AI assistant
 
-Crossbeam can let a caller chat with an AI model that runs on a computer on your own network. The model runs in [Ollama](https://ollama.com), or in any server that speaks the OpenAI chat format, such as [Open WebUI](https://openwebui.com), LM Studio, or llama.cpp. Nothing goes to the internet. Crossbeam sends the question to the address you save and nowhere else, and it never uses an HTTP proxy from the environment.
+Crossbeam can let a caller chat with an AI model that runs on a computer on your own network. Crossbeam talks to [Ollama](https://ollama.com) directly, with its own `/api/chat` interface and nothing in between. A server that speaks the OpenAI chat format, such as [Open WebUI](https://openwebui.com), LM Studio, or llama.cpp, works too. Nothing goes to the internet. Crossbeam sends the question to the address you save and nowhere else, and it never uses an HTTP proxy from the environment.
 
-The assistant is off until you turn on `ai.enabled`. You are still the control operator. Every reply goes out under this station's callsign, and every question and reply is written to the AI log so you can review it.
+The assistant is off until you turn on `ai.enabled`. With the defaults, it asks Ollama on this computer, `http://127.0.0.1:11434`, for the model `llama3.2:3b`. You are still the control operator. Every reply goes out under this station's callsign, and every question and reply is written to the AI log so you can review it.
 
 ## On the air
 
@@ -14,7 +14,7 @@ AI
 AI chat on K5LEB-1 using llama3.2:3b.
 Replies are machine-made and may be wrong. Questions and replies
 are logged for the control operator. Keep it legal for amateur radio.
-Send /EXIT to go back, /NEW to start over, /? for help.
+/EXIT goes back to the BBS, BYE disconnects, /? for help.
 AI>
 What does a TNC do?
 Thinking...
@@ -22,14 +22,14 @@ A TNC, or terminal node controller, turns data from a computer into
 packet radio frames and back. It handles AX.25 so the computer does not
 have to.
 AI>
-Is 1200 baud the usual speed on 2 meters?
-Thinking...
-Yes. 1200 baud AFSK is the usual packet speed on 2 meters. 9600 baud is
-used on some UHF links.
-AI>
 /EXIT
 Back to the BBS.
 K5LEB-1>
+AI
+...
+AI>
+BYE
+73 de K5LEB-1, disconnecting.
 ```
 
 `AI` and a question, such as `AI what is APRS`, starts the chat and asks that question at once.
@@ -41,8 +41,11 @@ In chat:
 | any text | Asks the assistant. |
 | `/NEW` | Forgets this conversation and starts over. |
 | `/STOP` | Cancels a question that is still waiting, or skips the rest of a long reply. |
-| `/EXIT`, `/BYE`, `/QUIT`, `/Q`, `EXIT`, `BYE`, `QUIT` | Back to the station prompt. In chat, `BYE` does not disconnect. A second `BYE` at the prompt does. |
+| `/EXIT` or `/MENU` | Back to the station prompt. |
+| `BYE`, `EXIT`, `QUIT`, `/BYE`, `/QUIT`, `/Q` | Signs off with `73 de CALL, disconnecting.` and disconnects, the same as `BYE` at the station prompt. |
 | `/?` | Lists these commands. |
+
+`BYE` and `/EXIT` also work while a question is waiting and between pages of a long reply. A waiting question is cancelled.
 
 While the server works, the caller sees `Thinking...`, and `Still thinking...` every 30 seconds so a slow model does not look like a dead link. A line typed while waiting gets `Still thinking. Send /STOP to cancel.` A dropped link cancels the question on the AI server.
 
@@ -52,42 +55,105 @@ A reply is plain ASCII text, wrapped at 76 columns, with CR line endings like th
 
 ## Who may use it
 
-With `ai.users` empty, only a caller heard over the KISS radio may use the assistant. Crossbeam already checks that callsign with the FCC before the radio session opens. A callsign listed in `ai.users` may also use it over the AX/UDP packet link or NET/ROM. The SSID does not matter: `W5ABC-7` counts as `W5ABC`.
+Nothing has to be listed. With `ai.users` empty, the default, any caller heard over the KISS radio may use the assistant. Crossbeam already checks that callsign with the FCC before the radio session opens. `ai.users` is optional. A callsign listed there may also use the assistant over the AX/UDP packet link or NET/ROM. The SSID does not matter: `W5ABC-7` counts as `W5ABC`.
 
 Telnet has no callsign, so a telnet caller cannot use the assistant.
 
-Each callsign may ask `ai.hourly` questions an hour. At most two questions wait on the AI server at once. A third caller is told the server is busy.
+Each caller may ask `ai.hourly` questions an hour. At most two questions wait on the AI server at once. A third caller is told the server is busy.
 
 ## MeshCore
 
-When `ai.mesh` is on, a MeshCore direct message that starts with `AI`, such as `AI what is a repeater`, gets one answer in that conversation. There is no chat memory over MeshCore. The answer is at most 400 characters, split the same way as a bulletin, and the question waits at most 45 seconds. MeshCore contacts are identified by their key, not a callsign, so `ai.users` does not apply. The hourly limit counts per contact. MeshCore usually runs under Part 15 rather than Part 97, but the same filter and log apply.
+When `ai.mesh` is on, a MeshCore direct message that starts with `AI`, such as `AI what is a repeater`, gets an answer in that conversation. Other messages work as before: `LIST`, `READ`, and `?` are the station prompt, and a plain sentence gets the short greeting, which then also says to send AI and a question.
+
+The assistant remembers the last few questions from each contact for 30 minutes, so a follow-up such as `AI and on 2 meters?` makes sense. `AI /NEW` starts over, and `AI` alone explains how to use it. An answer is at most 400 characters, split the same way as a bulletin, and a question waits at most 45 seconds. The companion link handles one message at a time, so other MeshCore messages wait while a question is answered.
+
+MeshCore contacts are identified by their key, not a callsign, so `ai.users` does not apply. The hourly limit counts per contact.
+
+## Reticulum
+
+When `ai.reticulum` is on, an LXMF message sent to the station that starts with `AI` gets an answer. LXMF is the message format of Reticulum. Sideband, NomadNet, and MeshChat send it. A message that does not start with `AI` is ignored. While `ai.reticulum` is off, every message is ignored and nothing is sent back.
+
+Crossbeam itself does not speak Reticulum. It keeps Reticulum in a separate program, as `docs/PLAN.md` says. A small bridge in `contrib/reticulum/crossbeam-lxmf-ai` runs Reticulum and LXMF. It announces an LXMF address with a display name such as `K5LEB AI`, passes each message to the running Crossbeam over the local socket `ai.sock`, and sends the reply back over LXMF. Crossbeam makes every decision: the switch, the hourly limit, the filter, the log, and the station instructions are the same as on packet.
+
+A Reticulum user:
+
+1. Finds `K5LEB AI` in the announce list in Sideband or NomadNet, or adds its LXMF address.
+2. Sends `AI what is a TNC?`
+3. Gets one LXMF message back with the answer.
+4. Can ask a follow-up, such as `AI how fast is it?`. The assistant remembers the last few questions from that sender for 30 minutes. `AI /NEW` starts over.
+
+### Set up the bridge
+
+1. Install Reticulum and LXMF for the bridge, for example in its own Python environment:
+
+   ```bash
+   sudo python3 -m venv /opt/crossbeam-lxmf
+   sudo /opt/crossbeam-lxmf/bin/pip install rns lxmf
+   sudo install -m 0755 contrib/reticulum/crossbeam-lxmf-ai /usr/local/bin/crossbeam-lxmf-ai
+   ```
+2. Give the `crossbeam` user a Reticulum configuration, or run `rnsd` as a shared instance on this computer. See the [Reticulum manual](https://reticulum.network/manual/). The bridge uses the usual `~/.reticulum`, or `--rnsconfig DIR`.
+3. Turn it on:
+
+   ```bash
+   sudo -u crossbeam crossbeam settings set ai.reticulum true --state /var/lib/crossbeam
+   ```
+4. Start the bridge as the `crossbeam` user, so it can open `/run/crossbeam/ai.sock`:
+
+   ```bash
+   sudo -u crossbeam /opt/crossbeam-lxmf/bin/python /usr/local/bin/crossbeam-lxmf-ai --socket /run/crossbeam/ai.sock --storage /var/lib/crossbeam-lxmf-ai --name "K5LEB AI"
+   ```
+
+   `contrib/reticulum/crossbeam-lxmf-ai.service` is an example systemd unit for the same command. The bridge prints its LXMF address when it starts, and it announces every 30 minutes. `--announce SECONDS` changes that.
+
+The socket `ai.sock` is opened beside the admin socket at every start of `crossbeam serve`, with the same mode as `--socket-mode`. It takes one JSON object per line, `{"from":"<LXMF address in hex>","text":"AI ..."}`, and answers `{"reply":"..."}` or `{"ignore":true}`.
+
+### Reticulum and Part 97
+
+Reticulum is not an amateur radio system. It encrypts every LXMF message, and it runs over the internet, a LAN, LoRa radios under Part 15, and other links. Part 97 applies only to what goes out on an amateur frequency.
+
+- Over the internet, a LAN, or Part 15 LoRa, Part 97 does not apply to these replies. Crossbeam still keeps the filter, the log, the hourly limit, and the station instructions, because the replies still go out under your station's name.
+- **Do not carry these messages on an amateur radio interface.** If this computer's Reticulum has an interface on an amateur frequency, such as an RNode on the 70 cm or 33 cm band or a KISS or AX.25 interface on a ham TNC, LXMF replies can leave on that interface. Encrypted messages on an amateur frequency are not allowed (47 CFR 97.113(a)(4)), and Reticulum cannot send LXMF unencrypted. Use a separate Reticulum instance for the bridge with no amateur interfaces, or leave `ai.reticulum` off.
 
 ## Part 97 safeguards
 
-The station licensee and the control operator are responsible for what this station sends (47 CFR 97.103 and 97.105). Crossbeam does these things for you:
+The station licensee and the control operator are responsible for what this station sends on amateur frequencies (47 CFR 97.103 and 97.105). Crossbeam does these things for you on every path, packet, MeshCore, and Reticulum:
 
-- **Off by default.** Nothing is sent to a model until you turn on `ai.enabled`.
-- **Licensed callers.** By default only radio callers, whose licenses the FCC lists as active, may ask.
+- **Off by default.** Nothing is sent to a model until you turn on `ai.enabled`. MeshCore and Reticulum each have their own switch, also off.
+- **Licensed callers.** On packet, by default only radio callers, whose licenses the FCC lists as active, may ask.
 - **Station instructions.** The model is always told to answer briefly in plain English and plain ASCII text, with no profanity or obscene or indecent language, no codes or ciphers, and no business or commercial dealings (97.113(a)). `ai.instructions` adds to those instructions. It does not replace them.
 - **Filter.** A question with a word from a short list of profanity, or a long run of what looks like base64 or hex, is not sent to the model. A reply with the same is withheld, and the caller is told it was withheld. The withheld reply is kept in the log for you.
-- **No encryption.** Replies go out as readable text on the same unencrypted session as the rest of the prompt (97.113(a)(4)).
+- **No encryption on packet.** Packet replies go out as readable text on the same unencrypted session as the rest of the prompt (97.113(a)(4)). Reticulum is the exception, as described above.
 - **Identification.** Every AX.25 frame carries this station's callsign, as the rest of the prompt does (97.119).
-- **Log.** Every question, reply, refusal, and error is written to `ai-log.jsonl` in the state directory, mode `0600`, with the time, callsign, path, and model. When the log passes 4 MB it is moved to `ai-log.jsonl.1`, and one old log is kept. `crossbeam ai log` shows the last entries.
+- **Log.** Every question, reply, refusal, and error is written to `ai-log.jsonl` in the state directory, mode `0600`, with the time, the caller, the path (`radio`, `link`, `netrom`, `meshcore`, or `reticulum`), and the model. When the log passes 4 MB it is moved to `ai-log.jsonl.1`, and one old log is kept. `crossbeam ai log` shows the last entries.
 - **Limits.** The hourly limit and the reply length keep one station from tying up the channel.
 
 The filter is a backstop, not a guarantee. Read the log, choose a model you trust, and turn the assistant off if it misbehaves.
 
-## Set up Ollama on another computer
+## Set up Ollama
 
-1. Install Ollama on the computer that will run the model. See [ollama.com/download](https://ollama.com/download). A computer with a recent graphics card answers fastest, but a small model runs on an ordinary CPU.
-2. Download a model. A small model is quick enough for packet:
+Crossbeam talks to Ollama directly. Open WebUI is not needed.
+
+### On the same computer
+
+1. Install Ollama. See [ollama.com/download](https://ollama.com/download).
+2. Download the default model:
 
    ```bash
    ollama pull llama3.2:3b
    ```
+3. Check it and turn the assistant on:
 
-   `qwen2.5:1.5b` and `gemma3:1b` are smaller. `llama3.1:8b` gives better answers on a faster computer.
-3. Let Ollama listen on the network. By default it listens only on its own computer. On Linux, run `sudo systemctl edit ollama` and add:
+   ```bash
+   sudo -u crossbeam crossbeam ai test --state /var/lib/crossbeam
+   sudo -u crossbeam crossbeam settings set ai.enabled true --state /var/lib/crossbeam
+   ```
+
+The defaults, `ai.backend` `ollama`, `ai.url` `http://127.0.0.1:11434`, and `ai.model` `llama3.2:3b`, need no change.
+
+### On another computer
+
+1. Install Ollama on the computer that will run the model, and run `ollama pull llama3.2:3b` there. A computer with a recent graphics card answers fastest, but a small model runs on an ordinary CPU. `qwen2.5:1.5b` and `gemma3:1b` are smaller. `llama3.1:8b` gives better answers on a faster computer.
+2. Let Ollama listen on the network. By default it listens only on its own computer. On Linux, run `sudo systemctl edit ollama` and add:
 
    ```ini
    [Service]
@@ -95,32 +161,26 @@ The filter is a backstop, not a guarantee. Read the log, choose a model you trus
    ```
 
    Then run `sudo systemctl restart ollama`. On Windows, set a user environment variable `OLLAMA_HOST` to `0.0.0.0:11434` and restart Ollama. On a Mac, run `launchctl setenv OLLAMA_HOST "0.0.0.0:11434"` and restart Ollama.
-4. Open port 11434 to the Crossbeam computer only. Ollama has no password. Do not forward this port from your router to the internet. For example, with `ufw`:
+3. Open port 11434 to the Crossbeam computer only. Ollama has no password. Do not forward this port from your router to the internet. For example, with `ufw`:
 
    ```bash
    sudo ufw allow from 192.168.1.20 to any port 11434 proto tcp
    ```
 
    On Windows, add an inbound rule for TCP port 11434 limited to the Crossbeam computer's address.
-5. From the Crossbeam computer, check that the server answers:
-
-   ```bash
-   curl http://192.168.1.50:11434/api/tags
-   ```
-6. Save the settings on the panel, or with the command:
+4. On the Crossbeam computer, save the address, check it, and turn the assistant on:
 
    ```bash
    sudo -u crossbeam crossbeam settings set ai.url http://192.168.1.50:11434 --state /var/lib/crossbeam
-   sudo -u crossbeam crossbeam settings set ai.model llama3.2:3b --state /var/lib/crossbeam
    sudo -u crossbeam crossbeam ai test --state /var/lib/crossbeam
    sudo -u crossbeam crossbeam settings set ai.enabled true --state /var/lib/crossbeam
    ```
 
-The first question after the model has been idle can take longer while Ollama loads it.
+`crossbeam ai test` says what to fix. When Ollama cannot be reached, it names the address and says to check that Ollama is running, that `OLLAMA_HOST=0.0.0.0:11434` is set on another computer, and that its firewall lets this computer in. When the model is missing, it says to run `ollama pull llama3.2:3b` on that computer. The first question after the model has been idle can take longer while Ollama loads it.
 
 ## Set up Open WebUI
 
-Open WebUI sits in front of Ollama and adds users and API keys.
+Open WebUI is optional. It sits in front of Ollama and adds users and API keys.
 
 1. In Open WebUI, open **Settings**, then **Account**, and create an API key. An admin may first have to allow API keys under **Admin Panel**, **Settings**, **General**.
 2. Save the key on the Crossbeam computer. It is read without echo and stored in `ai-key` in the state directory, mode `0600`:
@@ -133,13 +193,12 @@ Open WebUI sits in front of Ollama and adds users and API keys.
    ```bash
    sudo -u crossbeam crossbeam settings set ai.backend openai --state /var/lib/crossbeam
    sudo -u crossbeam crossbeam settings set ai.url http://192.168.1.50:3000/api/chat/completions --state /var/lib/crossbeam
-   sudo -u crossbeam crossbeam settings set ai.model llama3.2:3b --state /var/lib/crossbeam
    sudo -u crossbeam crossbeam ai test --state /var/lib/crossbeam
    sudo -u crossbeam crossbeam settings set ai.enabled true --state /var/lib/crossbeam
    ```
 4. Open port 3000 to the Crossbeam computer only, as for Ollama.
 
-LM Studio and llama.cpp's `llama-server` also use `ai.backend` `openai`. Use their base address ending in `/v1`, such as `http://192.168.1.50:1234/v1`. Ollama's own OpenAI address, `http://host:11434/v1`, works too.
+LM Studio and llama.cpp's `llama-server` also use `ai.backend` `openai`. Use their base address ending in `/v1`, such as `http://192.168.1.50:1234/v1`.
 
 `crossbeam ai key --clear` removes the key. The key is never shown on the panel, by `crossbeam settings`, by the MCP server, or in a log.
 
@@ -151,17 +210,18 @@ crossbeam ai test [QUESTION] [--state DIR]
 crossbeam ai log [-n COUNT] [--state DIR]
 ```
 
-`ai test` sends one question with the saved settings, even while `ai.enabled` is off, and prints the answer. It goes through the same filter and log as a caller's question. `ai log` prints the last entries of the AI log, 20 by default.
+`ai test` sends one question with the saved settings, even while `ai.enabled` is off, and prints the answer or what to fix. It goes through the same filter and log as a caller's question. `ai log` prints the last entries of the AI log, 20 by default.
 
 ## Limits
 
 - A small local model is often wrong. The banner says so, but callers will still believe it.
 - Answers are slow on a CPU. At 1200 baud the air time is short next to the time the model takes.
 - The assistant does not read the bulletin board or browse the web. It knows only what the model knows.
-- Chat memory is kept in memory only, per session.
+- Chat memory is kept in memory only: per session on packet, and per sender for 30 minutes on MeshCore and Reticulum.
 - The hourly count is kept in memory and starts over when `crossbeam serve` restarts.
 - The profanity list is short and English only.
-- There is no AI over NomadNet yet. NomadNet pages are files, and Crossbeam does not run a NomadNet node.
+- A MeshCore question holds up other MeshCore messages for up to 45 seconds.
+- The Reticulum bridge is a separate Python program. It is not in the Debian package.
 
 ## Settings
 
@@ -169,13 +229,14 @@ crossbeam ai log [-n COUNT] [--state DIR]
 |-----|------------|---------|
 | `ai.enabled` | AI assistant | `false` |
 | `ai.backend` | AI server type | `ollama` |
-| `ai.url` | AI server address | empty |
-| `ai.model` | AI model | empty |
+| `ai.url` | AI server address | `http://127.0.0.1:11434` |
+| `ai.model` | AI model | `llama3.2:3b` |
 | `ai.users` | Who may use it | empty, radio callers |
 | `ai.hourly` | Questions per hour | `20` |
 | `ai.reply` | Longest reply | `600` |
 | `ai.timeout` | Answer time limit | `90` |
 | `ai.instructions` | Extra instructions | empty |
 | `ai.mesh` | AI over MeshCore | `false` |
+| `ai.reticulum` | AI over Reticulum | `false` |
 
 Each one is described in `docs/settings.md`. A saved change applies to the next question. No restart is needed.

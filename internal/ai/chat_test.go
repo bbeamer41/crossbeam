@@ -58,21 +58,38 @@ func (t *term) waitFor(tb testing.TB, want string) {
 	tb.Fatalf("never saw %q in %q", want, t.text())
 }
 
-func converse(svc *Service, who Caller, tm *term, first string) chan error {
-	done := make(chan error, 1)
-	go func() { done <- svc.Converse(context.Background(), who, tm, tm.read, first) }()
+type ended struct {
+	leave Leave
+	err   error
+}
+
+func converse(svc *Service, who Caller, tm *term, first string) chan ended {
+	done := make(chan ended, 1)
+	go func() {
+		leave, err := svc.Converse(context.Background(), who, tm, tm.read, first)
+		done <- ended{leave, err}
+	}()
 	return done
 }
 
-func waitDone(t *testing.T, done chan error) error {
+func waitEnd(t *testing.T, done chan ended) ended {
 	t.Helper()
 	select {
-	case err := <-done:
-		return err
+	case e := <-done:
+		return e
 	case <-time.After(3 * time.Second):
 		t.Fatal("chat did not end")
-		return nil
+		return ended{}
 	}
+}
+
+func waitDone(t *testing.T, done chan ended) error {
+	t.Helper()
+	e := waitEnd(t, done)
+	if e.err == nil && e.leave != ToMenu {
+		t.Fatalf("chat ended with %v, not back at the menu", e.leave)
+	}
+	return e.err
 }
 
 func TestConverseKeepsHistoryAndExits(t *testing.T) {
@@ -99,7 +116,7 @@ func TestConverseKeepsHistoryAndExits(t *testing.T) {
 	if n := len(fake.all()[2].Msgs); n != 2 {
 		t.Fatalf("after /NEW the request had %d messages", n)
 	}
-	tm.lines <- "BYE"
+	tm.lines <- "/EXIT"
 	if err := waitDone(t, done); err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +165,7 @@ func TestConverseDisconnectCancelsRequest(t *testing.T) {
 	done := converse(svc, radioCaller, tm, "AI slow question")
 	tm.waitFor(t, "Thinking...\r")
 	close(tm.lines) // the link drops
-	if err := waitDone(t, done); err == nil {
+	if e := waitEnd(t, done); e.err == nil {
 		t.Fatal("a dropped link returned nil")
 	}
 	deadline := time.Now().Add(2 * time.Second)
@@ -209,5 +226,74 @@ func TestConverseRefusals(t *testing.T) {
 	}
 	if tm.reads.Load() != 0 {
 		t.Fatal("a refused chat read a line")
+	}
+}
+
+func TestConverseByeDisconnects(t *testing.T) {
+	fake := newFake(t, settings.AIBackendOllama, func(r fakeRequest) (int, string, time.Duration) {
+		switch r.Msgs[len(r.Msgs)-1].Content {
+		case "slow":
+			return 200, "late", 10 * time.Second
+		case "long":
+			return 200, strings.TrimSpace(strings.Repeat("Packet radio is fun and useful. ", 60)), 0
+		}
+		return 200, "ok", 0
+	})
+	for _, c := range []struct {
+		name  string
+		setup []string // lines before the leave word
+		wait  string
+		word  string
+	}{
+		{"prompt BYE", nil, "AI>\r", "BYE"},
+		{"prompt bye", nil, "AI>\r", "bye"},
+		{"EXIT", nil, "AI>\r", "EXIT"},
+		{"QUIT", nil, "AI>\r", "QUIT"},
+		{"/BYE", nil, "AI>\r", "/BYE"},
+		{"/QUIT", nil, "AI>\r", "/QUIT"},
+		{"/Q", nil, "AI>\r", "/q"},
+		{"while thinking", []string{"slow"}, "Thinking...\r", "BYE"},
+		{"while paging", []string{"long"}, "-- Enter for more", "BYE"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			svc, _ := newService(t, map[string]string{settings.KeyAIURL: fake.URL, settings.KeyAIReply: "2000"})
+			tm := newTerm()
+			done := converse(svc, radioCaller, tm, "AI")
+			tm.waitFor(t, "AI>\r")
+			for _, l := range c.setup {
+				tm.lines <- l
+			}
+			tm.waitFor(t, c.wait)
+			tm.lines <- c.word
+			e := waitEnd(t, done)
+			if e.err != nil || e.leave != Disconnect {
+				t.Fatalf("%v %v", e.leave, e.err)
+			}
+			if !strings.HasSuffix(tm.text(), "73 de K5LEB-1, disconnecting.\r") {
+				t.Fatalf("sign-off %q", tm.text())
+			}
+			time.Sleep(20 * time.Millisecond)
+			reads := tm.reads.Load()
+			tm.lines <- "x"
+			time.Sleep(20 * time.Millisecond)
+			if tm.reads.Load() != reads {
+				t.Fatal("chat read a line after BYE")
+			}
+		})
+	}
+}
+
+func TestChatHelpNamesBothWaysOut(t *testing.T) {
+	svc, _ := newService(t, map[string]string{settings.KeyAIURL: "http://127.0.0.1:1"})
+	tm := newTerm()
+	done := converse(svc, radioCaller, tm, "AI /?")
+	tm.waitFor(t, "/EXIT    Back to the BBS prompt")
+	tm.waitFor(t, "BYE      Disconnect (also EXIT, QUIT, /BYE, /QUIT, /Q)")
+	if !strings.Contains(tm.text(), "/EXIT goes back to the BBS, BYE disconnects") {
+		t.Fatalf("banner %q", tm.text())
+	}
+	tm.lines <- "/menu"
+	if err := waitDone(t, done); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -34,6 +34,8 @@ var (
 	ErrUnreachable = errors.New("the AI server could not be reached")
 	ErrServer      = errors.New("the AI server returned an error")
 	ErrEmpty       = errors.New("the AI server sent an empty answer")
+	ErrModel       = errors.New("the AI server does not have that model")
+	ErrAuth        = errors.New("the AI server refused the API key")
 )
 
 const maxResponse = 1 << 20
@@ -112,6 +114,14 @@ func complete(ctx context.Context, client *http.Client, cfg Config, msgs []Messa
 		return "", ErrUnreachable
 	}
 	if res.StatusCode != http.StatusOK {
+		lower := strings.ToLower(string(data))
+		switch {
+		case res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden:
+			return "", ErrAuth
+		case strings.Contains(lower, "model") && (strings.Contains(lower, "not found") || strings.Contains(lower, "pull") || strings.Contains(lower, "does not exist")):
+			// Ollama: 404 {"error":"model \"x\" not found, try pulling it first"}.
+			return "", ErrModel
+		}
 		return "", fmt.Errorf("%w (HTTP %d)", ErrServer, res.StatusCode)
 	}
 	var text string
@@ -190,9 +200,43 @@ func publicError(err error) string {
 		return "The AI server did not answer in time."
 	case errors.Is(err, ErrEmpty):
 		return "The AI server sent an empty answer."
+	case errors.Is(err, ErrModel):
+		return "The AI model is not available right now."
+	case errors.Is(err, ErrAuth):
+		return "The AI server refused this station."
 	case errors.Is(err, ErrServer):
 		return "The AI server returned an error."
 	default:
 		return "The AI server could not be reached."
+	}
+}
+
+// sysopError explains err to the sysop running crossbeam ai test, with
+// the address and the next step. It is never sent on the air.
+func sysopError(cfg Config, err error) error {
+	name := "the AI server"
+	if cfg.Backend != settings.AIBackendOpenAI {
+		name = "Ollama"
+	}
+	switch {
+	case errors.Is(err, ErrUnreachable):
+		hint := "Check that Ollama is running there (ollama serve, or systemctl status ollama)."
+		if cfg.Backend == settings.AIBackendOpenAI {
+			hint = "Check that the server is running and the address is right."
+		}
+		return fmt.Errorf("%s at %s could not be reached. %s If it is on another computer, it must listen on the network (OLLAMA_HOST=0.0.0.0:11434 for Ollama) and its firewall must let this computer in", name, cfg.URL, hint)
+	case errors.Is(err, ErrModel):
+		if cfg.Backend == settings.AIBackendOpenAI {
+			return fmt.Errorf("the AI server at %s does not have the model %s. Check the model name the server lists", cfg.URL, cfg.Model)
+		}
+		return fmt.Errorf("Ollama at %s does not have the model %s. On that computer run: ollama pull %s", cfg.URL, cfg.Model, cfg.Model)
+	case errors.Is(err, ErrTimeout):
+		return fmt.Errorf("%s at %s did not answer within %s. The first answer can be slow while the model loads; try again, or raise ai.timeout", name, cfg.URL, cfg.Timeout)
+	case errors.Is(err, ErrAuth):
+		return fmt.Errorf("%s at %s refused the API key. Save the right key with: crossbeam ai key", name, cfg.URL)
+	case errors.Is(err, ErrEmpty):
+		return fmt.Errorf("%s at %s sent an empty answer", name, cfg.URL)
+	default:
+		return fmt.Errorf("%s at %s returned an error: %v", name, cfg.URL, err)
 	}
 }

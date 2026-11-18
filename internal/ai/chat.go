@@ -13,8 +13,39 @@ import (
 const chatHelp = "AI chat commands:\r" +
 	"/NEW     Forget this conversation\r" +
 	"/STOP    Cancel a question or skip the rest of a reply\r" +
-	"/EXIT    Back to the BBS prompt (BYE works too)\r" +
+	"/EXIT    Back to the BBS prompt (/MENU works too)\r" +
+	"BYE      Disconnect (also EXIT, QUIT, /BYE, /QUIT, /Q)\r" +
 	"/?       This list\r"
+
+// Leave is how a chat ended.
+type Leave int
+
+const (
+	// ToMenu means the caller is back at the station prompt.
+	ToMenu Leave = iota
+	// Disconnect means the caller sent BYE. The sign-off is already
+	// written, and the session should close the link.
+	Disconnect
+)
+
+// act is what a line typed in chat asks for.
+type act int
+
+const (
+	actNone act = iota
+	actMenu
+	actBye
+)
+
+func action(cmd string) act {
+	switch cmd {
+	case "/EXIT", "/MENU":
+		return actMenu
+	case "BYE", "EXIT", "QUIT", "/BYE", "/QUIT", "/Q":
+		return actBye
+	}
+	return actNone
+}
 
 // line is one read from the caller.
 type line struct {
@@ -56,33 +87,32 @@ func (r *reader) wait() <-chan line {
 
 func (r *reader) took() { r.pending = false }
 
-func isExit(cmd string) bool {
-	switch cmd {
-	case "/EXIT", "/BYE", "/QUIT", "/Q", "/END", "EXIT", "BYE", "QUIT":
-		return true
-	}
-	return false
-}
-
 // Converse runs chat mode on a connected session until the caller
 // leaves. read returns one line without its line ending, or ErrLong. It
 // is called on another goroutine, never twice at once, and never after
 // Converse returns to the prompt. first is the line that started chat,
-// such as "AI" or "AI what is APRS". A nil error means the caller is
-// back at the station prompt. Any other error means the link is gone.
-func (s *Service) Converse(ctx context.Context, who Caller, w interface{ Write([]byte) (int, error) }, read func() (string, error), first string) error {
+// such as "AI" or "AI what is APRS". With a nil error, Leave says
+// whether the caller is back at the station prompt or sent BYE. Any
+// other error means the link is gone.
+func (s *Service) Converse(ctx context.Context, who Caller, w interface{ Write([]byte) (int, error) }, read func() (string, error), first string) (Leave, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	cfg, err := s.Config(ctx)
 	if err != nil {
-		return writeAll(w, "The AI assistant is not available.\r")
+		return ToMenu, writeAll(w, "The AI assistant is not available.\r")
 	}
 	if ok, why := cfg.Allowed(who); !ok {
-		return writeAll(w, why+"\r")
+		return ToMenu, writeAll(w, why+"\r")
 	}
 	if err := writeAll(w, banner(cfg)); err != nil {
-		return err
+		return ToMenu, err
+	}
+	leave := func(a act) (Leave, error) {
+		if a == actBye {
+			return Disconnect, writeAll(w, "73 de "+cfg.Station+", disconnecting.\r")
+		}
+		return ToMenu, writeAll(w, "Back to the BBS.\r")
 	}
 	in := &reader{read: read, ch: make(chan line, 1)}
 	var history []Message
@@ -90,17 +120,17 @@ func (s *Service) Converse(ctx context.Context, who Caller, w interface{ Write([
 	for {
 		if next == "" {
 			if err := writeAll(w, "AI>\r"); err != nil {
-				return err
+				return ToMenu, err
 			}
 			got := in.next()
 			if errors.Is(got.err, ErrLong) {
 				if err := writeAll(w, "The line is too long.\r"); err != nil {
-					return err
+					return ToMenu, err
 				}
 				continue
 			}
 			if got.err != nil {
-				return got.err
+				return ToMenu, got.err
 			}
 			next = strings.TrimSpace(got.text)
 			if next == "" {
@@ -110,25 +140,26 @@ func (s *Service) Converse(ctx context.Context, who Caller, w interface{ Write([
 		question := next
 		next = ""
 		cmd := strings.ToUpper(question)
+		if a := action(cmd); a != actNone {
+			return leave(a)
+		}
 		switch {
-		case isExit(cmd):
-			return writeAll(w, "Back to the BBS.\r")
 		case cmd == "/NEW" || cmd == "/CLEAR":
 			history = nil
 			if err := writeAll(w, "Starting a new conversation.\r"); err != nil {
-				return err
+				return ToMenu, err
 			}
 			continue
 		case cmd == "/?" || cmd == "/HELP" || cmd == "?":
 			if err := writeAll(w, chatHelp); err != nil {
-				return err
+				return ToMenu, err
 			}
 			continue
 		case cmd == "/STOP":
 			continue
 		case strings.HasPrefix(cmd, "/"):
 			if err := writeAll(w, "Unknown chat command. Send /? for help.\r"); err != nil {
-				return err
+				return ToMenu, err
 			}
 			continue
 		}
@@ -138,56 +169,56 @@ func (s *Service) Converse(ctx context.Context, who Caller, w interface{ Write([
 		}
 		if ok, why := cfg.Allowed(who); !ok {
 			if err := writeAll(w, why+"\r"); err != nil {
-				return err
+				return ToMenu, err
 			}
-			return writeAll(w, "Back to the BBS.\r")
+			return leave(actMenu)
 		}
 		if err := writeAll(w, "Thinking...\r"); err != nil {
-			return err
+			return ToMenu, err
 		}
-		r, leave, err := s.waitAnswer(ctx, cfg, who, history, question, in, w)
+		r, a, err := s.waitAnswer(ctx, cfg, who, history, question, in, w)
 		if err != nil {
-			return err
+			return ToMenu, err
 		}
 		if r.ok {
 			history = trimHistory(append(history,
 				Message{Role: "user", Content: question},
 				Message{Role: "assistant", Content: r.text}))
 		}
-		if leave {
-			return writeAll(w, "Back to the BBS.\r")
+		if a != actNone {
+			return leave(a)
 		}
-		leave, err = page(w, r.text, in)
+		a, err = page(w, r.text, in)
 		if err != nil {
-			return err
+			return ToMenu, err
 		}
-		if leave {
-			return writeAll(w, "Back to the BBS.\r")
+		if a != actNone {
+			return leave(a)
 		}
 	}
 }
 
 // waitAnswer asks the server while watching the link. A dropped link
-// or /STOP cancels the request. /EXIT cancels it and leaves chat.
-func (s *Service) waitAnswer(ctx context.Context, cfg Config, who Caller, history []Message, question string, in *reader, w interface{ Write([]byte) (int, error) }) (result, bool, error) {
+// or /STOP cancels the request. /EXIT or BYE cancels it and leaves.
+func (s *Service) waitAnswer(ctx context.Context, cfg Config, who Caller, history []Message, question string, in *reader, w interface{ Write([]byte) (int, error) }) (result, act, error) {
 	reqCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	done := make(chan result, 1)
 	go func() {
 		done <- s.ask(reqCtx, cfg, who, history, question, cfg.Reply, cfg.Timeout)
 	}()
-	gone := func(err error) (result, bool, error) {
+	gone := func(err error) (result, act, error) {
 		cancel()
-		return <-done, false, err
+		return <-done, actNone, err
 	}
-	leave := false
+	leave := actNone
 	tick := time.NewTicker(30 * time.Second)
 	defer tick.Stop()
 	for {
-		// After /EXIT no new read is started, so the station prompt gets
-		// the next line.
+		// After /EXIT or BYE no new read is started, so the station
+		// prompt gets the next line.
 		var input <-chan line
-		if !leave {
+		if leave == actNone {
 			input = in.wait()
 		}
 		select {
@@ -202,8 +233,8 @@ func (s *Service) waitAnswer(ctx context.Context, cfg Config, who Caller, histor
 			switch {
 			case cmd == "/STOP":
 				cancel()
-			case isExit(cmd):
-				leave = true
+			case action(cmd) != actNone:
+				leave = action(cmd)
 				cancel()
 			default:
 				if err := writeAll(w, "Still thinking. Send /STOP to cancel.\r"); err != nil {
@@ -221,7 +252,7 @@ func (s *Service) waitAnswer(ctx context.Context, cfg Config, who Caller, histor
 
 // page writes text in pages of pageLines. Between pages the caller
 // presses Enter for more, or sends /STOP to skip the rest.
-func page(w interface{ Write([]byte) (int, error) }, text string, in *reader) (bool, error) {
+func page(w interface{ Write([]byte) (int, error) }, text string, in *reader) (act, error) {
 	lines := Wrap(text, Width)
 	for len(lines) > 0 {
 		n := len(lines)
@@ -229,33 +260,33 @@ func page(w interface{ Write([]byte) (int, error) }, text string, in *reader) (b
 			n = pageLines
 		}
 		if err := writeAll(w, strings.Join(lines[:n], "\r")+"\r"); err != nil {
-			return false, err
+			return actNone, err
 		}
 		lines = lines[n:]
 		if len(lines) == 0 {
 			break
 		}
 		if err := writeAll(w, "-- Enter for more, /STOP to skip --\r"); err != nil {
-			return false, err
+			return actNone, err
 		}
 		got := in.next()
 		if got.err != nil && !errors.Is(got.err, ErrLong) {
-			return false, got.err
+			return actNone, got.err
 		}
 		cmd := strings.ToUpper(strings.TrimSpace(got.text))
-		if isExit(cmd) {
-			return true, nil
+		if a := action(cmd); a != actNone {
+			return a, nil
 		}
 		if cmd == "/STOP" {
-			return false, nil
+			return actNone, nil
 		}
 	}
-	return false, nil
+	return actNone, nil
 }
 
 func banner(cfg Config) string {
 	return "AI chat on " + cfg.Station + " using " + cfg.Model + ".\r" +
 		"Replies are machine-made and may be wrong. Questions and replies\r" +
 		"are logged for the control operator. Keep it legal for amateur radio.\r" +
-		"Send /EXIT to go back, /NEW to start over, /? for help.\r"
+		"/EXIT goes back to the BBS, BYE disconnects, /? for help.\r"
 }

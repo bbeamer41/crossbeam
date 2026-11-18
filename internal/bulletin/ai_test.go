@@ -164,3 +164,48 @@ func TestPromptAIDisconnectMidChat(t *testing.T) {
 		t.Fatal("session did not end after the link dropped")
 	}
 }
+
+// closeConn records Close, which is the AX.25 disconnect on a stream.
+type closeConn struct {
+	radioConn
+	closed chan struct{}
+}
+
+func (c *closeConn) Close() error {
+	select {
+	case <-c.closed:
+	default:
+		close(c.closed)
+	}
+	return c.radioConn.Close()
+}
+
+func TestPromptAIByeDisconnects(t *testing.T) {
+	svc := aiStation(t)
+	st := openStore(t)
+	a, b := net.Pipe()
+	defer a.Close()
+	conn := &closeConn{radioConn: radioConn{ReadWriteCloser: b, radio: true}, closed: make(chan struct{})}
+	errc := make(chan error, 1)
+	go func() {
+		errc <- ServeAI(context.Background(), st, mustCall(t, "K5LEB"), conn, mustCall(t, "W5ABC-7"), svc)
+	}()
+	sc := &screen{}
+	go sc.pump(a)
+	sc.wait(t, "K5LEB>\r", 1)
+	_, _ = io.WriteString(a, "AI what is a TNC\r")
+	sc.wait(t, "A TNC answer for what is a TNC\r", 1)
+	_, _ = io.WriteString(a, "BYE\r")
+	sc.wait(t, "73 de K5LEB, disconnecting.\r", 1)
+	select {
+	case <-conn.closed:
+	case <-time.After(3 * time.Second):
+		t.Fatal("BYE in chat did not close the link")
+	}
+	if err := <-errc; err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(sc.text(), "Back to the BBS.") || strings.HasSuffix(sc.text(), "K5LEB>\r") {
+		t.Fatalf("BYE returned to the prompt: %q", sc.text())
+	}
+}
