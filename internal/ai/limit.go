@@ -26,7 +26,7 @@ func (l *limiter) take(key string, max int, now time.Time) (bool, time.Duration)
 		l.seen = map[string][]time.Time{}
 	}
 	cut := now.Add(-time.Hour)
-	keep := l.seen[key][:0]
+	var keep []time.Time
 	for _, t := range l.seen[key] {
 		if t.After(cut) {
 			keep = append(keep, t)
@@ -38,10 +38,21 @@ func (l *limiter) take(key string, max int, now time.Time) (bool, time.Duration)
 	}
 	if len(l.seen) >= limiterMax {
 		for k, times := range l.seen {
+			if k == key {
+				continue
+			}
 			if len(times) == 0 || !times[len(times)-1].After(cut) {
 				delete(l.seen, k)
 			}
 		}
+		if len(keep) == 0 {
+			delete(l.seen, key)
+		}
+	}
+	// A new caller is refused once the map is still full after the stale
+	// keys are gone. An existing key can still be recorded.
+	if _, ok := l.seen[key]; !ok && len(l.seen) >= limiterMax {
+		return false, time.Hour
 	}
 	l.seen[key] = append(keep, now)
 	return true, 0
