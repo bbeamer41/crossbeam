@@ -17,7 +17,7 @@ import (
 	"github.com/bbeamer41/crossbeam/internal/store"
 )
 
-const aiUsage = "crossbeam: usage: crossbeam ai key [--clear] [--state DIR] | crossbeam ai test [QUESTION] [--state DIR] | crossbeam ai log [-n COUNT] [--state DIR]"
+const aiUsage = "crossbeam: usage: crossbeam ai key [--clear] [--state DIR] | crossbeam ai test [QUESTION] [--state DIR] | crossbeam ai log [-n COUNT] [--state DIR] | crossbeam ai senders list|approve ID|deny ID|revoke ID [--state DIR]"
 
 func cmdAI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	sub, rest := splitSub(args)
@@ -38,7 +38,7 @@ func cmdAI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr i
 		fs.BoolVar(&remove, "clear", false, "remove the saved key")
 	case "log":
 		fs.IntVar(&count, "n", 20, "how many entries to show")
-	case "test":
+	case "test", "senders":
 	default:
 		fmt.Fprintln(stderr, aiUsage)
 		return 2
@@ -66,6 +66,8 @@ func cmdAI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr i
 			return 2
 		}
 		return aiLog(*state, count, stdout, stderr)
+	case "senders":
+		return aiSenders(*state, fs.Args(), stdout, stderr)
 	default:
 		return aiTest(ctx, *state, strings.Join(fs.Args(), " "), stdout, stderr)
 	}
@@ -115,6 +117,11 @@ func aiTest(ctx context.Context, state, question string, stdout, stderr io.Write
 	}
 	defer st.Close()
 	svc := ai.New(st.Settings, st.Dir())
+	if cfg, err := svc.Config(ctx); err == nil {
+		if warn := ai.URLWarning(cfg.URL, nil); warn != "" {
+			fmt.Fprintf(stderr, "crossbeam: %s\n", warn)
+		}
+	}
 	start := time.Now()
 	reply, err := svc.Test(ctx, question)
 	if err != nil {
@@ -144,4 +151,101 @@ func aiLog(state string, count int, stdout, stderr io.Writer) int {
 		}
 	}
 	return 0
+}
+
+func aiSenders(state string, args []string, stdout, stderr io.Writer) int {
+	if len(args) < 1 {
+		fmt.Fprintln(stderr, aiUsage)
+		return 2
+	}
+	op := args[0]
+	switch op {
+	case "list":
+		if len(args) != 1 {
+			fmt.Fprintln(stderr, aiUsage)
+			return 2
+		}
+	case "approve", "deny", "revoke":
+		if len(args) != 2 {
+			fmt.Fprintln(stderr, aiUsage)
+			return 2
+		}
+	default:
+		fmt.Fprintln(stderr, aiUsage)
+		return 2
+	}
+	st, err := store.OpenExisting(state)
+	if err != nil {
+		fmt.Fprintf(stderr, "crossbeam: %s\n", err)
+		return 1
+	}
+	defer st.Close()
+	svc := ai.New(st.Settings, st.Dir())
+	if op == "list" {
+		lists, err := svc.Senders()
+		if err != nil {
+			fmt.Fprintln(stderr, "crossbeam: the AI sender list could not be read")
+			return 1
+		}
+		printSenders(stdout, "Pending", lists.Pending)
+		printSenders(stdout, "Approved", lists.Approved)
+		printSenders(stdout, "Denied", lists.Denied)
+		return 0
+	}
+	id, err := canonicalSender(args[1])
+	if err != nil {
+		fmt.Fprintf(stderr, "crossbeam: %s\n", err)
+		return 2
+	}
+	switch op {
+	case "approve":
+		err = svc.Approve(id)
+	case "deny":
+		err = svc.Deny(id)
+	default:
+		err = svc.Revoke(id)
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "crossbeam: %s\n", err)
+		return 1
+	}
+	switch op {
+	case "approve":
+		fmt.Fprintf(stdout, "Approved %s.\n", id)
+	case "deny":
+		fmt.Fprintf(stdout, "Blocked %s.\n", id)
+	default:
+		fmt.Fprintf(stdout, "Revoked %s.\n", id)
+	}
+	return 0
+}
+
+func canonicalSender(id string) (string, error) {
+	network, address, err := ai.ParseSenderID(id)
+	if err != nil {
+		return "", err
+	}
+	return network + ":" + address, nil
+}
+
+func printSenders(stdout io.Writer, title string, list []ai.Sender) {
+	fmt.Fprintln(stdout, title)
+	if len(list) == 0 {
+		fmt.Fprintln(stdout, "  (none)")
+		return
+	}
+	for _, s := range list {
+		when := ""
+		if !s.Seen.IsZero() {
+			when = "  " + s.Seen.Local().Format("2006-01-02 15:04:05 MST")
+		}
+		name := s.Address
+		if s.Name != "" {
+			name = s.Address + " " + s.Name
+		}
+		fmt.Fprintf(stdout, "  %s %s%s\n", s.Network, name, when)
+		if s.Text != "" {
+			fmt.Fprintf(stdout, "    %s\n", s.Text)
+		}
+	}
 }

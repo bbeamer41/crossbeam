@@ -623,6 +623,38 @@ footer {
 
 footer p { margin: 0.2rem 0; }
 
+.warn {
+  margin: 0.35rem 0 0.6rem;
+  padding: 0.55rem 0.75rem;
+  font-weight: 600;
+  color: #6b4a12;
+  background: #fff8eb;
+  border: 1px solid #e6d3a8;
+  border-radius: var(--radius);
+}
+
+.senders { margin-top: 1.6rem; }
+
+.senders h3 {
+  font-size: 1.02rem;
+  margin: 1.1rem 0 0.35rem;
+}
+
+.sender {
+  margin: 0 0 0.75rem;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.sender p { margin: 0.15rem 0; }
+
+.sender .actions { margin-top: 0.4rem; }
+
+.sender button {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.92rem;
+}
+
 body.kind-login form { max-width: 26rem; }
 
 body.kind-login button[type="submit"] {

@@ -87,6 +87,7 @@ func printHelp(stdout io.Writer) {
 	fmt.Fprintln(stdout, "  crossbeam ai key [--clear] [--state DIR]")
 	fmt.Fprintln(stdout, "  crossbeam ai test [QUESTION] [--state DIR]")
 	fmt.Fprintln(stdout, "  crossbeam ai log [-n COUNT] [--state DIR]")
+	fmt.Fprintln(stdout, "  crossbeam ai senders list|approve ID|deny ID|revoke ID [--state DIR]")
 	fmt.Fprintln(stdout, "  crossbeam version")
 }
 

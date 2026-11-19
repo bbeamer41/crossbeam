@@ -153,6 +153,9 @@ func cmdServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	if current[settings.KeyAIEnabled] == "true" {
 		fmt.Fprintf(stdout, "ai assistant on, model %s\n", current[settings.KeyAIModel])
 	}
+	if warn := ai.URLWarning(current[settings.KeyAIURL], nil); warn != "" {
+		fmt.Fprintf(stdout, "ai warning: %s\n", warn)
+	}
 	// The LXMF bridge socket is always open, beside the admin socket and
 	// with its mode. ai.reticulum decides on each message whether it is
 	// answered, so the panel switch works without a restart.
