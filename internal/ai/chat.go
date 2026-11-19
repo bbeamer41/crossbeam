@@ -54,8 +54,9 @@ type line struct {
 }
 
 // reader keeps at most one read in flight. While the AI server works,
-// that read is how a dropped link or a /STOP is noticed. A line that
-// arrives first is kept for the next prompt, so no input is lost.
+// that read is how a dropped link or a /STOP is noticed. A line typed
+// while a question is in flight is handled then, and is not kept as the
+// next question.
 type reader struct {
 	read    func() (string, error)
 	ch      chan line
@@ -86,6 +87,21 @@ func (r *reader) wait() <-chan line {
 }
 
 func (r *reader) took() { r.pending = false }
+
+// takeReady returns a line that is already queued. A read that is still
+// waiting for the caller is left alone, so the next prompt can use it.
+func (r *reader) takeReady() (line, bool) {
+	if !r.pending {
+		return line{}, false
+	}
+	select {
+	case got := <-r.ch:
+		r.pending = false
+		return got, true
+	default:
+		return line{}, false
+	}
+}
 
 // Converse runs chat mode on a connected session until the caller
 // leaves. read returns one line without its line ending, or ErrLong. It
@@ -212,8 +228,32 @@ func (s *Service) waitAnswer(ctx context.Context, cfg Config, who Caller, histor
 		return <-done, actNone, err
 	}
 	leave := actNone
+	stopped := false
 	tick := time.NewTicker(30 * time.Second)
 	defer tick.Stop()
+	// noteBusy treats a line typed while the question is in flight.
+	// It reports whether the caller should see the answer.
+	noteBusy := func(got line) (show bool, err error) {
+		if got.err != nil && !errors.Is(got.err, ErrLong) {
+			return false, got.err
+		}
+		cmd := strings.ToUpper(strings.TrimSpace(got.text))
+		switch {
+		case cmd == "/STOP":
+			cancel()
+			stopped = true
+			return false, nil
+		case action(cmd) != actNone:
+			leave = action(cmd)
+			cancel()
+			return false, nil
+		default:
+			if err := writeAll(w, "Still thinking. Send /STOP to cancel.\r"); err != nil {
+				return false, err
+			}
+			return true, nil
+		}
+	}
 	for {
 		// After /EXIT or BYE no new read is started, so the station
 		// prompt gets the next line.
@@ -223,28 +263,38 @@ func (s *Service) waitAnswer(ctx context.Context, cfg Config, who Caller, histor
 		}
 		select {
 		case r := <-done:
+			// The answer and a typed line can be ready together. The
+			// line was typed while the question was in flight, so it
+			// is not the next question.
+			if got, ok := in.takeReady(); ok {
+				show, err := noteBusy(got)
+				if err != nil {
+					return r, leave, err
+				}
+				if !show {
+					if stopped {
+						return result{text: "Cancelled.", outcome: OutCancelled}, leave, nil
+					}
+					return r, leave, nil
+				}
+			}
+			if stopped {
+				return result{text: "Cancelled.", outcome: OutCancelled}, leave, nil
+			}
 			return r, leave, nil
 		case got := <-input:
 			in.took()
-			if got.err != nil && !errors.Is(got.err, ErrLong) {
-				return gone(got.err)
+			show, err := noteBusy(got)
+			if err != nil {
+				return gone(err)
 			}
-			cmd := strings.ToUpper(strings.TrimSpace(got.text))
-			switch {
-			case cmd == "/STOP":
-				cancel()
-			case action(cmd) != actNone:
-				leave = action(cmd)
-				cancel()
-			default:
-				if err := writeAll(w, "Still thinking. Send /STOP to cancel.\r"); err != nil {
-					return gone(err)
-				}
+			if !show && leave != actNone {
+				// Keep waiting so the cancelled request finishes, then leave.
 			}
 		case <-tick.C:
 			// The caller already signed off or went back to the prompt.
 			// The sign-off is sent when the cancelled request finishes.
-			if leave != actNone {
+			if leave != actNone || stopped {
 				continue
 			}
 			// A keep-alive line so a slow model does not look like a dead link.

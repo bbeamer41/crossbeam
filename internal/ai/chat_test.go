@@ -283,6 +283,90 @@ func TestConverseByeDisconnects(t *testing.T) {
 	}
 }
 
+// TestLineRacedWithTheAnswerIsNotTheNextQuestion queues an ordinary
+// line before the answer is released, so both are ready together. That
+// line must not be sent to the model as the next question.
+func TestLineRacedWithTheAnswerIsNotTheNextQuestion(t *testing.T) {
+	const raced = "typed while the answer arrived"
+	for i := 0; i < 12; i++ {
+		var tm *term
+		fake := newFake(t, settings.AIBackendOllama, func(r fakeRequest) (int, string, time.Duration) {
+			q := r.Msgs[len(r.Msgs)-1].Content
+			if q != "first question" {
+				return 200, "UNEXPECTED " + q, 0
+			}
+			deadline := time.Now().Add(2 * time.Second)
+			for tm != nil && tm.reads.Load() < 1 && time.Now().Before(deadline) {
+				time.Sleep(time.Millisecond)
+			}
+			tm.lines <- raced
+			time.Sleep(50 * time.Millisecond)
+			return 200, "first answer", 0
+		})
+		svc, _ := newService(t, map[string]string{settings.KeyAIURL: fake.URL})
+		tm = newTerm()
+		done := converse(svc, radioCaller, tm, "AI first question")
+		tm.waitFor(t, "first answer\r")
+		deadline := time.Now().Add(300 * time.Millisecond)
+		for time.Now().Before(deadline) {
+			if n := len(fake.all()); n != 1 {
+				t.Fatalf("pass %d made %d requests", i, n)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if !strings.Contains(tm.text(), "Still thinking. Send /STOP to cancel.") {
+			t.Fatalf("pass %d did not treat the in-flight line as busy: %q", i, tm.text())
+		}
+		for _, req := range fake.all() {
+			if strings.Contains(req.Msgs[len(req.Msgs)-1].Content, raced) {
+				t.Fatalf("pass %d sent the in-flight line to the model", i)
+			}
+		}
+		tm.lines <- "/EXIT"
+		if err := waitDone(t, done); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestStopQueuedWithTheAnswerCancels(t *testing.T) {
+	var tm *term
+	var mu sync.Mutex
+	var asked []string
+	fake := newFake(t, settings.AIBackendOllama, func(r fakeRequest) (int, string, time.Duration) {
+		q := r.Msgs[len(r.Msgs)-1].Content
+		mu.Lock()
+		asked = append(asked, q)
+		mu.Unlock()
+		deadline := time.Now().Add(2 * time.Second)
+		for tm != nil && tm.reads.Load() < 1 && time.Now().Before(deadline) {
+			time.Sleep(time.Millisecond)
+		}
+		tm.lines <- "/STOP"
+		time.Sleep(50 * time.Millisecond)
+		return 200, "secret answer", 0
+	})
+	svc, _ := newService(t, map[string]string{settings.KeyAIURL: fake.URL})
+	tm = newTerm()
+	done := converse(svc, radioCaller, tm, "AI first question")
+	tm.waitFor(t, "Cancelled.\r")
+	if strings.Contains(tm.text(), "secret answer") {
+		t.Fatalf("the raced answer was shown: %q", tm.text())
+	}
+	// Give a follow-up question time to leave, if the raced line was kept.
+	time.Sleep(100 * time.Millisecond)
+	mu.Lock()
+	got := append([]string(nil), asked...)
+	mu.Unlock()
+	if len(got) != 1 || got[0] != "first question" {
+		t.Fatalf("questions sent: %q", got)
+	}
+	tm.lines <- "/EXIT"
+	if err := waitDone(t, done); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestChatHelpNamesBothWaysOut(t *testing.T) {
 	svc, _ := newService(t, map[string]string{settings.KeyAIURL: "http://127.0.0.1:1"})
 	tm := newTerm()
