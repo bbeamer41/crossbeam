@@ -11,6 +11,9 @@ with AI, only while ai.enabled and ai.reticulum are on, with the same
 limits, filter, and log as packet. See docs/ai.md.
 
 Needs the Reticulum and LXMF Python packages: pip install rns lxmf
+
+Only an LXMF message whose signature validates is answered. An unsigned
+message and a message with a bad signature are dropped.
 """
 
 import argparse
@@ -22,13 +25,35 @@ import sys
 import threading
 import time
 
-import RNS
-import LXMF
+try:
+    import RNS
+    import LXMF
+except ImportError:
+    RNS = None
+    LXMF = None
 
 APP_NAME = "crossbeam-lxmf-ai"
 
+# LXMF.LXMessage.SIGNATURE_INVALID. Kept here so a test can run without
+# the Reticulum packages installed.
+SIGNATURE_INVALID = 0x02
+
+
+def signature_accepted(signature_validated, unverified_reason, invalid_reason=SIGNATURE_INVALID):
+    """True only when the sender's signature validates.
+
+    An unsigned message leaves signature_validated false. A bad signature
+    sets unverified_reason to SIGNATURE_INVALID.
+    """
+    if unverified_reason == invalid_reason:
+        return False
+    return signature_validated is True
+
 
 def log(msg):
+    if RNS is None:
+        print(f"[{APP_NAME}] {msg}", file=sys.stderr)
+        return
     RNS.log(f"[{APP_NAME}] {msg}", RNS.LOG_NOTICE)
 
 
@@ -82,8 +107,13 @@ class Bridge:
             time.sleep(self.args.announce)
 
     def received(self, message):
-        if message.unverified_reason == LXMF.LXMessage.SIGNATURE_INVALID:
-            log("dropped a message with a bad signature")
+        reason = getattr(message, "unverified_reason", None)
+        invalid = LXMF.LXMessage.SIGNATURE_INVALID
+        if not signature_accepted(getattr(message, "signature_validated", False), reason, invalid):
+            if reason == invalid:
+                log("dropped a message with a bad signature")
+            else:
+                log("dropped an unsigned message")
             return
         try:
             text = message.content_as_string() or ""
@@ -127,6 +157,9 @@ class Bridge:
 
 
 def main():
+    if RNS is None or LXMF is None:
+        print("crossbeam-lxmf-ai: install the rns and lxmf packages", file=sys.stderr)
+        return 1
     p = argparse.ArgumentParser(description="Answer LXMF messages with the Crossbeam AI assistant.")
     p.add_argument("--socket", default="/run/crossbeam/ai.sock", help="Crossbeam AI bridge socket (default %(default)s)")
     p.add_argument("--storage", default=os.path.expanduser("~/.crossbeam-lxmf-ai"), help="identity and LXMF storage directory")
