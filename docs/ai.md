@@ -47,7 +47,7 @@ In chat:
 
 `BYE` and `/EXIT` also work while a question is waiting and between pages of a long reply. A waiting question is cancelled.
 
-While the server works, the caller sees `Thinking...`, and `Still thinking...` every 30 seconds so a slow model does not look like a dead link. A line typed while waiting gets `Still thinking. Send /STOP to cancel.` A dropped link cancels the question on the AI server.
+While the server works, the caller sees `Thinking...`, and `Still thinking...` every 30 seconds so a slow model does not look like a dead link. A line typed while waiting, including one typed at the moment the answer arrives, gets `Still thinking. Send /STOP to cancel.` It is not taken as the next question. `/STOP`, `/EXIT`, and `BYE` typed then still cancel or leave. A dropped link cancels the question on the AI server.
 
 A reply is plain ASCII text, wrapped at 76 columns, with CR line endings like the rest of the prompt. Markdown marks and emoji are removed. A reply longer than `ai.reply` characters is cut at a word and ends with `[cut]`. A reply longer than 12 lines is sent in pages. Between pages the caller presses Enter for more, or sends `/STOP` to skip the rest.
 
@@ -59,7 +59,28 @@ Nothing has to be listed. With `ai.users` empty, the default, any caller heard o
 
 Telnet has no callsign, so a telnet caller cannot use the assistant.
 
-Each caller may ask `ai.hourly` questions an hour. At most two questions wait on the AI server at once. A third caller is told the server is busy.
+Each caller may ask `ai.hourly` questions an hour. At most two questions wait on the AI server at once. A third caller is told the server is busy. A down server, a timeout, or an error still uses one of those questions, so a stuck server is not hammered.
+
+## Approving MeshCore and Reticulum senders
+
+`ai.require_approval` is on by default. A MeshCore contact or a Reticulum sender must be on the approved list before a question reaches the model. Radio callers are not on this list. The license check already covers them, and this switch does not change who may use the assistant over AX.25.
+
+For a sender, the first `AI` message does not reach the model. The station replies once: "Your request is waiting for sysop approval." That reply is sent at most once a day. Another message the same day gets no reply. The sender stays in a pending list until you decide.
+
+For you, the pending list is on the settings page under AI senders, and in `crossbeam ai senders list`. Each row shows the network, the address, when the sender was first seen, and the first message, cut short so you can judge it. Approve lets them through. Block means every later message is ignored: no model, no waiting reply. Revoke takes someone off the approved list, so the next message waits for approval again. A blocked sender can be unblocked by approving them.
+
+The list holds at most 200 pending senders, in `ai-senders.json` in the state directory, mode `0600`. When it is full, a new sender is not added and gets no reply at all. The approved list and the blocked list are kept in that same file, so a block survives a restart.
+
+Turning `ai.require_approval` off makes MeshCore and Reticulum behave as they do with only `ai.mesh` and `ai.reticulum`. The blocked list is not checked while it is off.
+
+```text
+crossbeam ai senders list [--state DIR]
+crossbeam ai senders approve meshcore:ADDRESS [--state DIR]
+crossbeam ai senders deny reticulum:ADDRESS [--state DIR]
+crossbeam ai senders revoke meshcore:ADDRESS [--state DIR]
+```
+
+An id is the network, a colon, and the address. `list` shows pending, approved, and denied. Approving, blocking, and revoking are written to the AI log as control-operator events.
 
 ## MeshCore
 
@@ -67,13 +88,17 @@ When `ai.mesh` is on, a MeshCore direct message that starts with `AI`, such as `
 
 The assistant remembers the last few questions from each contact for 30 minutes, so a follow-up such as `AI and on 2 meters?` makes sense. `AI /NEW` starts over, and `AI` alone explains how to use it. An answer is at most 400 characters, split the same way as a bulletin, and a question waits at most 45 seconds. The companion link handles one message at a time, so other MeshCore messages wait while a question is answered.
 
-MeshCore contacts are identified by their key, not a callsign, so `ai.users` does not apply. The hourly limit counts per contact.
+MeshCore contacts are identified by their key, not a callsign, so `ai.users` does not apply. The hourly limit counts per contact. With `ai.require_approval` on, the contact must be approved first. See above.
 
 ## Reticulum
 
 When `ai.reticulum` is on, an LXMF message sent to the station that starts with `AI` gets an answer. LXMF is the message format of Reticulum. Sideband, NomadNet, and MeshChat send it. A message that does not start with `AI` is ignored. While `ai.reticulum` is off, every message is ignored and nothing is sent back.
 
 Crossbeam itself does not speak Reticulum. It keeps Reticulum in a separate program, as `docs/PLAN.md` says. A small bridge in `contrib/reticulum/crossbeam-lxmf-ai` runs Reticulum and LXMF. It announces an LXMF address with a display name such as `K5LEB AI`, passes each message to the running Crossbeam over the local socket `ai.sock`, and sends the reply back over LXMF. Crossbeam makes every decision: the switch, the hourly limit, the filter, the log, and the station instructions are the same as on packet.
+
+With `ai.require_approval` on, that sender must be approved first, the same way as a MeshCore contact. Until then the bridge sends back the one waiting sentence, or nothing if the sender is blocked, the pending list is full, or they already heard the waiting sentence today.
+
+The bridge drops an LXMF message whose signature does not validate. That includes a message with a bad signature and a message that is unsigned or from a source the bridge cannot check. Only a validated signature is answered.
 
 A Reticulum user:
 
@@ -121,7 +146,7 @@ The station licensee and the control operator are responsible for what this stat
 - **Off by default.** Nothing is sent to a model until you turn on `ai.enabled`. MeshCore and Reticulum each have their own switch, also off.
 - **Licensed callers.** On packet, by default only radio callers, whose licenses the FCC lists as active, may ask.
 - **Station instructions.** The model is always told to answer briefly in plain English and plain ASCII text, with no profanity or obscene or indecent language, no codes or ciphers, and no business or commercial dealings (97.113(a)). `ai.instructions` adds to those instructions. It does not replace them.
-- **Filter.** A question with a word from a short list of profanity, or a long run of what looks like base64 or hex, is not sent to the model. A reply with the same is withheld, and the caller is told it was withheld. The withheld reply is kept in the log for you.
+- **Filter.** A question with a word from a short list of profanity, a word from `ai.banned_words`, or a long unbroken token that looks like base64, hex, or other encoded text, is not sent to the model. A long ordinary word, a callsign, or a grid square is left alone. A reply with the same is withheld, and the caller is told it was withheld. The withheld reply is kept in the log for you.
 - **No encryption on packet.** Packet replies go out as readable text on the same unencrypted session as the rest of the prompt (97.113(a)(4)). Reticulum is the exception, as described above.
 - **Identification.** Every AX.25 frame carries this station's callsign, as the rest of the prompt does (97.119).
 - **Log.** Every question, reply, refusal, and error is written to `ai-log.jsonl` in the state directory, mode `0600`, with the time, the caller, the path (`radio`, `link`, `netrom`, `meshcore`, or `reticulum`), and the model. When the log passes 4 MB it is moved to `ai-log.jsonl.1`, and one old log is kept. `crossbeam ai log` shows the last entries.
@@ -178,6 +203,8 @@ The defaults, `ai.backend` `ollama`, `ai.url` `http://127.0.0.1:11434`, and `ai.
 
 `crossbeam ai test` says what to fix. When Ollama cannot be reached, it names the address and says to check that Ollama is running, that `OLLAMA_HOST=0.0.0.0:11434` is set on another computer, and that its firewall lets this computer in. When the model is missing, it says to run `ollama pull llama3.2:3b` on that computer. The first question after the model has been idle can take longer while Ollama loads it.
 
+If `ai.url` is not a private or local address, `crossbeam ai test`, the line `crossbeam serve` prints at startup, and the settings page all warn: questions will be sent off your network. The address is still used. Private means a loopback, link-local, RFC1918, or 100.64.0.0/10 address, IPv6 unique-local, or a hostname ending in `.local` or `.ts.net` that resolves to one of those. Any other hostname is treated as public.
+
 ## Set up Open WebUI
 
 Open WebUI is optional. It sits in front of Ollama and adds users and API keys.
@@ -208,6 +235,7 @@ LM Studio and llama.cpp's `llama-server` also use `ai.backend` `openai`. Use the
 crossbeam ai key [--clear] [--state DIR]
 crossbeam ai test [QUESTION] [--state DIR]
 crossbeam ai log [-n COUNT] [--state DIR]
+crossbeam ai senders list|approve ID|deny ID|revoke ID [--state DIR]
 ```
 
 `ai test` sends one question with the saved settings, even while `ai.enabled` is off, and prints the answer or what to fix. It goes through the same filter and log as a caller's question. `ai log` prints the last entries of the AI log, 20 by default.
@@ -236,7 +264,9 @@ crossbeam ai log [-n COUNT] [--state DIR]
 | `ai.reply` | Longest reply | `600` |
 | `ai.timeout` | Answer time limit | `90` |
 | `ai.instructions` | Extra instructions | empty |
+| `ai.banned_words` | Extra banned words | empty |
 | `ai.mesh` | AI over MeshCore | `false` |
 | `ai.reticulum` | AI over Reticulum | `false` |
+| `ai.require_approval` | Approve MeshCore and Reticulum senders | `true` |
 
 Each one is described in `docs/settings.md`. A saved change applies to the next question. No restart is needed.
