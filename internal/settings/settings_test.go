@@ -253,7 +253,7 @@ func TestSettingsDocument(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc := string(text)
-	if len(Schema) != 30 {
+	if len(Schema) != 32 {
 		t.Fatalf("schema has %d keys", len(Schema))
 	}
 	for _, field := range Schema {

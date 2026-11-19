@@ -5,6 +5,7 @@ package ai
 
 import (
 	"context"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -88,6 +89,16 @@ func (s *Service) Message(ctx context.Context, who Caller, text string) (string,
 	}
 	if ok, why := cfg.Allowed(who); !ok {
 		return why, true
+	}
+	if cfg.RequireApproval && (who.Mesh || who.Reticulum) {
+		reply, allow, err := s.screen(who, text)
+		if err != nil {
+			log.Printf("crossbeam: ai sender list could not be read")
+			return "", true
+		}
+		if !allow {
+			return reply, true
+		}
 	}
 	question := Question(text)
 	key := limitKey(who)

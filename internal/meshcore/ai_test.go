@@ -78,7 +78,11 @@ func meshExchange(rw io.ReadWriter, prefix []byte, text string, seq uint32) (str
 }
 
 func TestMeshAIKeepsShortHistory(t *testing.T) {
-	runMeshAI(t, meshAssistant(t, "true"), func(rw io.ReadWriter) error {
+	svc := meshAssistant(t, "true")
+	if err := svc.Approve("meshcore:010203040506"); err != nil {
+		t.Fatal(err)
+	}
+	runMeshAI(t, svc, func(rw io.ReadWriter) error {
 		if err := setupRadio(rw, "K5LEB"); err != nil {
 			return err
 		}

@@ -265,6 +265,9 @@ func TestAllowed(t *testing.T) {
 		{Config{Enabled: true, Users: []string{"K5LEB"}}, radioCaller, false},
 		{on, Caller{Call: "abcd", Mesh: true}, false},
 		{Config{Enabled: true, Mesh: true}, Caller{Call: "abcd", Mesh: true}, true},
+		// The approval gate is not part of Allowed. Radio stays open.
+		{Config{Enabled: true, RequireApproval: true}, radioCaller, true},
+		{Config{Enabled: true, Mesh: true, RequireApproval: true}, Caller{Call: "abcd", Mesh: true}, true},
 	}
 	for i, c := range cases {
 		if got, why := c.cfg.Allowed(c.who); got != c.want || (!got && why == "") {
@@ -403,8 +406,63 @@ func TestText(t *testing.T) {
 	if !Profane("You are a BASTARD.") || Profane("Scunthorpe has a classic assembly hall") {
 		t.Fatal("profane")
 	}
-	if !Encoded("5f4dcc3b5aa765d61d8327deb882cf99aa11bb22") || Encoded("internationalization-characteristically") || Encoded("https://example.com/a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6") {
-		t.Fatal("encoded")
+	if Obscene("buy this scam", []string{"scam"}) == false || Obscene("a scamper", []string{"scam"}) || Obscene("classic", []string{"class"}) {
+		t.Fatal("extra banned words")
+	}
+	encoded := []string{
+		"5f4dcc3b5aa765d61d8327deb882cf99aa11bb22",
+		"mjMetNJURppDnZvZCakbEyeWfHTbFLerOIEuZSjQHeEYjfWmqAqnLH",
+		"qzxwkvbnmrtpylkjhgfdsqzxwkvbnmrtpy",
+		"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+	}
+	plain := []string{
+		"internationalization-characteristically",
+		"pneumonoultramicroscopicsilicovolcanoconiosis",
+		"thequickbrownfoxjumpsoverthelazydog",
+		"https://example.com/a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
+		"W5ABC", "K5LEB-1", "EM12", "EM12kp", "FN31pr",
+		"repeater", "callsign", "packet",
+	}
+	for _, s := range encoded {
+		if !Encoded(s) {
+			t.Fatalf("not encoded: %s", s)
+		}
+	}
+	for _, s := range plain {
+		if Encoded(s) {
+			t.Fatalf("false encoded: %s", s)
+		}
+	}
+}
+
+func TestExtraBannedWords(t *testing.T) {
+	fake := newFake(t, settings.AIBackendOllama, func(r fakeRequest) (int, string, time.Duration) {
+		if strings.Contains(r.Msgs[len(r.Msgs)-1].Content, "weather") {
+			return 200, "Watch out for that scam on the net.", 0
+		}
+		return 200, "The repeater is on 146.52.", 0
+	})
+	svc, _ := newService(t, map[string]string{settings.KeyAIURL: fake.URL, settings.KeyAIBannedWords: "scam"})
+	cfg, _ := svc.Config(context.Background())
+	if len(cfg.Banned) != 1 || cfg.Banned[0] != "scam" {
+		t.Fatalf("banned %+v", cfg.Banned)
+	}
+	before := len(fake.all())
+	if r := svc.ask(context.Background(), cfg, radioCaller, nil, "is this a scam", 600, time.Second); r.outcome != OutRefused {
+		t.Fatalf("question: %+v", r)
+	}
+	if len(fake.all()) != before {
+		t.Fatal("banned question was sent")
+	}
+	if r := svc.ask(context.Background(), cfg, radioCaller, nil, "a scamper on the hill", 600, time.Second); !r.ok {
+		t.Fatalf("scamper: %+v", r)
+	}
+	if r := svc.ask(context.Background(), cfg, radioCaller, nil, "the weather", 600, time.Second); r.outcome != OutWithheld {
+		t.Fatalf("reply: %+v", r)
+	}
+	reqs := fake.all()
+	if !strings.Contains(reqs[len(reqs)-1].Msgs[0].Content, "scam") {
+		t.Fatal("system prompt did not name the extra word")
 	}
 }
 
@@ -462,6 +520,12 @@ func TestMeshMessage(t *testing.T) {
 		return 200, "Answer to " + r.Msgs[len(r.Msgs)-1].Content, 0
 	})
 	svc, _ := newService(t, map[string]string{settings.KeyAIURL: fake.URL, settings.KeyAIMesh: "true"})
+	if err := svc.Approve("meshcore:a1b2c3"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Approve("meshcore:ffff"); err != nil {
+		t.Fatal(err)
+	}
 	mesh := Caller{Call: "a1b2c3", Mesh: true, Via: "meshcore"}
 	if _, ok := svc.Message(context.Background(), mesh, "LIST"); ok {
 		t.Fatal("LIST was taken as an AI message")
@@ -527,7 +591,7 @@ func TestSysopErrors(t *testing.T) {
 
 func TestDefaultsTalkToOllamaDirectly(t *testing.T) {
 	cfg := FromSettings(mustValidate(t, map[string]string{}), "")
-	if cfg.Backend != "ollama" || cfg.URL != "http://127.0.0.1:11434" || cfg.Model != "llama3.2:3b" || cfg.Enabled || cfg.Mesh || cfg.Reticulum || len(cfg.Users) != 0 {
+	if cfg.Backend != "ollama" || cfg.URL != "http://127.0.0.1:11434" || cfg.Model != "llama3.2:3b" || cfg.Enabled || cfg.Mesh || cfg.Reticulum || !cfg.RequireApproval || len(cfg.Users) != 0 || len(cfg.Banned) != 0 {
 		t.Fatalf("%+v", cfg)
 	}
 	if got := ollamaEndpoint(cfg.URL); got != "http://127.0.0.1:11434/api/chat" {

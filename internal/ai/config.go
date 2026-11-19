@@ -31,7 +31,11 @@ type Config struct {
 	Instructions string
 	Mesh         bool
 	Reticulum    bool
-	Station      string
+	// RequireApproval gates MeshCore and Reticulum senders. It does not
+	// change who Allowed accepts on AX.25.
+	RequireApproval bool
+	Banned          []string
+	Station         string
 }
 
 // FromSettings reads a validated settings map. key is the API key from
@@ -43,19 +47,21 @@ func FromSettings(current map[string]string, key string) Config {
 		station = "this station"
 	}
 	return Config{
-		Enabled:      current[settings.KeyAIEnabled] == "true",
-		Backend:      current[settings.KeyAIBackend],
-		URL:          current[settings.KeyAIURL],
-		Model:        current[settings.KeyAIModel],
-		Key:          key,
-		Users:        users,
-		Hourly:       number(current[settings.KeyAIHourly], 20),
-		Reply:        number(current[settings.KeyAIReply], 600),
-		Timeout:      time.Duration(number(current[settings.KeyAITimeout], 90)) * time.Second,
-		Instructions: strings.TrimSpace(current[settings.KeyAIInstructions]),
-		Mesh:         current[settings.KeyAIMesh] == "true",
-		Reticulum:    current[settings.KeyAIReticulum] == "true",
-		Station:      station,
+		Enabled:         current[settings.KeyAIEnabled] == "true",
+		Backend:         current[settings.KeyAIBackend],
+		URL:             current[settings.KeyAIURL],
+		Model:           current[settings.KeyAIModel],
+		Key:             key,
+		Users:           users,
+		Hourly:          number(current[settings.KeyAIHourly], 20),
+		Reply:           number(current[settings.KeyAIReply], 600),
+		Timeout:         time.Duration(number(current[settings.KeyAITimeout], 90)) * time.Second,
+		Instructions:    strings.TrimSpace(current[settings.KeyAIInstructions]),
+		Mesh:            current[settings.KeyAIMesh] == "true",
+		Reticulum:       current[settings.KeyAIReticulum] == "true",
+		RequireApproval: current[settings.KeyAIRequireApproval] != "false",
+		Banned:          strings.Fields(strings.ToLower(current[settings.KeyAIBannedWords])),
+		Station:         station,
 	}
 }
 
@@ -89,6 +95,8 @@ func (c Config) Allowed(who Caller) (bool, string) {
 	if !c.Enabled {
 		return false, "The AI assistant is not turned on at this station."
 	}
+	// Approval of a MeshCore or Reticulum sender is checked in Message.
+	// Allowed stays the same for an AX.25 caller either way.
 	if who.Mesh {
 		if !c.Mesh {
 			return false, "The AI assistant is not offered over MeshCore here."

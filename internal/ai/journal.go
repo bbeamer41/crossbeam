@@ -41,6 +41,10 @@ const (
 	OutBusy      = "busy"
 	OutError     = "error"
 	OutCancelled = "cancelled"
+	OutPending   = "pending"
+	OutApproved  = "approved"
+	OutDenied    = "denied"
+	OutRevoked   = "revoked"
 )
 
 // Journal appends entries to the AI log, mode 0600.

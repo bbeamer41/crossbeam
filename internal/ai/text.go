@@ -4,6 +4,7 @@
 package ai
 
 import (
+	"math"
 	"strings"
 	"unicode"
 )
@@ -31,11 +32,25 @@ var blocked = map[string]bool{
 
 // Profane reports whether text has a word from the blocked list.
 func Profane(text string) bool {
+	return bannedWord(text, nil)
+}
+
+// Obscene reports whether text has a built-in blocked word or one of
+// the station's extra words. Matching is by whole word.
+func Obscene(text string, extra []string) bool {
+	return bannedWord(text, extra)
+}
+
+func bannedWord(text string, extra []string) bool {
+	more := map[string]bool{}
+	for _, w := range extra {
+		more[strings.ToLower(w)] = true
+	}
 	words := strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
 		return !unicode.IsLetter(r)
 	})
 	for _, w := range words {
-		if blocked[w] {
+		if blocked[w] || more[w] {
 			return true
 		}
 	}
@@ -43,31 +58,102 @@ func Profane(text string) bool {
 }
 
 // Encoded reports whether text looks like it hides its meaning: a long
-// run of base64 or hex with no spaces (47 CFR 97.113(a)(4)). A web
-// address or a long ordinary word does not count.
+// run of base64, hex, or a similar unbroken high-entropy token
+// (47 CFR 97.113(a)(4)). A web address, a callsign, a grid square, or a
+// long ordinary word does not count.
 func Encoded(text string) bool {
 	for _, tok := range strings.Fields(text) {
 		tok = strings.Trim(tok, ".,;:!?()[]\"'")
 		if len(tok) < 32 || strings.Contains(tok, "://") {
 			continue
 		}
-		letters, digits, other := 0, 0, 0
-		for _, r := range tok {
-			switch {
-			case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z':
-				letters++
-			case r >= '0' && r <= '9':
-				digits++
-			case r == '+' || r == '/' || r == '=' || r == '_' || r == '-':
-			default:
-				other++
-			}
-		}
-		if other == 0 && digits > 0 && letters > 0 {
+		if encodedToken(tok) {
 			return true
 		}
 	}
 	return false
+}
+
+// encodedToken is true for a single base64-alphabet token. Mixed letters
+// and digits are the usual hex or base64 case. An all-letter token counts
+// when it is mixed case the way base64 is, or when it is high-entropy and
+// not an ordinary word.
+func encodedToken(tok string) bool {
+	letters, digits, other := 0, 0, 0
+	upper, lower, vowels, transitions := 0, 0, 0, 0
+	var prev rune
+	for i, r := range tok {
+		switch {
+		case r >= 'a' && r <= 'z':
+			letters++
+			lower++
+			if r == 'a' || r == 'e' || r == 'i' || r == 'o' || r == 'u' {
+				vowels++
+			}
+			if i > 0 && prev >= 'A' && prev <= 'Z' {
+				transitions++
+			}
+		case r >= 'A' && r <= 'Z':
+			letters++
+			upper++
+			if r == 'A' || r == 'E' || r == 'I' || r == 'O' || r == 'U' {
+				vowels++
+			}
+			if i > 0 && prev >= 'a' && prev <= 'z' {
+				transitions++
+			}
+		case r >= '0' && r <= '9':
+			digits++
+		case r == '+' || r == '/' || r == '=' || r == '_' || r == '-':
+		default:
+			other++
+		}
+		prev = r
+	}
+	if other > 0 || letters == 0 {
+		return false
+	}
+	if digits > 0 {
+		return true
+	}
+	if upper > 0 && lower > 0 && transitions >= 4 {
+		return true
+	}
+	// A long lowercase blob with almost no vowels is not an English word.
+	if vowels*8 < len(tok) && shannon(tok) >= 4 && uniqueRunes(tok) >= 16 {
+		return true
+	}
+	if shannon(tok) >= 4.8 && uniqueRunes(tok) >= 20 {
+		return true
+	}
+	return false
+}
+
+func shannon(s string) float64 {
+	if s == "" {
+		return 0
+	}
+	counts := map[rune]int{}
+	n := 0
+	for _, r := range s {
+		counts[r]++
+		n++
+	}
+	h := 0.0
+	nf := float64(n)
+	for _, c := range counts {
+		p := float64(c) / nf
+		h -= p * math.Log2(p)
+	}
+	return h
+}
+
+func uniqueRunes(s string) int {
+	seen := map[rune]struct{}{}
+	for _, r := range s {
+		seen[r] = struct{}{}
+	}
+	return len(seen)
 }
 
 var punct = strings.NewReplacer(

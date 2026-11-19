@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -43,13 +44,15 @@ type Service struct {
 	slots    chan struct{}
 	now      func() time.Time
 	threads  threads
+	bookMu   sync.Mutex
+	mem      *book
 }
 
 // New returns the assistant. read is the settings reader, usually
 // store.Settings. dir is the state directory, which holds the key file
 // and the AI log.
 func New(read func(context.Context) (map[string]string, error), dir string) *Service {
-	return &Service{
+	s := &Service{
 		settings: read,
 		dir:      dir,
 		client:   NewHTTPClient(),
@@ -57,6 +60,12 @@ func New(read func(context.Context) (map[string]string, error), dir string) *Ser
 		slots:    make(chan struct{}, slots),
 		now:      time.Now,
 	}
+	if dir != "" {
+		if _, err := LoadSenders(dir); err != nil {
+			log.Printf("crossbeam: ai sender list could not be read")
+		}
+	}
+	return s
 }
 
 // SetHTTPClient replaces the client, for a test server.
@@ -99,6 +108,9 @@ func system(cfg Config, max int) string {
 	if cfg.Instructions != "" {
 		text += " " + cfg.Instructions
 	}
+	if len(cfg.Banned) > 0 {
+		text += " Also do not use these words: " + strings.Join(cfg.Banned, ", ") + "."
+	}
 	return text
 }
 
@@ -130,7 +142,7 @@ func (s *Service) ask(ctx context.Context, cfg Config, who Caller, history []Mes
 		}
 		return r
 	}
-	if Profane(question) || Encoded(question) {
+	if Obscene(question, cfg.Banned) || Encoded(question) {
 		return finish(result{text: "That question cannot be sent on amateur radio.", outcome: OutRefused})
 	}
 	// Take a slot before the hourly count. A busy server did not answer,
@@ -161,7 +173,7 @@ func (s *Service) ask(ctx context.Context, cfg Config, who Caller, history []Mes
 		return finish(result{text: publicError(err), outcome: OutError, err: err})
 	}
 	text := Cut(Plain(raw), max)
-	if Profane(text) || Encoded(text) {
+	if Obscene(text, cfg.Banned) || Encoded(text) {
 		r := finish(result{text: text, outcome: OutWithheld})
 		r.text = "The reply was withheld because it is not allowed on amateur radio."
 		return r

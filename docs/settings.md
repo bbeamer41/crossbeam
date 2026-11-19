@@ -168,7 +168,7 @@ The kind of AI server. Ollama is the usual choice: Crossbeam talks to Ollama dir
 
 The web address of the AI server. The default, http://127.0.0.1:11434, is Ollama on this computer. For Ollama on another computer, use its address, such as http://192.168.1.50:11434. For Open WebUI, use an address such as http://192.168.1.50:3000/api/chat/completions. Use an address on your own network.
 
-The default is `http://127.0.0.1:11434`, Ollama on this computer. An `http` or `https` address, at most 256 runes, with no user name, password, query, or fragment. A trailing slash is removed. For Ollama a bare `http://host:11434` is enough. For an OpenAI-compatible server, a bare host gets `/v1/chat/completions`, an address ending in `/v1` or `/api` gets `/chat/completions`, and any other path is used as-is. Crossbeam never uses an HTTP proxy from the environment for this address. An API key is not part of the address; save it with `crossbeam ai key`.
+The default is `http://127.0.0.1:11434`, Ollama on this computer. An `http` or `https` address, at most 256 runes, with no user name, password, query, or fragment. A trailing slash is removed. For Ollama a bare `http://host:11434` is enough. For an OpenAI-compatible server, a bare host gets `/v1/chat/completions`, an address ending in `/v1` or `/api` gets `/chat/completions`, and any other path is used as-is. Crossbeam never uses an HTTP proxy from the environment for this address. An API key is not part of the address; save it with `crossbeam ai key`. When the address is not a private or local address, `crossbeam ai test`, startup, and the settings page warn. The address is still used. Private here means loopback, link-local, RFC1918, the carrier-grade range 100.64.0.0/10, IPv6 unique-local, and a name ending in `.local` or `.ts.net` that resolves to one of those.
 
 ## ai.model
 
@@ -206,6 +206,12 @@ Optional instructions added to what the assistant is always told. Crossbeam alre
 
 One line, at most 500 runes. It is added after the station's own instructions, which cannot be turned off.
 
+## ai.banned_words
+
+Optional words the assistant will not send or accept, added to the built-in list. Separate words with spaces or commas. A word matches on its own, so listing one does not block a longer word that merely contains it.
+
+The default is empty. Words are letters only, stored in lower case, at most 32 letters each, and at most 64 words. A comma or a semicolon separates words the same way a space does. Duplicates are dropped. The words are added to the station instructions the model is given, and the filter checks them on the question and the reply.
+
 ## ai.mesh
 
 Also answer a MeshCore direct message that starts with AI, such as AI what is a repeater. The assistant remembers the last few questions from that contact for 30 minutes. Send AI /NEW to start over. Leave this off to keep the assistant off MeshCore.
@@ -217,6 +223,12 @@ The only values are `true` and `false`. The default is `false`. `ai.enabled` mus
 Also answer an LXMF message sent to this station over Reticulum, such as from Sideband or NomadNet, when it starts with AI. It needs the separate Crossbeam LXMF bridge running on this computer. The assistant remembers the last few questions from that sender for 30 minutes. Reticulum messages are encrypted, so do not carry them on an amateur radio interface. Leave this off to keep the assistant off Reticulum.
 
 The only values are `true` and `false`. The default is `false`. `ai.enabled` must also be on. Crossbeam opens `ai.sock` beside the admin socket, with the same mode, at every start. The bridge in `contrib/reticulum` sends each LXMF message there. While this is false, every message is ignored and nothing is sent back. A Reticulum sender is identified by its LXMF address, not a callsign, so `ai.users` does not apply. The question limit and the history are kept per sender. A change applies to the next message.
+
+## ai.require_approval
+
+When this is on, a MeshCore or Reticulum sender must be approved before a question reaches the model. The first message is held for you, and the sender is told once that it is waiting. A blocked sender gets no reply. Radio callers are not on this list: the license check already covers them. Leave this on.
+
+The only values are `true` and `false`. The default is `true`. While it is on, an unknown MeshCore or Reticulum sender does not reach the model. The sender is added to a pending list of at most 200, and hears "Your request is waiting for sysop approval." at most once a day. A later message that day gets no reply. When the list is full, a new sender gets no reply and is not added. A blocked sender is ignored: no reply, and no new pending row. The lists are kept in `ai-senders.json` in the state directory, mode `0600`. Approve, block, or revoke a sender on the settings page, or with `crossbeam ai senders`. Revoke takes someone off the approved list, so the next message waits again. Turning this off leaves MeshCore and Reticulum as they were: `ai.mesh` and `ai.reticulum` still decide, and the blocked list is not checked. Radio callers are unchanged either way.
 
 ## Command
 

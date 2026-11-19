@@ -13,7 +13,7 @@ func TestAIDefaultsOff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got[KeyAIEnabled] != "false" || got[KeyAIBackend] != "ollama" || got[KeyAIHourly] != "20" || got[KeyAIReply] != "600" || got[KeyAITimeout] != "90" || got[KeyAIMesh] != "false" || got[KeyAIReticulum] != "false" || got[KeyAIURL] != AIDefaultURL || got[KeyAIModel] != AIDefaultModel || got[KeyAIUsers] != "" {
+	if got[KeyAIEnabled] != "false" || got[KeyAIBackend] != "ollama" || got[KeyAIHourly] != "20" || got[KeyAIReply] != "600" || got[KeyAITimeout] != "90" || got[KeyAIMesh] != "false" || got[KeyAIReticulum] != "false" || got[KeyAIRequireApproval] != "true" || got[KeyAIBannedWords] != "" || got[KeyAIURL] != AIDefaultURL || got[KeyAIModel] != AIDefaultModel || got[KeyAIUsers] != "" {
 		t.Fatalf("defaults %v", got)
 	}
 }
@@ -49,6 +49,8 @@ func TestAISettings(t *testing.T) {
 		{map[string]string{KeyAIReply: "50000"}, "ai.reply"},
 		{map[string]string{KeyAITimeout: "two"}, "ai.timeout"},
 		{map[string]string{KeyAIModel: "two words"}, "ai.model"},
+		{map[string]string{KeyAIBannedWords: "scam2"}, "ai.banned_words"},
+		{map[string]string{KeyAIBannedWords: strings.Repeat("a", 33)}, "ai.banned_words"},
 	}
 	for _, c := range bad {
 		if _, err := Validate(c.patch); err == nil || !strings.Contains(err.Error(), c.want) {
@@ -64,7 +66,28 @@ func TestAIEnableAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got[KeyAIURL] != "http://127.0.0.1:11434" || got[KeyAIModel] != "llama3.2:3b" || got[KeyAIBackend] != "ollama" || got[KeyAIUsers] != "" {
+	if got[KeyAIURL] != "http://127.0.0.1:11434" || got[KeyAIModel] != "llama3.2:3b" || got[KeyAIBackend] != "ollama" || got[KeyAIUsers] != "" || got[KeyAIRequireApproval] != "true" {
 		t.Fatalf("%v", got)
+	}
+}
+
+func TestAIBannedWords(t *testing.T) {
+	got, err := Validate(map[string]string{KeyAIBannedWords: "Scam, crypto; Crypto scam"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[KeyAIBannedWords] != "scam crypto" {
+		t.Fatalf("%q", got[KeyAIBannedWords])
+	}
+	var many []string
+	for i := 0; i < 65; i++ {
+		many = append(many, string(rune('a'+i/26))+string(rune('a'+i%26))+"x")
+	}
+	if _, err := Validate(map[string]string{KeyAIBannedWords: strings.Join(many, " ")}); err == nil || !strings.Contains(err.Error(), "64") {
+		t.Fatal(err)
+	}
+	off, err := Validate(map[string]string{KeyAIRequireApproval: "false"})
+	if err != nil || off[KeyAIRequireApproval] != "false" {
+		t.Fatalf("%v %v", off[KeyAIRequireApproval], err)
 	}
 }

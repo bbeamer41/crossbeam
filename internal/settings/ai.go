@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/bbeamer41/crossbeam/internal/ax25"
 )
@@ -15,17 +16,19 @@ import (
 // AI assistant keys. Every one is read when a session asks for the
 // assistant, so a saved change applies to the next question.
 const (
-	KeyAIEnabled      = "ai.enabled"
-	KeyAIBackend      = "ai.backend"
-	KeyAIURL          = "ai.url"
-	KeyAIModel        = "ai.model"
-	KeyAIUsers        = "ai.users"
-	KeyAIHourly       = "ai.hourly"
-	KeyAIReply        = "ai.reply"
-	KeyAITimeout      = "ai.timeout"
-	KeyAIInstructions = "ai.instructions"
-	KeyAIMesh         = "ai.mesh"
-	KeyAIReticulum    = "ai.reticulum"
+	KeyAIEnabled         = "ai.enabled"
+	KeyAIBackend         = "ai.backend"
+	KeyAIURL             = "ai.url"
+	KeyAIModel           = "ai.model"
+	KeyAIUsers           = "ai.users"
+	KeyAIHourly          = "ai.hourly"
+	KeyAIReply           = "ai.reply"
+	KeyAITimeout         = "ai.timeout"
+	KeyAIInstructions    = "ai.instructions"
+	KeyAIMesh            = "ai.mesh"
+	KeyAIReticulum       = "ai.reticulum"
+	KeyAIRequireApproval = "ai.require_approval"
+	KeyAIBannedWords     = "ai.banned_words"
 )
 
 // Defaults for a model on this computer.
@@ -119,6 +122,14 @@ var aiFields = []Field{
 		MaxRunes: 500,
 	},
 	{
+		Key:      KeyAIBannedWords,
+		Label:    "Extra banned words",
+		Example:  "scam crypto",
+		Help:     "Optional words the assistant will not send or accept, added to the built-in list. Separate words with spaces or commas. A word matches on its own, so listing one does not block a longer word that merely contains it.",
+		Kind:     KindLine,
+		MaxRunes: 1024,
+	},
+	{
 		Key:     KeyAIMesh,
 		Label:   "AI over MeshCore",
 		Help:    "Also answer a MeshCore direct message that starts with AI, such as AI what is a repeater. The assistant remembers the last few questions from that contact for 30 minutes. Send AI /NEW to start over. Leave this off to keep the assistant off MeshCore.",
@@ -131,6 +142,13 @@ var aiFields = []Field{
 		Help:    "Also answer an LXMF message sent to this station over Reticulum, such as from Sideband or NomadNet, when it starts with AI. It needs the separate Crossbeam LXMF bridge running on this computer. The assistant remembers the last few questions from that sender for 30 minutes. Reticulum messages are encrypted, so do not carry them on an amateur radio interface. Leave this off to keep the assistant off Reticulum.",
 		Kind:    KindBool,
 		Default: "false",
+	},
+	{
+		Key:     KeyAIRequireApproval,
+		Label:   "Approve MeshCore and Reticulum senders",
+		Help:    "When this is on, a MeshCore or Reticulum sender must be approved before a question reaches the model. The first message is held for you, and the sender is told once that it is waiting. A blocked sender gets no reply. Radio callers are not on this list: the license check already covers them. Leave this on.",
+		Kind:    KindBool,
+		Default: "true",
 	},
 }
 
@@ -156,6 +174,11 @@ func validateAI(out map[string]string) error {
 		return err
 	}
 	out[KeyAIUsers] = strings.Join(users, " ")
+	words, err := ParseAIBanned(out[KeyAIBannedWords])
+	if err != nil {
+		return err
+	}
+	out[KeyAIBannedWords] = strings.Join(words, " ")
 	for _, n := range []struct {
 		key      string
 		def      string
@@ -202,6 +225,53 @@ func canonicalAIURL(value string) (string, error) {
 		return "", fmt.Errorf("ai.url must not have a query or a fragment")
 	}
 	return strings.TrimRight(u.String(), "/"), nil
+}
+
+// ParseAIBanned reads ai.banned_words. Words are letters, stored in
+// lower case, and duplicates are dropped.
+func ParseAIBanned(value string) ([]string, error) {
+	fields := strings.FieldsFunc(value, func(r rune) bool {
+		return r == ' ' || r == ',' || r == '\t' || r == ';'
+	})
+	seen := map[string]bool{}
+	var out []string
+	for _, field := range fields {
+		word := strings.ToLower(strings.TrimSpace(field))
+		if word == "" {
+			continue
+		}
+		if utf8Len(word) > 32 || !wordLetters(word) {
+			return nil, fmt.Errorf("ai.banned_words must be words of letters, separated by spaces or commas")
+		}
+		if !seen[word] {
+			seen[word] = true
+			out = append(out, word)
+		}
+	}
+	if len(out) > 64 {
+		return nil, fmt.Errorf("ai.banned_words lists more than 64 words")
+	}
+	return out, nil
+}
+
+func wordLetters(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if !unicode.IsLetter(r) {
+			return false
+		}
+	}
+	return true
+}
+
+func utf8Len(s string) int {
+	n := 0
+	for range s {
+		n++
+	}
+	return n
 }
 
 // ParseAIUsers reads ai.users. Each entry is an AX.25 callsign. The SSID

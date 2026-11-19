@@ -38,7 +38,8 @@ type BridgeRequest struct {
 
 // BridgeReply is the answer, one JSON object per line. Ignore is true
 // when the bridge should not reply at all: the text did not start with
-// AI, or the assistant is off for Reticulum.
+// AI, the assistant is off for Reticulum, or the sender is waiting,
+// blocked, or otherwise not answered.
 type BridgeReply struct {
 	Reply  string `json:"reply,omitempty"`
 	Ignore bool   `json:"ignore,omitempty"`
@@ -160,7 +161,7 @@ func (s *Service) Bridge(ctx context.Context, req BridgeRequest) BridgeReply {
 		return BridgeReply{Ignore: true}
 	}
 	reply, ok := s.Message(ctx, Caller{Call: from, Reticulum: true, Via: "reticulum"}, req.Text)
-	if !ok {
+	if !ok || strings.TrimSpace(reply) == "" {
 		return BridgeReply{Ignore: true}
 	}
 	return BridgeReply{Reply: reply}

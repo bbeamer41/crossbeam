@@ -45,6 +45,9 @@ func TestReticulumBridge(t *testing.T) {
 		return 200, "Reticulum answer to " + q, 0
 	})
 	svc, dir := newService(t, map[string]string{settings.KeyAIURL: fake.URL, settings.KeyAIReticulum: "true"})
+	if err := svc.Approve("reticulum:" + sender); err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(t.TempDir(), SocketName)
 	ln, err := ListenBridge(path, 0o600)
 	if err != nil {
@@ -93,7 +96,14 @@ func TestReticulumBridge(t *testing.T) {
 		t.Fatalf("limit %+v", got)
 	}
 	entries, _ := ReadLog(dir, 0)
-	if len(entries) == 0 || entries[0].Via != "reticulum" || entries[0].Caller != sender {
+	logged := false
+	for _, e := range entries {
+		if e.Via == "reticulum" && e.Caller == sender && e.Outcome == OutAnswered {
+			logged = true
+			break
+		}
+	}
+	if !logged {
 		t.Fatalf("log %+v", entries)
 	}
 }
