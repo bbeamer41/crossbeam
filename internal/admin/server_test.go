@@ -951,10 +951,18 @@ func TestSavedRadioStaysOnTheForm(t *testing.T) {
 		`<option value="/dev/serial/by-id/usb-saved-radio" selected>usb-saved-radio</option>`,
 		`<option value="USB" selected>`,
 		`name="radio.frequency" type="text" value="145.03"`,
+		`<h2 class="group">AI assistant</h2>`,
+		`<option value="ollama" selected>Ollama</option>`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("missing %s\n%s", want, html)
 		}
+	}
+	if strings.Index(html, `<h2 class="group">MeshCore</h2>`) > strings.Index(html, `<h2 class="group">AI assistant</h2>`) {
+		t.Fatal("AI settings are under the MeshCore heading")
+	}
+	if strings.Index(html, `<h2 class="group">AI assistant</h2>`) > strings.Index(html, `id="field-ai.enabled"`) {
+		t.Fatal("AI heading is below the AI fields")
 	}
 	if strings.Count(html, `value="999999"`) != 1 || strings.Count(html, `value="/dev/serial/by-id/usb-saved-radio"`) != 1 {
 		t.Fatal("saved radio was listed twice")
