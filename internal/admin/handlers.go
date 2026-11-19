@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/bbeamer41/crossbeam/internal/ai"
 	"github.com/bbeamer41/crossbeam/internal/article"
 	"github.com/bbeamer41/crossbeam/internal/radio"
 	"github.com/bbeamer41/crossbeam/internal/settings"
@@ -81,6 +82,10 @@ type page struct {
 	Articles    []articleView
 	RadioStatus string
 	RadioOK     bool
+	URLWarning  string
+	Pending     []ai.Sender
+	Approved    []ai.Sender
+	Denied      []ai.Sender
 }
 
 func (a *app) handler(local bool) http.Handler {
@@ -138,6 +143,8 @@ func (a *app) serve(w http.ResponseWriter, r *http.Request, local bool) {
 		a.settingsPage(w, r, local, "")
 	case r.URL.Path == "/settings" && r.Method == http.MethodPost:
 		a.settingsPost(w, r, local)
+	case r.URL.Path == "/ai/senders" && r.Method == http.MethodPost:
+		a.sendersPost(w, r, local)
 	case r.URL.Path == "/compose" && r.Method == http.MethodGet:
 		a.composeGet(w, r, local)
 	case r.URL.Path == "/compose" && r.Method == http.MethodPost:
@@ -413,6 +420,11 @@ func (a *app) settingsPage(w http.ResponseWriter, r *http.Request, local bool, m
 	if a.radio != nil {
 		note, radioOK = a.radio.Status()
 	}
+	lists, listErr := ai.LoadSenders(a.st.Dir())
+	if listErr != nil && msg == "" {
+		msg = "The AI sender list could not be read."
+		status = http.StatusBadRequest
+	}
 	a.render(w, status, page{
 		Title:       "Settings",
 		Station:     stationName(current),
@@ -424,7 +436,36 @@ func (a *app) settingsPage(w http.ResponseWriter, r *http.Request, local bool, m
 		Fields:      a.fieldViews(r.Context(), current),
 		RadioStatus: note,
 		RadioOK:     radioOK,
+		URLWarning:  ai.URLWarning(current[settings.KeyAIURL], nil),
+		Pending:     lists.Pending,
+		Approved:    lists.Approved,
+		Denied:      lists.Denied,
 	})
+}
+
+func (a *app) sendersPost(w http.ResponseWriter, r *http.Request, local bool) {
+	if _, ok := a.requireChange(w, r, local, false); !ok {
+		return
+	}
+	id := strings.TrimSpace(r.PostFormValue("id"))
+	svc := ai.New(a.st.Settings, a.st.Dir())
+	var err error
+	switch r.PostFormValue("op") {
+	case "approve":
+		err = svc.Approve(id)
+	case "deny":
+		err = svc.Deny(id)
+	case "revoke":
+		err = svc.Revoke(id)
+	default:
+		a.settingsPage(w, r, local, "That sender action is not known.")
+		return
+	}
+	if err != nil {
+		a.settingsPage(w, r, local, cleanErr(err))
+		return
+	}
+	http.Redirect(w, r, "/settings#ai-senders", http.StatusSeeOther)
 }
 
 func (a *app) settingsPost(w http.ResponseWriter, r *http.Request, local bool) {
@@ -957,6 +998,12 @@ func radioOptions(ctx context.Context, key string, current map[string]string) []
 			opts = append(opts, optionView{Value: device, Label: deviceLabel(device)})
 		}
 		return ensureOption(opts, current[key], deviceLabel(current[key]))
+	case settings.KeyAIBackend:
+		opts := []optionView{
+			{Value: settings.AIBackendOllama, Label: "Ollama"},
+			{Value: settings.AIBackendOpenAI, Label: "OpenAI-compatible (Open WebUI, LM Studio, llama.cpp)"},
+		}
+		return ensureOption(opts, current[key], current[key])
 	case settings.KeyRadioMode:
 		opts := []optionView{
 			{Value: "FM", Label: "FM"},

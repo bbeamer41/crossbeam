@@ -1,0 +1,22 @@
+# Copyright (C) 2026 K5LEB
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Example unit for the Crossbeam LXMF bridge. Copy to
+# /etc/systemd/system/, adjust ExecStart to where rns and lxmf are
+# installed, then: systemctl enable --now crossbeam-lxmf-ai
+[Unit]
+Description=Crossbeam LXMF bridge for the AI assistant
+After=network-online.target crossbeam.service
+Wants=network-online.target
+
+[Service]
+User=crossbeam
+Group=crossbeam
+ExecStart=/opt/crossbeam-lxmf/bin/python /usr/local/bin/crossbeam-lxmf-ai --socket /run/crossbeam/ai.sock --storage /var/lib/crossbeam-lxmf-ai --name "K5LEB AI"
+Restart=on-failure
+RestartSec=10
+StateDirectory=crossbeam-lxmf-ai
+StateDirectoryMode=0700
+
+[Install]
+WantedBy=multi-user.target

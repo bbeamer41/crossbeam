@@ -582,15 +582,28 @@ type sessionGate struct {
 	io.ReadWriteCloser
 	allow bool
 	label string
+	radio bool
 }
 
 func (g *sessionGate) ForwardAllowed() bool { return g.allow }
+
+// ViaRadio is true for a session heard on the KISS radio. That caller
+// passed the FCC license check before the session opened.
+func (g *sessionGate) ViaRadio() bool { return g.radio }
 
 func (g *sessionGate) PeerLabel() string { return g.label }
 
 func (n *Node) gateStream(addr ax25.Address, st io.ReadWriteCloser) io.ReadWriteCloser {
 	allow, label := n.forwardPolicy(addr)
-	return &sessionGate{ReadWriteCloser: st, allow: allow, label: label}
+	return &sessionGate{ReadWriteCloser: st, allow: allow, label: label, radio: n.viaRadio(addr)}
+}
+
+// viaRadio reports whether a session with addr runs on the KISS radio:
+// the TNC is configured and the station has no AX/UDP route.
+func (n *Node) viaRadio(addr ax25.Address) bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.kissAddr != "" && n.lookupAddr(addr) == nil
 }
 
 // forwardPolicy accepts an AX/UDP forward from a listed station. A guest

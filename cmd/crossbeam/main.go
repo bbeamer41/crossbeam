@@ -58,6 +58,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return cmdPage(ctx, args[1:], stdout, stderr)
 	case "mcp":
 		return cmdMCP(ctx, args[1:], stdin, stdout, stderr)
+	case "ai":
+		return cmdAI(ctx, args[1:], stdin, stdout, stderr)
 	default:
 		return unknown(args, stderr)
 	}
@@ -65,7 +67,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 
 func printHelp(stdout io.Writer) {
 	fmt.Fprintf(stdout, "crossbeam %s\n", version)
-	fmt.Fprintln(stdout, "Admin panel, article store, AX/UDP link, NET/ROM routing, KISS radio, telnet, FBB TCP, NomadNet pages, a MeshCore companion, a local MCP server, and article formats. See docs/article.md, docs/link.md, docs/bulletin.md, docs/pages.md, docs/netrom.md, docs/radio.md, docs/peers.md, docs/meshcore.md, docs/mcp.md, and docs/settings.md.")
+	fmt.Fprintln(stdout, "Admin panel, article store, AX/UDP link, NET/ROM routing, KISS radio, telnet, FBB TCP, NomadNet pages, a MeshCore companion, a local MCP server, an AI assistant, and article formats. See docs/ai.md, docs/article.md, docs/link.md, docs/bulletin.md, docs/pages.md, docs/netrom.md, docs/radio.md, docs/peers.md, docs/meshcore.md, docs/mcp.md, and docs/settings.md.")
 	fmt.Fprintln(stdout)
 	fmt.Fprintln(stdout, "  crossbeam serve [--state DIR] [--listen HOST:PORT] [--link HOST:PORT] [--peers LIST] [--kiss HOST:PORT] [--telnet HOST:PORT] [--telnet-peers LIST] [--fbb HOST:PORT] [--fbb-peers LIST] [--socket PATH] [--socket-mode 0600|0660]")
 	fmt.Fprintln(stdout, "  crossbeam connect CALL [--state DIR | --socket PATH]")
@@ -82,6 +84,10 @@ func printHelp(stdout io.Writer) {
 	fmt.Fprintln(stdout, "  crossbeam page publish [--state DIR]")
 	fmt.Fprintln(stdout, "  crossbeam page ingest [--state DIR]")
 	fmt.Fprintln(stdout, "  crossbeam mcp [--state DIR] [--socket PATH]")
+	fmt.Fprintln(stdout, "  crossbeam ai key [--clear] [--state DIR]")
+	fmt.Fprintln(stdout, "  crossbeam ai test [QUESTION] [--state DIR]")
+	fmt.Fprintln(stdout, "  crossbeam ai log [-n COUNT] [--state DIR]")
+	fmt.Fprintln(stdout, "  crossbeam ai senders list|approve ID|deny ID|revoke ID [--state DIR]")
 	fmt.Fprintln(stdout, "  crossbeam version")
 }
 

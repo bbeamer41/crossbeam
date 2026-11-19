@@ -19,6 +19,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/bbeamer41/crossbeam/internal/ai"
 	"github.com/bbeamer41/crossbeam/internal/article"
 	"github.com/bbeamer41/crossbeam/internal/ax25"
 	"github.com/bbeamer41/crossbeam/internal/bbs"
@@ -43,14 +44,26 @@ type outgoing struct {
 // SID, then the same prompt a terminal already uses. A human command
 // stays on that prompt. An FBB proposal stores bulletins and offers ours.
 func Answer(st *store.Store, local ax25.Address) func(ax25.Address, io.ReadWriteCloser) {
-	return func(_ ax25.Address, stream io.ReadWriteCloser) {
-		_ = Serve(context.Background(), st, local, stream)
+	return AnswerAI(st, local, nil)
+}
+
+// AnswerAI is Answer with the AI assistant on the prompt. A nil
+// assistant leaves AI an unknown command.
+func AnswerAI(st *store.Store, local ax25.Address, assistant *ai.Service) func(ax25.Address, io.ReadWriteCloser) {
+	return func(remote ax25.Address, stream io.ReadWriteCloser) {
+		_ = ServeAI(context.Background(), st, local, stream, remote, assistant)
 	}
 }
 
 // Serve writes the banner and runs either the prompt or forwarding.
 // It closes rw when it returns.
 func Serve(ctx context.Context, st *store.Store, local ax25.Address, rw io.ReadWriteCloser) error {
+	return ServeAI(ctx, st, local, rw, ax25.Address{}, nil)
+}
+
+// ServeAI is Serve for a caller at remote, with the AI assistant. remote
+// is empty for telnet, which has no callsign.
+func ServeAI(ctx context.Context, st *store.Store, local ax25.Address, rw io.ReadWriteCloser, remote ax25.Address, assistant *ai.Service) error {
 	if rw != nil {
 		defer rw.Close()
 	}
@@ -113,7 +126,8 @@ func Serve(ctx context.Context, st *store.Store, local ax25.Address, rw io.ReadW
 			noteSession("forward", label)
 			return serveForward(ctx, st, local, rw, rd, line, label)
 		}
-		return human(ctx, st, rw, rd, name, line)
+		p := &prompt{st: st, w: rw, rd: rd, name: name, assistant: assistant, who: aiCaller(rw, remote)}
+		return p.run(ctx, line)
 	}
 }
 
@@ -302,16 +316,39 @@ func logCall(raw string) string {
 	return text
 }
 
-func human(ctx context.Context, st *store.Store, w io.Writer, rd *reader, name, first string) error {
+// prompt is a keyboard session on the station prompt.
+type prompt struct {
+	st        *store.Store
+	w         io.Writer
+	rd        *reader
+	name      string
+	assistant *ai.Service
+	who       ai.Caller
+}
+
+func (p *prompt) run(ctx context.Context, first string) error {
 	line := first
 	for {
-		bye, err := bbs.Command(ctx, st, name, line, w)
+		if p.assistant != nil && ai.IsCommand(line) {
+			leave, err := p.assistant.Converse(ctx, p.who, p.w, p.readLine, line)
+			if err != nil {
+				return peerGone(err)
+			}
+			if leave == ai.Disconnect {
+				// BYE in chat ends the session the way BYE at the prompt
+				// does: Serve closes the stream, which disconnects AX.25.
+				return nil
+			}
+			line = ""
+		}
+		opt := bbs.Options{AI: p.assistant != nil && p.assistant.On(ctx)}
+		bye, err := bbs.CommandWith(ctx, p.st, p.name, line, p.w, opt)
 		if err != nil || bye {
 			return peerGone(err)
 		}
-		next, err := rd.readLine(humanLine)
+		next, err := p.rd.readLine(humanLine)
 		if errors.Is(err, errLong) {
-			if werr := writeAll(w, "The line is too long.\r"+name+">\r"); werr != nil {
+			if werr := writeAll(p.w, "The line is too long.\r"+p.name+">\r"); werr != nil {
 				return peerGone(werr)
 			}
 			line = ""
@@ -325,6 +362,36 @@ func human(ctx context.Context, st *store.Store, w io.Writer, rd *reader, name, 
 		}
 		line = next
 	}
+}
+
+// readLine is the line source for AI chat mode.
+func (p *prompt) readLine() (string, error) {
+	line, err := p.rd.readLine(humanLine)
+	if errors.Is(err, errLong) {
+		return "", ai.ErrLong
+	}
+	return line, err
+}
+
+// aiCaller names the caller for the assistant. Radio is set only when
+// the link says the session came over the KISS radio, where the caller's
+// license was checked before the session opened.
+func aiCaller(rw io.ReadWriteCloser, remote ax25.Address) ai.Caller {
+	who := ai.Caller{Call: remote.String(), Via: "link"}
+	if remote.Call == "" {
+		who.Call = ""
+		who.Via = "telnet"
+	}
+	type radio interface{ ViaRadio() bool }
+	if gate, ok := rw.(radio); ok && gate.ViaRadio() {
+		who.Radio = true
+		who.Via = "radio"
+	}
+	type label interface{ PeerLabel() string }
+	if gate, ok := rw.(label); ok && strings.HasSuffix(gate.PeerLabel(), " netrom") {
+		who.Via = "netrom"
+	}
+	return who
 }
 
 func isForwardStart(trim string) bool {

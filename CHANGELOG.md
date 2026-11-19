@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.10.0
+
+- An AI assistant on the station prompt. A connected packet caller types `AI` to chat with a model on Ollama, which Crossbeam talks to directly, or on an OpenAI-compatible server such as Open WebUI. The defaults are Ollama on this computer and `llama3.2:3b`. `/EXIT` returns to the prompt, and `BYE` signs off and disconnects. Each chat keeps its last six turns. Replies are plain ASCII, cut to `ai.reply` characters, and paged for 1200 baud. A dropped link or `/STOP` cancels a question.
+- The assistant is off by default. It is open to radio callers whose license was checked, or to the callsigns in `ai.users`. It is limited per caller per hour, filtered for profanity and encoded text, and every question and reply is logged to `ai-log.jsonl` for the control operator.
+- `ai.mesh` answers a MeshCore direct message that starts with `AI`, with a short history for each contact.
+- `ai.reticulum` answers an LXMF message that starts with `AI`, through the separate Crossbeam LXMF bridge in `contrib/reticulum`. Crossbeam itself still does not speak Reticulum. Each sender keeps a short history.
+- `crossbeam ai key`, `crossbeam ai test`, and `crossbeam ai log` save the API key, check the server, and show the log. `ai test` says what to fix when Ollama cannot be reached or the model is not pulled. See `docs/ai.md`.
+- MeshCore and Reticulum senders wait for approval before they can reach the model. `ai.require_approval` is on by default. The settings page and `crossbeam ai senders` approve, block, or revoke them. A waiting sender hears one short reply a day. A blocked sender, and a new sender when the pending list is full, get no reply. Radio callers are unchanged.
+- The LXMF bridge drops a message whose signature does not validate, including an unsigned message.
+- `crossbeam ai test`, startup, and the settings page warn when `ai.url` is not a private address. The address is still used.
+- The content filter also catches a long all-letter base64 blob and a similar high-entropy token. `ai.banned_words` adds words the sysop chooses.
+- A line typed while an AI answer is arriving is not taken as the next question.
+
 ## 0.9.18
 
 - Closing the packet radio after a failed license check no longer races the KISS connection.

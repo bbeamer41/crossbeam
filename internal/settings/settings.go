@@ -66,7 +66,7 @@ type Field struct {
 
 // Schema is every setting this build stores. The admin form is built
 // from this list, so a new key is not left off the page.
-var Schema = []Field{
+var Schema = append([]Field{
 	{
 		Key:      KeyCallsign,
 		Label:    "Callsign",
@@ -217,7 +217,7 @@ var Schema = []Field{
 		Kind:     KindLine,
 		MaxRunes: 256,
 	},
-}
+}, aiFields...)
 
 // Defaults returns a copy of the default value for every key.
 func Defaults() map[string]string {
@@ -285,6 +285,9 @@ func Validate(values map[string]string) (map[string]string, error) {
 	}
 	out[KeyMesh] = mesh
 	if err := validateRadio(out); err != nil {
+		return nil, err
+	}
+	if err := validateAI(out); err != nil {
 		return nil, err
 	}
 	return out, nil

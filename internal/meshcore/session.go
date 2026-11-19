@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/bbeamer41/crossbeam/internal/ai"
 	"github.com/bbeamer41/crossbeam/internal/bbs"
 	"github.com/bbeamer41/crossbeam/internal/store"
 )
@@ -80,6 +81,7 @@ type session struct {
 	gates    map[string]*meter
 	all      meter
 	told     time.Time
+	ai       *ai.Service
 }
 
 type meter struct {
@@ -93,6 +95,12 @@ type meter struct {
 // short greeting. Channel messages are ignored. One command is in flight
 // at a time.
 func Session(ctx context.Context, rw io.ReadWriteCloser, st *store.Store, name string, ann *announcer) error {
+	return sessionAI(ctx, rw, st, name, ann, nil)
+}
+
+// sessionAI is Session with the AI assistant. A message that starts with
+// AI is one question when ai.mesh is on.
+func sessionAI(ctx context.Context, rw io.ReadWriteCloser, st *store.Store, name string, ann *announcer, assistant *ai.Service) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -100,7 +108,7 @@ func Session(ctx context.Context, rw io.ReadWriteCloser, st *store.Store, name s
 	if name == "" {
 		name = "BBS"
 	}
-	s := &session{rw: rw, st: st, name: name, ann: ann, seen: map[string]struct{}{}}
+	s := &session{rw: rw, st: st, name: name, ann: ann, seen: map[string]struct{}{}, ai: assistant}
 	self, err := s.exchange(ctx, appStart(), respSelfInfo)
 	clearBytes(self)
 	if err != nil {
@@ -242,7 +250,13 @@ func (s *session) reply(ctx context.Context, frame []byte) error {
 		return nil
 	}
 	var out string
-	if greet, ok := meshGreeting(s.name, msg.text); ok {
+	who := ai.Caller{Call: hex.EncodeToString(msg.prefix), Mesh: true, Via: "meshcore"}
+	if reply, ok := s.askAI(ctx, who, msg.text); ok {
+		out = reply
+	} else if greet, ok := meshGreeting(s.name, msg.text); ok {
+		if s.aiOn(ctx) {
+			greet += " Or AI and a question for the AI."
+		}
 		out = greet
 	} else {
 		var buf strings.Builder
@@ -264,6 +278,24 @@ func (s *session) reply(ctx context.Context, frame []byte) error {
 		}
 	}
 	return s.flush(ctx)
+}
+
+// aiOn reports whether the assistant answers MeshCore messages.
+func (s *session) aiOn(ctx context.Context) bool {
+	if s.ai == nil {
+		return false
+	}
+	cfg, err := s.ai.Config(ctx)
+	return err == nil && cfg.Enabled && cfg.Mesh
+}
+
+// askAI answers a message that starts with AI when the assistant is on
+// for MeshCore. Otherwise the message is a prompt command or a greeting.
+func (s *session) askAI(ctx context.Context, who ai.Caller, text string) (string, bool) {
+	if !ai.IsCommand(text) || !s.aiOn(ctx) {
+		return "", false
+	}
+	return s.ai.Message(ctx, who, text)
 }
 
 // meshGreeting answers a sentence that is not a station-prompt command.
@@ -516,6 +548,11 @@ func setDeadline(rw io.ReadWriteCloser, at time.Time) {
 // Run opens the companion serial port and redials it until ctx is done.
 // Failures are logged without the device path.
 func Run(ctx context.Context, device string, st *store.Store, name string) {
+	RunAI(ctx, device, st, name, nil)
+}
+
+// RunAI is Run with the AI assistant.
+func RunAI(ctx context.Context, device string, st *store.Store, name string, assistant *ai.Service) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -549,7 +586,7 @@ func Run(ctx context.Context, device string, st *store.Store, name string) {
 			case <-stop:
 			}
 		}()
-		err = Session(ctx, port, st, name, ann)
+		err = sessionAI(ctx, port, st, name, ann, assistant)
 		close(stop)
 		_ = port.Close()
 		if ctx.Err() != nil {

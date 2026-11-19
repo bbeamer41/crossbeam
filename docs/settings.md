@@ -6,6 +6,8 @@ The state directory is not a setting either. Pass it as `--state`. The database,
 
 A change to `admin.listen`, `admin.public`, `link.listen`, `link.peers`, `kiss.tnc`, `telnet.listen`, `telnet.peers`, `fbb.listen`, `fbb.peers`, or `mesh.device` is saved immediately and used the next time `crossbeam serve` starts. The running panel keeps the address it already bound. The running link keeps the peers, the TNC address, and the TCP ports it already resolved. The running MeshCore port stays the one opened at start.
 
+A change to any `ai.` setting applies to the next AI question. The API key is not a setting. It is saved with `crossbeam ai key` in the file `ai-key` in the state directory, mode `0600`, and it is never shown on the panel, by `crossbeam settings`, or in a log.
+
 A change to `radio.model`, `radio.device`, `radio.frequency`, or `radio.mode` is applied when it is saved. `crossbeam serve` applies it again at startup. An empty `radio.model` leaves the radio alone.
 
 ## station.callsign
@@ -149,6 +151,84 @@ The directory must already exist. An empty value leaves every article in the sto
 The serial port of a MeshCore companion radio, such as /dev/ttyACM0. Leave it empty to keep MeshCore off. The radio stays in companion firmware. The station announces its callsign, and a MeshCore user messages it like any other contact. Crossbeam answers LIST and READ from the same bulletin list over a direct message. The port is used the next time Crossbeam starts.
 
 The path is `/dev/ttyACM` or `/dev/ttyUSB` followed by a number, or a name under `/dev/serial/by-id/`. A relative path, a parent directory, and any other device name are rejected. An empty value leaves MeshCore off. The service opens the port the next time it starts. The commands and the cable are described in `docs/meshcore.md`.
+
+## ai.enabled
+
+Let callers chat with an AI model that runs on a computer on your own network. A caller types AI at the station prompt to start, /EXIT to come back to the prompt, and BYE to disconnect. It is off until you turn it on. You are still the control operator for every reply this station sends, and each question and reply is written to the AI log so you can review it.
+
+The only values are `true` and `false`. The default is `false`. While it is false, AI at the station prompt answers that the assistant is not turned on, and nothing is sent to the AI server. When it is true, `ai.url` and `ai.model` must not be empty. Their defaults are enough for Ollama on this computer. See `docs/ai.md`.
+
+## ai.backend
+
+The kind of AI server. Ollama is the usual choice: Crossbeam talks to Ollama directly, with nothing else in between. Choose OpenAI-compatible only for Open WebUI, LM Studio, llama.cpp, or another server that speaks the OpenAI chat format.
+
+`ollama` or `openai`. An empty value is stored as `ollama`. `ollama` posts to `/api/chat`. `openai` posts to `/v1/chat/completions`, or to the full address in `ai.url` when it already has a path, such as Open WebUI's `/api/chat/completions`.
+
+## ai.url
+
+The web address of the AI server. The default, http://127.0.0.1:11434, is Ollama on this computer. For Ollama on another computer, use its address, such as http://192.168.1.50:11434. For Open WebUI, use an address such as http://192.168.1.50:3000/api/chat/completions. Use an address on your own network.
+
+The default is `http://127.0.0.1:11434`, Ollama on this computer. An `http` or `https` address, at most 256 runes, with no user name, password, query, or fragment. A trailing slash is removed. For Ollama a bare `http://host:11434` is enough. For an OpenAI-compatible server, a bare host gets `/v1/chat/completions`, an address ending in `/v1` or `/api` gets `/chat/completions`, and any other path is used as-is. Crossbeam never uses an HTTP proxy from the environment for this address. An API key is not part of the address; save it with `crossbeam ai key`. When the address is not a private or local address, `crossbeam ai test`, startup, and the settings page warn. The address is still used. Private here means loopback, link-local, RFC1918, the carrier-grade range 100.64.0.0/10, IPv6 unique-local, and a name ending in `.local` or `.ts.net` that resolves to one of those.
+
+## ai.model
+
+The name of the model to ask, exactly as the AI server lists it. The default is llama3.2:3b. On the Ollama computer, download it once with: ollama pull llama3.2:3b. A smaller model answers faster.
+
+The default is `llama3.2:3b`. One line, at most 128 runes, with no spaces. It is sent as the model name. Crossbeam does not download the model. `crossbeam ai test` says so when the server does not have it.
+
+## ai.users
+
+Optional. Leave it empty, the usual choice, and anyone who connects over the radio may use the assistant, because Crossbeam has already checked their license with the FCC. Callsigns listed here, separated by spaces or commas, may also use it over the packet link or NET/ROM. Telnet callers have no callsign, so they cannot use it.
+
+The default is empty. Each entry must be an AX.25 callsign. Entries are stored in uppercase without the SSID, because the license belongs to the base callsign, and duplicates are dropped. At most 256 callsigns. An empty list allows only sessions heard over the KISS radio. A MeshCore message is governed by `ai.mesh` instead.
+
+## ai.hourly
+
+How many questions one callsign may ask in an hour. This keeps the channel and the AI computer from being tied up by one station. Use a number from 1 to 600. An empty value is stored as 20.
+
+A whole number from 1 to 600. The count is per base callsign, over the last hour, and it is kept in memory until `crossbeam serve` stops.
+
+## ai.reply
+
+The most characters one reply may use. At 1200 baud, 600 characters take about five seconds of air time. A longer reply is cut short. Use a number from 80 to 4000. An empty value is stored as 600.
+
+A whole number from 80 to 4000. The model is asked for about that length, and a longer answer is cut at a word with ` [cut]`. A MeshCore reply is at most 400 characters. A connected session shows a long reply in pages of 12 lines. A Reticulum reply is one LXMF message.
+
+## ai.timeout
+
+How many seconds to wait for the AI server before giving up on a question. Use a number from 5 to 600. An empty value is stored as 90.
+
+A whole number from 5 to 600. A MeshCore question waits at most 45 seconds, because the companion radio waits with it.
+
+## ai.instructions
+
+Optional instructions added to what the assistant is always told. Crossbeam already tells it to answer briefly in plain English, with no profanity, no codes, and no business. Use this for anything about your station or club.
+
+One line, at most 500 runes. It is added after the station's own instructions, which cannot be turned off.
+
+## ai.banned_words
+
+Optional words the assistant will not send or accept, added to the built-in list. Separate words with spaces or commas. A word matches on its own, so listing one does not block a longer word that merely contains it.
+
+The default is empty. Words are letters only, stored in lower case, at most 32 letters each, and at most 64 words. A comma or a semicolon separates words the same way a space does. Duplicates are dropped. The words are added to the station instructions the model is given, and the filter checks them on the question and the reply.
+
+## ai.mesh
+
+Also answer a MeshCore direct message that starts with AI, such as AI what is a repeater. The assistant remembers the last few questions from that contact for 30 minutes. Send AI /NEW to start over. Leave this off to keep the assistant off MeshCore.
+
+The only values are `true` and `false`. The default is `false`. `ai.enabled` must also be on. A MeshCore contact is identified by its key prefix, not a callsign, so `ai.users` does not apply. The question limit and the history are kept per contact.
+
+## ai.reticulum
+
+Also answer an LXMF message sent to this station over Reticulum, such as from Sideband or NomadNet, when it starts with AI. It needs the separate Crossbeam LXMF bridge running on this computer. The assistant remembers the last few questions from that sender for 30 minutes. Reticulum messages are encrypted, so do not carry them on an amateur radio interface. Leave this off to keep the assistant off Reticulum.
+
+The only values are `true` and `false`. The default is `false`. `ai.enabled` must also be on. Crossbeam opens `ai.sock` beside the admin socket, with the same mode, at every start. The bridge in `contrib/reticulum` sends each LXMF message there. While this is false, every message is ignored and nothing is sent back. A Reticulum sender is identified by its LXMF address, not a callsign, so `ai.users` does not apply. The question limit and the history are kept per sender. A change applies to the next message.
+
+## ai.require_approval
+
+When this is on, a MeshCore or Reticulum sender must be approved before a question reaches the model. The first message is held for you, and the sender is told once that it is waiting. A blocked sender gets no reply. Radio callers are not on this list: the license check already covers them. Leave this on.
+
+The only values are `true` and `false`. The default is `true`. While it is on, an unknown MeshCore or Reticulum sender does not reach the model. The sender is added to a pending list of at most 200, and hears "Your request is waiting for sysop approval." at most once a day. A later message that day gets no reply. When the list is full, a new sender gets no reply and is not added. A blocked sender is ignored: no reply, and no new pending row. The lists are kept in `ai-senders.json` in the state directory, mode `0600`. Approve, block, or revoke a sender on the settings page, or with `crossbeam ai senders`. Revoke takes someone off the approved list, so the next message waits again. Turning this off leaves MeshCore and Reticulum as they were: `ai.mesh` and `ai.reticulum` still decide, and the blocked list is not checked. Radio callers are unchanged either way.
 
 ## Command
 

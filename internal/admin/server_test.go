@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bbeamer41/crossbeam/internal/ai"
 	"github.com/bbeamer41/crossbeam/internal/article"
 	"github.com/bbeamer41/crossbeam/internal/settings"
 	"github.com/bbeamer41/crossbeam/internal/store"
@@ -951,10 +952,18 @@ func TestSavedRadioStaysOnTheForm(t *testing.T) {
 		`<option value="/dev/serial/by-id/usb-saved-radio" selected>usb-saved-radio</option>`,
 		`<option value="USB" selected>`,
 		`name="radio.frequency" type="text" value="145.03"`,
+		`<h2 class="group">AI assistant</h2>`,
+		`<option value="ollama" selected>Ollama</option>`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("missing %s\n%s", want, html)
 		}
+	}
+	if strings.Index(html, `<h2 class="group">MeshCore</h2>`) > strings.Index(html, `<h2 class="group">AI assistant</h2>`) {
+		t.Fatal("AI settings are under the MeshCore heading")
+	}
+	if strings.Index(html, `<h2 class="group">AI assistant</h2>`) > strings.Index(html, `id="field-ai.enabled"`) {
+		t.Fatal("AI heading is below the AI fields")
 	}
 	if strings.Count(html, `value="999999"`) != 1 || strings.Count(html, `value="/dev/serial/by-id/usb-saved-radio"`) != 1 {
 		t.Fatal("saved radio was listed twice")
@@ -1069,6 +1078,132 @@ func (f *fakeRadio) Sync(_ context.Context, current map[string]string) error {
 
 func (f *fakeRadio) Status() (string, bool) {
 	return f.note, f.ok
+}
+
+func TestAISendersAndPublicURL(t *testing.T) {
+	running, st, client := startPanel(t)
+	base := running.URL
+	res, err := client.PostForm(base+"/login", url.Values{"password": {"test-password-1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	readAll(t, res)
+	if _, err := st.Apply(context.Background(), map[string]string{
+		settings.KeyAIEnabled: "true",
+		settings.KeyAIMesh:    "true",
+		settings.KeyAIURL:     "http://203.0.113.5:11434",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	res, err = client.Get(base + "/settings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := readAll(t, res)
+	if !strings.Contains(page, ai.URLWarningText) || !strings.Contains(page, "No one is waiting.") {
+		t.Fatalf("settings warning %s", page)
+	}
+	token := csrfFrom(t, page)
+	res, err = client.PostForm(base+"/ai/senders", url.Values{"op": {"approve"}, "id": {"meshcore:aabb"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	readAll(t, res)
+	if res.StatusCode != http.StatusForbidden {
+		t.Fatalf("csrf %d", res.StatusCode)
+	}
+	svc := ai.New(st.Settings, st.Dir())
+	got, ok := svc.Message(context.Background(), ai.Caller{Call: "aabbcc", Mesh: true, Via: "meshcore"}, "AI the tower on the hill")
+	if !ok || got != ai.WaitingApproval {
+		t.Fatalf("pending reply %q ok=%v", got, ok)
+	}
+	res, err = client.Get(base + "/settings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page = readAll(t, res)
+	token = csrfFrom(t, page)
+	if !strings.Contains(page, "meshcore") || !strings.Contains(page, "aabbcc") || !strings.Contains(page, "the tower on the hill") || !strings.Contains(page, "Waiting for approval") {
+		t.Fatalf("pending missing %s", page)
+	}
+	res, err = client.PostForm(base+"/ai/senders", url.Values{
+		"csrf": {token},
+		"op":   {"approve"},
+		"id":   {"meshcore:aabbcc"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	readAll(t, res)
+	if res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("approve %d", res.StatusCode)
+	}
+	res, err = client.Get(base + "/settings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page = readAll(t, res)
+	if !strings.Contains(page, ">Approved<") || !strings.Contains(page, "aabbcc") || strings.Contains(page, "the tower on the hill") {
+		t.Fatalf("approved page %s", page)
+	}
+	token = csrfFrom(t, page)
+	res, err = client.PostForm(base+"/ai/senders", url.Values{
+		"csrf": {token},
+		"op":   {"revoke"},
+		"id":   {"meshcore:aabbcc"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	readAll(t, res)
+	if res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("revoke %d", res.StatusCode)
+	}
+	got, ok = svc.Message(context.Background(), ai.Caller{Call: "aabbcc", Mesh: true}, "AI again")
+	if !ok || got != ai.WaitingApproval {
+		t.Fatalf("after revoke %q", got)
+	}
+	res, err = client.Get(base + "/settings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page = readAll(t, res)
+	token = csrfFrom(t, page)
+	res, err = client.PostForm(base+"/ai/senders", url.Values{
+		"csrf": {token},
+		"op":   {"deny"},
+		"id":   {"meshcore:aabbcc"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	readAll(t, res)
+	if res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("deny %d", res.StatusCode)
+	}
+	res, err = client.Get(base + "/settings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page = readAll(t, res)
+	if !strings.Contains(page, "Blocked") || !strings.Contains(page, "aabbcc") {
+		t.Fatalf("blocked page %s", page)
+	}
+	got, ok = svc.Message(context.Background(), ai.Caller{Call: "aabbcc", Mesh: true}, "AI still there")
+	if !ok || got != "" {
+		t.Fatalf("blocked reply %q ok=%v", got, ok)
+	}
+	if _, err := st.Apply(context.Background(), map[string]string{settings.KeyAIURL: "http://127.0.0.1:11434"}); err != nil {
+		t.Fatal(err)
+	}
+	res, err = client.Get(base + "/settings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page = readAll(t, res)
+	if strings.Contains(page, ai.URLWarningText) {
+		t.Fatal("a private address was warned")
+	}
 }
 
 func startPanel(t *testing.T) (*Running, *store.Store, *http.Client) {

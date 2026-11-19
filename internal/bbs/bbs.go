@@ -23,11 +23,25 @@ const helpText = "Commands:\r" +
 	"READ n   Read one bulletin\r" +
 	"BYE      Disconnect\r"
 
+const aiHelp = "AI       Chat with the AI assistant\r"
+
+// Options are the station prompt features that change per session.
+type Options struct {
+	// AI lists the AI command in the help.
+	AI bool
+}
+
 // Command runs one prompt line. bye is true after BYE, QUIT, or EXIT.
 // The reply, including the next prompt, is written to w. A write error
 // is returned. A missing store or a database failure is a short sentence
 // with no path and no database text.
 func Command(ctx context.Context, st *store.Store, name, line string, w io.Writer) (bool, error) {
+	return CommandWith(ctx, st, name, line, w, Options{})
+}
+
+// CommandWith is Command with session options. The AI command itself is
+// run by the session, because chat mode reads more lines.
+func CommandWith(ctx context.Context, st *store.Store, name, line string, w io.Writer, opt Options) (bool, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -44,7 +58,11 @@ func Command(ctx context.Context, st *store.Store, name, line string, w io.Write
 		if len(fields) != 1 {
 			return false, writeAll(w, "Unknown command. Send ? for help.\r"+prompt)
 		}
-		return false, writeAll(w, helpText+prompt)
+		help := helpText
+		if opt.AI {
+			help = strings.TrimSuffix(helpText, "BYE      Disconnect\r") + aiHelp + "BYE      Disconnect\r"
+		}
+		return false, writeAll(w, help+prompt)
 	case "BYE", "QUIT", "EXIT":
 		if len(fields) != 1 {
 			return false, writeAll(w, "Unknown command. Send ? for help.\r"+prompt)
