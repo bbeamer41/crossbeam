@@ -242,6 +242,11 @@ func (s *Service) waitAnswer(ctx context.Context, cfg Config, who Caller, histor
 				}
 			}
 		case <-tick.C:
+			// The caller already signed off or went back to the prompt.
+			// The sign-off is sent when the cancelled request finishes.
+			if leave != actNone {
+				continue
+			}
 			// A keep-alive line so a slow model does not look like a dead link.
 			if err := writeAll(w, "Still thinking...\r"); err != nil {
 				return gone(err)
