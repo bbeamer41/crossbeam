@@ -40,17 +40,22 @@ var (
 
 const maxResponse = 1 << 20
 
-// NewHTTPClient never uses a proxy from the environment, so a question
-// goes only to the address the sysop saved.
+// NewHTTPClient never uses a proxy from the environment, and it does not
+// follow a redirect, so a question goes only to the address the sysop saved.
 func NewHTTPClient() *http.Client {
-	return &http.Client{Transport: &http.Transport{
-		Proxy:                 nil,
-		DialContext:           (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: 0,
-		MaxIdleConns:          4,
-		IdleConnTimeout:       90 * time.Second,
-	}}
+	return &http.Client{
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+		Transport: &http.Transport{
+			Proxy:                 nil,
+			DialContext:           (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ResponseHeaderTimeout: 0,
+			MaxIdleConns:          4,
+			IdleConnTimeout:       90 * time.Second,
+		},
+	}
 }
 
 // complete asks the configured server once and returns the raw answer.

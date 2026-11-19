@@ -133,15 +133,17 @@ func (s *Service) ask(ctx context.Context, cfg Config, who Caller, history []Mes
 	if Profane(question) || Encoded(question) {
 		return finish(result{text: "That question cannot be sent on amateur radio.", outcome: OutRefused})
 	}
-	if ok, left := s.limits.take(limitKey(who), cfg.Hourly, start); !ok {
-		mins := int((left + time.Minute - 1) / time.Minute)
-		return finish(result{text: fmt.Sprintf("You have reached %d questions this hour. Try again in %s.", cfg.Hourly, plural(mins, "minute")), outcome: OutLimited})
-	}
+	// Take a slot before the hourly count. A busy server did not answer,
+	// and the caller is told to try again, so that try is not a question.
 	select {
 	case s.slots <- struct{}{}:
 		defer func() { <-s.slots }()
 	default:
 		return finish(result{text: "The AI server is busy with other callers. Try again shortly.", outcome: OutBusy})
+	}
+	if ok, left := s.limits.take(limitKey(who), cfg.Hourly, start); !ok {
+		mins := int((left + time.Minute - 1) / time.Minute)
+		return finish(result{text: fmt.Sprintf("You have reached %d questions this hour. Try again in %s.", cfg.Hourly, plural(mins, "minute")), outcome: OutLimited})
 	}
 	msgs := make([]Message, 0, len(history)+2)
 	msgs = append(msgs, Message{Role: "system", Content: system(cfg, max)})

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -322,6 +323,67 @@ func TestBusy(t *testing.T) {
 	}
 	close(release)
 	wg.Wait()
+}
+
+func TestBusyDoesNotUseTheHourlyLimit(t *testing.T) {
+	release := make(chan struct{})
+	fake := newFake(t, settings.AIBackendOllama, func(fakeRequest) (int, string, time.Duration) {
+		<-release
+		return 200, "ok", 0
+	})
+	svc, _ := newService(t, map[string]string{settings.KeyAIURL: fake.URL, settings.KeyAIHourly: "1"})
+	cfg, _ := svc.Config(context.Background())
+	var wg sync.WaitGroup
+	for _, call := range []string{"K5AAA", "K5CCC"} {
+		wg.Add(1)
+		go func(call string) {
+			defer wg.Done()
+			svc.ask(context.Background(), cfg, Caller{Call: call, Radio: true}, nil, "q", 600, 5*time.Second)
+		}(call)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for len(svc.slots) < slots && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	who := Caller{Call: "K5BBB", Radio: true}
+	if r := svc.ask(context.Background(), cfg, who, nil, "q", 600, time.Second); r.outcome != OutBusy {
+		t.Fatalf("busy: %+v", r)
+	}
+	close(release)
+	wg.Wait()
+	if r := svc.ask(context.Background(), cfg, who, nil, "q", 600, time.Second); !r.ok {
+		t.Fatalf("a busy rejection used the hourly question: %+v", r)
+	}
+}
+
+func TestRedirectIsNotFollowed(t *testing.T) {
+	var hits atomic.Int32
+	var forwarded atomic.Value
+	secret := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		forwarded.Store(r.Header.Get("Authorization"))
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"message":{"role":"assistant","content":"leaked"}}`)
+	}))
+	t.Cleanup(secret.Close)
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, secret.URL+"/api/chat", http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(fake.Close)
+	svc, dir := newService(t, map[string]string{settings.KeyAIURL: fake.URL})
+	if err := WriteKey(dir, "sk-redirect-secret"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := svc.Test(context.Background(), "where does this go")
+	if err == nil {
+		t.Fatal("a redirect was treated as an answer")
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("the question was sent to the redirect target %d times, auth %q", hits.Load(), forwarded.Load())
+	}
+	if strings.Contains(err.Error(), "sk-redirect-secret") || strings.Contains(err.Error(), secret.URL) {
+		t.Fatalf("error leaks the redirect target or the key: %v", err)
+	}
 }
 
 func TestText(t *testing.T) {
