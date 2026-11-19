@@ -13,6 +13,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -55,15 +56,41 @@ func ListenBridge(path string, mode fs.FileMode) (net.Listener, error) {
 			conn.Close()
 			return nil, errors.New("another Crossbeam is using the AI bridge socket")
 		}
-		_ = os.Remove(path)
+		if err := os.Remove(path); err != nil {
+			return nil, err
+		}
 	}
-	ln, err := net.Listen("unix", path)
+	// Mode 0600 is set before bind. A connection can queue as soon as the
+	// name exists, and this socket has no password. The following chmod
+	// only widens 0600 to 0660 for the group.
+	ln, err := (&net.ListenConfig{Control: func(_, _ string, c syscall.RawConn) error {
+		var cerr error
+		err := c.Control(func(fd uintptr) {
+			cerr = syscall.Fchmod(int(fd), 0o600)
+		})
+		if err != nil {
+			return err
+		}
+		return cerr
+	}}).Listen(context.Background(), "unix", path)
 	if err != nil {
 		return nil, err
 	}
 	if err := os.Chmod(path, mode); err != nil {
 		ln.Close()
+		_ = os.Remove(path)
 		return nil, err
+	}
+	got, err := os.Stat(path)
+	if err != nil {
+		ln.Close()
+		_ = os.Remove(path)
+		return nil, err
+	}
+	if got.Mode().Perm() != mode.Perm() {
+		ln.Close()
+		_ = os.Remove(path)
+		return nil, errors.New("socket mode was not applied")
 	}
 	return ln, nil
 }
