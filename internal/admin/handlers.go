@@ -86,6 +86,13 @@ type page struct {
 	Pending     []ai.Sender
 	Approved    []ai.Sender
 	Denied      []ai.Sender
+	// Starting is true until the station callsign is saved. The panel
+	// then shows the first steps and still lists every setting.
+	Starting bool
+	// RadioNext is true after the callsign is saved while kiss.tnc is
+	// still empty. The panel then shows the Graywolf steps and still
+	// lists every radio setting.
+	RadioNext bool
 }
 
 func (a *app) handler(local bool) http.Handler {
@@ -437,6 +444,8 @@ func (a *app) settingsPage(w http.ResponseWriter, r *http.Request, local bool, m
 		RadioStatus: note,
 		RadioOK:     radioOK,
 		URLWarning:  ai.URLWarning(current[settings.KeyAIURL], nil),
+		Starting:    needsCallsign(current),
+		RadioNext:   needsRadio(current),
 		Pending:     lists.Pending,
 		Approved:    lists.Approved,
 		Denied:      lists.Denied,
@@ -641,6 +650,14 @@ func (a *app) composePost(w http.ResponseWriter, r *http.Request, local bool) {
 	a.composePage(w, r, local, view)
 }
 
+func needsCallsign(current map[string]string) bool {
+	return strings.TrimSpace(current[settings.KeyCallsign]) == ""
+}
+
+func needsRadio(current map[string]string) bool {
+	return !needsCallsign(current) && strings.TrimSpace(current[settings.KeyKiss]) == ""
+}
+
 func (a *app) articlesPage(w http.ResponseWriter, r *http.Request, local bool) {
 	csrf, ok := a.requireSession(w, r, local)
 	if !ok {
@@ -658,7 +675,8 @@ func (a *app) articlesPage(w http.ResponseWriter, r *http.Request, local bool) {
 	}
 	view := page{
 		Title: "Bulletins", Station: stationName(current), Authed: true, CSRF: csrf,
-		Kind: "articles", Version: a.version,
+		Kind: "articles", Version: a.version, Starting: needsCallsign(current),
+		RadioNext: needsRadio(current),
 	}
 	for _, item := range list {
 		view.Articles = append(view.Articles, articleView{
