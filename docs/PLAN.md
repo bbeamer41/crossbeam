@@ -1,5 +1,7 @@
 # Crossbeam plan
 
+This page is the build plan. The operator guide starts at [README.md](README.md), then [start.md](start.md).
+
 Crossbeam is one installable program for Debian. It is a packet node that can talk to LinBPQ and older BBSes, and it is a bridge so one article is posted to packet radio and to NomadNet.
 
 Packet.NET is not part of this project, and its source is not used. LinBPQ source is not used. Behavior for AX.25, NET/ROM, and FBB comes from the published descriptions and from tests against a running LinBPQ.

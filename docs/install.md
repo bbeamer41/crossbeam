@@ -1,8 +1,17 @@
 # Install
 
-Crossbeam runs as one program on Debian. The package installs the admin panel. It does not install a modem, and it does not change any other packet service on the machine.
+This page puts Crossbeam on a Debian or Ubuntu computer and opens the panel. After you sign in, [start.md](start.md) is the next hour: save your callsign and write one bulletin. The radio can wait. That hour is [graywolf.md](graywolf.md).
 
-The archive is amd64. `apt update` reads it. `apt install crossbeam` installs this package and leaves the rest of the system as it is. `apt install --only-upgrade crossbeam` installs a newer Crossbeam the same way. `apt upgrade` installs a newer Crossbeam and also upgrades every other pending package.
+Crossbeam is one program. The package installs the panel. It does not install a modem, and it does not change any other packet service on the machine.
+
+The archive is amd64.
+
+| Command | What it does |
+| --- | --- |
+| `apt update` | Reads the archive |
+| `apt install crossbeam` | Installs Crossbeam and leaves the rest of the system as it is |
+| `apt install --only-upgrade crossbeam` | Installs a newer Crossbeam the same way |
+| `apt upgrade` | Installs a newer Crossbeam and also upgrades every other pending package |
 
 ## Package
 
@@ -27,9 +36,18 @@ sudo apt update
 sudo apt install crossbeam
 ```
 
-The package adds the `crossbeam` user, creates `/var/lib/crossbeam` at mode `0700`, and installs `/usr/lib/systemd/system/crossbeam.service`. It does not enable the service and it does not start it. Set the sysop password before you start it. Removing the package leaves the state directory in place. Purging the package removes the `crossbeam` user and group and still leaves that directory. Installing the package again gives that directory and the files inside it to the new `crossbeam` user. Copy `/var/lib/crossbeam` to keep a backup of the database, the TLS key, and the settings, and put that copy back before the service starts. After a purge, add each operator to the new `crossbeam` group again. The package does not remember who was in the old group.
+The package does four things, and then it stops:
 
-The unit in the package uses `/usr/bin/crossbeam`. Do not also copy `deploy/crossbeam.service` to `/etc/systemd/system`, because that file would override the packaged unit and would still expect `/usr/local/bin/crossbeam`.
+- It adds the `crossbeam` user.
+- It creates `/var/lib/crossbeam` at mode `0700`.
+- It installs `/usr/lib/systemd/system/crossbeam.service`.
+- It does not enable the service, and it does not start it.
+
+Set the sysop password before you start it.
+
+Removing the package leaves the state directory in place. Purging the package removes the `crossbeam` user and group and still leaves that directory. Installing the package again gives that directory, and the files inside it, to the new `crossbeam` user. Copy `/var/lib/crossbeam` first if you want to keep the database, the TLS key, and the settings, and put that copy back before the service starts. After a purge, add each operator to the new `crossbeam` group again. The package does not remember who was in the old group.
+
+The unit in the package uses `/usr/bin/crossbeam`. Leave `deploy/crossbeam.service` where it is. Copying it to `/etc/systemd/system` would override the packaged unit, and that copy still expects `/usr/local/bin/crossbeam`.
 
 When a newer package is in the archive, this installs that package and leaves the rest of the system as it is:
 

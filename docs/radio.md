@@ -1,6 +1,10 @@
 # KISS radio
 
-Crossbeam dials a KISS TNC and carries AX.25 connected mode. The framing is the KISS protocol published by K3MC and KA9Q. A frame starts and ends with FEND, and FEND or FESC inside the frame is escaped. The first byte after FEND is the port and the command. Port 0 is the only port this station uses. A data frame is an AX.25 frame without its frame check sequence. The TNC adds that check sequence. Crossbeam does not modulate audio.
+Read [graywolf.md](graywolf.md) first if the modem is not on yet. This page is the rest of the radio port: the bytes on the wire, the timing, the FCC check, and what Crossbeam leaves alone.
+
+Crossbeam dials a KISS TNC and carries AX.25 connected mode. It does not modulate audio. The modem does that.
+
+The framing is the KISS protocol published by K3MC and KA9Q. A frame starts and ends with FEND, and FEND or FESC inside the frame is escaped. The first byte after FEND is the port and the command. Port 0 is the only port this station uses. A data frame is an AX.25 frame without its frame check sequence. The TNC adds that check sequence.
 
 The radio is off until `kiss.tnc` is set.
 

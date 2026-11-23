@@ -2,7 +2,9 @@
 
 Crossbeam is a bulletin board for an amateur radio station. You write a note on this computer. Another station can call yours and read it. The same note can later become a page for NomadNet. None of that has to be set up before the board exists.
 
-This page is the first hour. It ends when your callsign is saved and one bulletin is on the board. The other documents are for a station that is already running. Leave every setting you do not recognize empty. An empty setting is off.
+This page is the first hour. It ends when your callsign is saved and one bulletin is on the board. Install first, with [install.md](install.md). The radio is the hour after this one, in [graywolf.md](graywolf.md). The other documents are for a station that is already running. The list is [README.md](README.md).
+
+Leave every setting you do not recognize empty. An empty setting is off.
 
 ## What you need
 
