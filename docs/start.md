@@ -33,9 +33,9 @@ If the log says `https://127.0.0.1:8443`, the panel is only on this computer. Th
 
 ## Save your callsign
 
-Open Settings. The first box is your callsign. Type the callsign on your license, such as `K5LEB`. Save settings.
+Open Settings. The first box is your callsign. Type the callsign on your license. Save settings.
 
-A dash and a number, such as `K5LEB-1`, is an extra address for the same license. You can leave that off until you know you want it.
+A dash and a number, such as `-1`, is an extra address for the same license. You can leave that off until you know you want it.
 
 The rest of the page can stay as it is. Each box has an example in faint text and an i that explains the setting. Those are there for later.
 

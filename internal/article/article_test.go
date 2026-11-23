@@ -187,9 +187,9 @@ func TestRejectsBadArticles(t *testing.T) {
 
 func TestDocumentedExamples(t *testing.T) {
 	a := Article{
-		ID:      "k5leb-001",
+		ID:      "n0call-001",
 		Title:   "Net night notes",
-		Author:  "K5LEB",
+		Author:  "N0CALL",
 		Created: time.Date(2026, 10, 11, 18, 4, 5, 0, time.UTC),
 		Body:    "The Denton net meets on Thursday.",
 	}
@@ -199,9 +199,9 @@ func TestDocumentedExamples(t *testing.T) {
 	}
 	wantPacket := "" +
 		"Title: Net night notes\n" +
-		"Author: K5LEB\n" +
+		"Author: N0CALL\n" +
 		"Created: 2026-10-11T18:04:05Z\n" +
-		"ID: k5leb-001\n" +
+		"ID: n0call-001\n" +
 		"\n" +
 		"The Denton net meets on Thursday.\n"
 	if packet != wantPacket {
@@ -213,9 +213,9 @@ func TestDocumentedExamples(t *testing.T) {
 	}
 	wantPage := "" +
 		"> Net night notes\n" +
-		"Author: K5LEB\n" +
+		"Author: N0CALL\n" +
 		"Created: 2026-10-11T18:04:05Z\n" +
-		"ID: k5leb-001\n" +
+		"ID: n0call-001\n" +
 		"\n" +
 		"----\n" +
 		"  The Denton net meets on Thursday.\n"
@@ -226,9 +226,9 @@ func TestDocumentedExamples(t *testing.T) {
 
 func TestHeaderOrderAndLookalikeBody(t *testing.T) {
 	in := "" +
-		"ID: k5leb-001\n" +
+		"ID: n0call-001\n" +
 		"Created:  2026-10-11T18:04:05Z  \n" +
-		"Author: K5LEB\n" +
+		"Author: N0CALL\n" +
 		"Title: Net night notes\n" +
 		"\n" +
 		"Title: not a header\n" +
@@ -244,9 +244,9 @@ func TestHeaderOrderAndLookalikeBody(t *testing.T) {
 	page := "" +
 		"> Net night notes\n" +
 		"\n" +
-		"ID: k5leb-001\n" +
+		"ID: n0call-001\n" +
 		"Created: 2026-10-11T18:04:05Z\n" +
-		"Author: K5LEB\n" +
+		"Author: N0CALL\n" +
 		"\n" +
 		"----\n" +
 		"  Title: not a header\n" +

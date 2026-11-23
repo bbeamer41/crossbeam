@@ -92,7 +92,7 @@ Use an address of this machine. A public address is rejected until you set `admi
 The link stays off until you set it. Use an address of this machine. 10093 is the usual port. List the other station, and have that station list this one. Then a terminal on either side can reach the other prompt. The frames are readable text. Details are in `docs/link.md`.
 
 ```bash
-sudo -u crossbeam crossbeam settings set station.callsign K5LEB --state /var/lib/crossbeam
+sudo -u crossbeam crossbeam settings set station.callsign N0CALL --state /var/lib/crossbeam
 sudo -u crossbeam crossbeam settings set link.listen 192.168.1.20:10093 --state /var/lib/crossbeam
 sudo -u crossbeam crossbeam settings set link.peers W1AW-1@192.168.1.21:10093 --state /var/lib/crossbeam
 sudo systemctl restart crossbeam

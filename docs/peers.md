@@ -9,7 +9,7 @@ A change to these settings is used the next time `crossbeam serve` starts.
 Telnet is the prompt, with the small option exchange from RFC 854 removed before the session sees the bytes. This station does not echo. The client shows what you type. Lines still end with a carriage return, and a following line feed or NUL is ignored. A data byte of 255 is sent as two IAC bytes.
 
 ```bash
-crossbeam settings set station.callsign K5LEB --state /var/lib/crossbeam
+crossbeam settings set station.callsign N0CALL --state /var/lib/crossbeam
 crossbeam settings set telnet.listen 192.168.1.20:8770 --state /var/lib/crossbeam
 crossbeam settings set telnet.peers W1AW-1@192.168.1.21:8770 --state /var/lib/crossbeam
 ```
@@ -19,9 +19,9 @@ crossbeam settings set telnet.peers W1AW-1@192.168.1.21:8770 --state /var/lib/cr
 The remote prompt looks the same as an AX.25 session:
 
 ```text
-[CROSSBEAM-0.10.2-FHM$]
-Crossbeam K5LEB
-K5LEB>
+[CROSSBEAM-0.10.3-FHM$]
+Crossbeam N0CALL
+N0CALL>
 ```
 
 `?` lists the commands. `LIST` lists the bulletins. `READ` and a number reads one. `BYE` disconnects. A session with nothing passing disconnects after 15 minutes. Each port accepts 8 sessions. The next one is told the station is busy and then closed.
