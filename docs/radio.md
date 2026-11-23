@@ -16,7 +16,7 @@ Graywolf is the supported modem. Use modem mode, so Graywolf supplies the radio 
 
 Turn on connected mode (`allow_connected_mode`). It is off by default, and Graywolf then drops connected frames. Leave `gate_tx_to_is` off. Leave the digipeater off on that channel. Leave the iGate off. Do not enable transmit for the digipeater, the beacon, or the iGate on this interface. Do not use TNC mode. That mode expects an external TNC to dial Graywolf.
 
-Crossbeam does not start Graywolf and does not call its web API. The web UI is often port 8080, and AGWPE is a different protocol. Neither is used here.
+The package installs Graywolf and enables its service. Start it with `systemctl start graywolf` when this port should be used. Crossbeam does not start Graywolf and does not call its web API. The web UI is port 8080, and AGWPE is a different protocol. Neither is used here.
 
 9600 baud is not a supported radio mode. A serial rate of 9600 in the Graywolf handbook is the cable rate to a hardware TNC, not the on-air mode. This port is TCP only. A later serial TNC can use the same framing.
 

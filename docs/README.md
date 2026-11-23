@@ -12,6 +12,8 @@ Examples use `N0CALL` as a placeholder. Type the callsign on your license.
 | 2. The board | [start.md](start.md) | Your callsign is saved and one bulletin is on the board |
 | 3. The radio | [graywolf.md](graywolf.md) | Graywolf is listening and Crossbeam is dialing it |
 
+The package installs Graywolf with Crossbeam. The radio hour starts Graywolf, gives it a channel, and then points Crossbeam at it.
+
 A station that connects types `?`, then `LIST`, then `READ 1`, then `BYE`.
 
 ## Words

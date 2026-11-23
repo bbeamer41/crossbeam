@@ -6,11 +6,15 @@ The full KISS port, the license check, and the timing bytes are in `docs/radio.m
 
 ## What you need
 
-Graywolf is a separate program. Install and start it by its own instructions at <https://github.com/chrissnell/graywolf>. Crossbeam does not install Graywolf, does not start it, and does not open its web page.
+The Crossbeam package already installed Graywolf. Its service is enabled and stays stopped until you start it.
 
-You need Graywolf running on the same computer as Crossbeam, and a radio Graywolf can hear and key. The radio should already be on the packet frequency you intend to use, in FM. Crossbeam does not choose that frequency.
+```bash
+sudo systemctl start graywolf
+```
 
-Graywolf's own page is often port 8080. Use the KISS page there. The AGWPE port is a different protocol, and Crossbeam does not use it.
+Graywolf's page is port 8080 on this computer. The first visit asks you to create a password. Set that password. The page is reachable from other computers on your network until you do. Use the KISS page there. The AGWPE port is a different protocol, and Crossbeam does not use it.
+
+You need a radio Graywolf can hear and key, and a sound interface for that radio, such as a USB sound card. The radio should already be on the packet frequency you intend to use, in FM. Use your local packet frequency. Leave the APRS frequency alone. Crossbeam does not choose that frequency, and it does not change Graywolf's switches.
 
 ## The channel
 

@@ -1,0 +1,15 @@
+Graywolf 0.14.14
+
+These two files are the official release packages, unmodified:
+
+graywolf_0.14.14_amd64.deb
+graywolf_0.14.14_arm64.deb
+
+The checksums are SHA256SUMS. They match the v0.14.14 checksums.txt published with the release.
+
+Project: https://github.com/chrissnell/graywolf
+Source: https://github.com/chrissnell/graywolf/archive/refs/tags/v0.14.14.tar.gz
+License: GPL-2.0
+Maintainer: Chris Snell
+
+Crossbeam ships these packages beside its own. Graywolf's code is not part of the Crossbeam binary. Crossbeam is GPL-3.0-or-later.

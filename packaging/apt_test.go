@@ -5,7 +5,9 @@ package packaging_test
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -42,7 +44,37 @@ func TestUpdateAptScript(t *testing.T) {
 	if keyMaterial(t, out) {
 		t.Fatal("archive contains a private key")
 	}
-	aptUpdate(t, out)
+	release, err := os.ReadFile(filepath.Join(out, "dists", "stable", "Release"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(release, []byte("Architectures: amd64 arm64\n")) {
+		t.Fatalf("release %s", release)
+	}
+	for _, name := range []string{
+		"crossbeam_" + version.String + "_amd64.deb",
+		"crossbeam_" + version.String + "_arm64.deb",
+		"graywolf_0.14.14_amd64.deb",
+		"graywolf_0.14.14_arm64.deb",
+	} {
+		if _, err := os.Stat(filepath.Join(out, "pool", "main", name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, arch := range []string{"amd64", "arm64"} {
+		packages := filepath.Join(out, "dists", "stable", "main", "binary-"+arch, "Packages")
+		text, err := os.ReadFile(packages)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Count(string(text), "Package: crossbeam\n") != 1 || strings.Count(string(text), "Package: graywolf\n") != 1 {
+			t.Fatalf("%s packages %s", arch, text)
+		}
+		root := t.TempDir()
+		run(t, "dpkg-deb", "-x", filepath.Join(out, "pool", "main", "crossbeam_"+version.String+"_"+arch+".deb"), root)
+		elfArch(t, filepath.Join(root, "usr", "bin", "crossbeam"), arch)
+	}
+	aptUpdate(t, out, "graywolf")
 }
 
 func TestPublishedArchive(t *testing.T) {
@@ -168,7 +200,28 @@ func keyMaterial(t *testing.T, archive string) bool {
 	return found
 }
 
-func aptUpdate(t *testing.T, archive string) {
+func elfArch(t *testing.T, path, arch string) {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	var hdr [20]byte
+	if _, err := io.ReadFull(f, hdr[:]); err != nil {
+		t.Fatal(err)
+	}
+	if hdr[0] != 0x7f || hdr[1] != 'E' || hdr[2] != 'L' || hdr[3] != 'F' || hdr[4] != 2 {
+		t.Fatalf("elf %x", hdr[:5])
+	}
+	machine := binary.LittleEndian.Uint16(hdr[18:20])
+	want := map[string]uint16{"amd64": 62, "arm64": 183}[arch]
+	if machine != want {
+		t.Fatalf("machine %d want %d", machine, want)
+	}
+}
+
+func aptUpdate(t *testing.T, archive string, extra ...string) {
 	t.Helper()
 	root := t.TempDir()
 	for _, dir := range []string{
@@ -222,5 +275,12 @@ func aptUpdate(t *testing.T, archive string) {
 	}
 	if bytes.Contains(got, []byte("/home/bbeam")) || bytes.Contains(got, []byte("10.0.35.106")) {
 		t.Fatalf("show %s", got)
+	}
+	for _, name := range extra {
+		show := exec.Command("apt-cache", "-o", "Dir="+root, "-o", "Dir::State::status="+status, "show", name)
+		got, err := show.CombinedOutput()
+		if err != nil || !bytes.Contains(got, []byte("Package: "+name+"\n")) {
+			t.Fatalf("show %s: %v\n%s", name, err, got)
+		}
 	}
 }
