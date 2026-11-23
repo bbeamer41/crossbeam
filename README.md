@@ -20,14 +20,22 @@ The full list of guides is [docs/README.md](docs/README.md).
 
 ## Install
 
-The Debian package installs Crossbeam and Graywolf on a 64-bit PC or on 64-bit Raspberry Pi OS. It does not start Crossbeam. Graywolf's service is enabled and stays stopped until you start it. The signing key and the password step are in [docs/install.md](docs/install.md).
+The Debian package installs Crossbeam and Graywolf on a 64-bit PC or on 64-bit Raspberry Pi OS. It does not start Crossbeam. Graywolf's service is enabled and stays stopped until you start it. Run these commands on each computer before the first install. The password step is in [docs/install.md](docs/install.md).
 
 ```bash
+sudo install -d -m 0755 /etc/apt/keyrings
+wget -O /tmp/crossbeam.asc https://raw.githubusercontent.com/bbeamer41/crossbeam/main/apt/crossbeam-archive-key.asc
+wget -O /tmp/crossbeam.list https://raw.githubusercontent.com/bbeamer41/crossbeam/main/apt/crossbeam.list
+gpg --show-keys /tmp/crossbeam.asc
+sudo install -m 0644 /tmp/crossbeam.asc /etc/apt/keyrings/crossbeam.asc
+sudo install -m 0644 /tmp/crossbeam.list /etc/apt/sources.list.d/crossbeam.list
 sudo apt update
 sudo apt install crossbeam
 ```
 
-A newer Crossbeam:
+The fingerprint `gpg` prints is `E6B7A9B54B63A15E37C0979FC4B7FFE1AB0D6034`.
+
+On a computer that already has the archive:
 
 ```bash
 sudo apt update
