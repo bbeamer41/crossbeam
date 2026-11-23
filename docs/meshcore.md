@@ -1,6 +1,8 @@
 # MeshCore
 
-Crossbeam can list and read its bulletins over a MeshCore companion radio. The articles stay in the same store as the packet prompt and the NomadNet pages. The radio is a serial device, the way a KISS modem is a separate program. Crossbeam does not become LoRa firmware, and it does not flash the radio.
+Use this when a MeshCore radio should answer `LIST` and `READ` from the same board as the packet prompt. The radio is a serial device, the way Graywolf is a separate program. Crossbeam does not become LoRa firmware, and it does not flash the radio.
+
+The articles stay in the same store as the packet prompt and the NomadNet pages.
 
 MeshCore stays off until `mesh.device` is set. The value is a companion port such as `/dev/ttyACM0`, `/dev/ttyUSB0`, or a stable name under `/dev/serial/by-id/`. Leave it empty to keep the radio off. The path is read when `crossbeam serve` starts.
 

@@ -1,6 +1,6 @@
 # MCP
 
-`crossbeam mcp` serves the article store and the NomadNet pages over the Model Context Protocol. The session uses standard input and standard output. It does not open a network port, and it does not start NomadNet.
+Use this when a program on this computer should list, read, and save bulletins through the Model Context Protocol. The session uses standard input and standard output. It does not open a network port, and it does not start NomadNet.
 
 The operating system user who starts the process is the boundary. There is no password on this channel. The state directory is the `--state` flag. The default is `crossbeam-state`. With the service layout, that directory is mode `0700`, so the `crossbeam` user is the one that can open it.
 

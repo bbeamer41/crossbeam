@@ -1,5 +1,7 @@
 # Settings
 
+This is the same list as the settings page. Read [start.md](start.md) before you fill it in. Leave a box empty to keep that part off. Faint text in a box is an example, and `N0CALL` means "type the callsign on your license."
+
 The admin panel and the `crossbeam` command change the same settings. A setting that is not in this list is rejected. The password is not a setting. It is stored only as a hash, and it is set with `crossbeam sysop password`.
 
 The state directory is not a setting either. Pass it as `--state`. The database, the session list, and the TLS certificate live in that directory. The directory is mode `0700`. The database and the private key are mode `0600`.

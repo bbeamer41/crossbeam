@@ -1,8 +1,8 @@
 # FBB bulletins
 
-Crossbeam forwards stored articles as ASCII FBB bulletins on the AX.25 session from `docs/link.md`. One forward publishes every article this station holds and ingests the bulletins the other station offers. The text is readable. It is not compressed and it is not encrypted.
+Use this when the board should trade notes with another BBS. One forward sends every article this station holds and takes the bulletins the other station offers. The text is readable. It is not compressed and it is not encrypted.
 
-Private mail and NTS traffic are refused. Only bulletin type `B` is stored.
+The exchange rides on the AX.25 session from [link.md](link.md), or on FBB TCP from [peers.md](peers.md). Private mail and NTS traffic are refused. Only bulletin type `B` is stored.
 
 ## Send
 

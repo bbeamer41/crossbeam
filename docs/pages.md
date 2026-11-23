@@ -1,6 +1,8 @@
 # NomadNet pages
 
-A stored article can be written as a Micron page, and a Micron page can be read back into the same article. The page text is the rendering in `docs/article.md`. NomadNet is a separate program. Crossbeam reads and writes the page files. It does not start NomadNet, and it does not speak Reticulum. The AI assistant's optional LXMF bridge is a separate program, described in `docs/ai.md`.
+Use this when a bulletin should also be a page that NomadNet can serve. One article stays one article. Crossbeam writes it out as a page, and can read a page back.
+
+The page text is the rendering in [article.md](article.md). NomadNet is a separate program. Crossbeam reads and writes the page files. It does not start NomadNet, and it does not speak Reticulum. The AI assistant's optional LXMF bridge is a separate program, described in [ai.md](ai.md).
 
 ## When the directory is down
 

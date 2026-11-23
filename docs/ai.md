@@ -1,6 +1,8 @@
 # AI assistant
 
-Crossbeam can let a caller chat with an AI model that runs on a computer on your own network. Crossbeam talks to [Ollama](https://ollama.com) directly, with its own `/api/chat` interface and nothing in between. A server that speaks the OpenAI chat format, such as [Open WebUI](https://openwebui.com), LM Studio, or llama.cpp, works too. Nothing goes to the internet. Crossbeam sends the question to the address you save and nowhere else, and it never uses an HTTP proxy from the environment.
+Use this when a connected station should be able to type `AI` and ask a question. The model runs on a computer on your own network. The assistant is off until you turn it on. You remain the control operator for every reply.
+
+Crossbeam talks to [Ollama](https://ollama.com) directly, with its own `/api/chat` interface and nothing in between. A server that speaks the OpenAI chat format, such as [Open WebUI](https://openwebui.com), LM Studio, or llama.cpp, works too. Crossbeam sends the question to the address you save and nowhere else, and it does not use an HTTP proxy from the environment.
 
 The assistant is off until you turn on `ai.enabled`. With the defaults, it asks Ollama on this computer, `http://127.0.0.1:11434`, for the model `llama3.2:3b`. You are still the control operator. Every reply goes out under this station's callsign, and every question and reply is written to the AI log so you can review it.
 

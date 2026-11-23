@@ -1,6 +1,6 @@
 # Turn on the radio
 
-This page is the hour after your callsign is saved. It ends when Graywolf is listening on port 6700 and Crossbeam is dialing it. The board you already wrote stays on this computer either way.
+This page is the hour after your callsign is saved in [start.md](start.md). It ends when Graywolf is listening on port 6700 and Crossbeam is dialing it. The board you already wrote stays on this computer either way.
 
 The full KISS port, the license check, and the timing bytes are in `docs/radio.md`. Leave every Graywolf switch you do not recognize as you found it.
 

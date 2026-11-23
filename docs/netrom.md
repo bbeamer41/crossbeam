@@ -1,6 +1,8 @@
 # NET/ROM routing
 
-A listed neighbor is also a NET/ROM neighbor. This node learns routes from the node broadcasts those neighbors send, and `crossbeam connect` can reach a station that is not listed when a route to it exists. The frames ride on the AX/UDP link in `docs/link.md`. A radio connection is plain AX.25 and does not carry these routes. See `docs/radio.md`. Routing has no new setting.
+Use this when a station you want is not listed on this node, and a neighbor you do list already knows a way there. `crossbeam connect` then follows that route.
+
+A listed neighbor is also a NET/ROM neighbor. This node learns routes from the node broadcasts those neighbors send. The frames ride on the AX/UDP link in [link.md](link.md). A radio connection is plain AX.25 and does not carry these routes. See [radio.md](radio.md). Routing has no setting of its own. The neighbor list is `link.peers`.
 
 ## Neighbors
 

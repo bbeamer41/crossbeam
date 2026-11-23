@@ -1,6 +1,6 @@
 # Article format
 
-An article is the one copy Crossbeam stores. Rendering does not change that copy. Importing a rendering returns the same article.
+An article is the one copy of a bulletin. The packet text and the NomadNet page are two ways of showing that copy. Saving either form again returns the same article. This page is the field rules and the two text layouts.
 
 | Field | Required | Rules |
 | --- | --- | --- |
