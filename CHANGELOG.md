@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.1
+
+- `crossbeam ai log` reads `ai-log.jsonl.1` as well as the current log, so the last entries stay visible after the log rotates at 4 MB.
+- The LXMF bridge forwards a message only when its first word is `AI`. Extra messages reach Crossbeam and get the busy reply, instead of waiting here and being answered late. A burst past that cap is dropped.
+- The bridge creates its LXMF identity at mode `0600`. The example service uses `UMask=0077`.
+
 ## 0.10.0
 
 - An AI assistant on the station prompt. A connected packet caller types `AI` to chat with a model on Ollama, which Crossbeam talks to directly, or on an OpenAI-compatible server such as Open WebUI. The defaults are Ollama on this computer and `llama3.2:3b`. `/EXIT` returns to the prompt, and `BYE` signs off and disconnects. Each chat keeps its last six turns. Replies are plain ASCII, cut to `ai.reply` characters, and paged for 1200 baud. A dropped link or `/STOP` cancels a question.

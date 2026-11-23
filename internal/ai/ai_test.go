@@ -599,6 +599,46 @@ func TestDefaultsTalkToOllamaDirectly(t *testing.T) {
 	}
 }
 
+func TestReadLogIncludesRotated(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name string, questions ...string) {
+		t.Helper()
+		var raw []byte
+		for _, q := range questions {
+			line, err := json.Marshal(Entry{Caller: "W5ABC", Via: "radio", Question: q, Outcome: OutAnswered})
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw = append(raw, line...)
+			raw = append(raw, '\n')
+		}
+		raw = append(raw, []byte("not json\n")...)
+		if err := os.WriteFile(filepath.Join(dir, name), raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(LogName+".1", "older", "previous")
+	write(LogName, "current")
+	got, err := ReadLog(dir, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Question != "previous" || got[1].Question != "current" {
+		t.Fatalf("last two %+v", got)
+	}
+	all, err := ReadLog(dir, 0)
+	if err != nil || len(all) != 3 || all[0].Question != "older" {
+		t.Fatalf("all %+v %v", all, err)
+	}
+	if err := os.Remove(filepath.Join(dir, LogName)); err != nil {
+		t.Fatal(err)
+	}
+	onlyOld, err := ReadLog(dir, 20)
+	if err != nil || len(onlyOld) != 2 || onlyOld[1].Question != "previous" {
+		t.Fatalf("rotated only %+v %v", onlyOld, err)
+	}
+}
+
 func mustValidate(t *testing.T, m map[string]string) map[string]string {
 	t.Helper()
 	got, err := settings.Validate(m)
