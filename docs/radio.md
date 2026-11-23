@@ -6,6 +6,8 @@ The radio is off until `kiss.tnc` is set.
 
 ## Graywolf
 
+A first setup, ending when Crossbeam is dialing the modem, is `docs/graywolf.md`.
+
 Graywolf is the supported modem. Use modem mode, so Graywolf supplies the radio and Crossbeam is the TCP client. The conventional KISS port is 6700. On the same machine the address is `127.0.0.1:6700`. The channel is 1200 baud AFSK.
 
 Turn on connected mode (`allow_connected_mode`). It is off by default, and Graywolf then drops connected frames. Leave `gate_tx_to_is` off. Leave the digipeater off on that channel. Leave the iGate off. Do not enable transmit for the digipeater, the beacon, or the iGate on this interface. Do not use TNC mode. That mode expects an external TNC to dial Graywolf.

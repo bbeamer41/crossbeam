@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.2
+
+- A new operator starts with `docs/start.md`. Until the station callsign is saved, the panel shows those steps and still lists every setting.
+- Turning on the radio is `docs/graywolf.md`: Graywolf in modem mode, 1200 baud AFSK, connected mode on, and `kiss.tnc` set to `127.0.0.1:6700`. After the callsign is saved, the panel shows those steps until the modem address is set.
+
 ## 0.10.1
 
 - `crossbeam ai log` reads `ai-log.jsonl.1` as well as the current log, so the last entries stay visible after the log rotates at 4 MB.

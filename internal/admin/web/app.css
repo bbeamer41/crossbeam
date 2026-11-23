@@ -277,6 +277,22 @@ label {
   font-size: 1.05rem;
 }
 
+.start {
+  margin: 0 0 1.4rem;
+  padding: 0.15rem 1rem 0.35rem;
+  border: 1px solid var(--line);
+  background: var(--card);
+}
+
+.start ol {
+  margin: 0.35rem 0 0.7rem;
+  padding-left: 1.25rem;
+}
+
+.start li {
+  margin: 0.3rem 0;
+}
+
 .setting-key {
   margin: 0 0 0.35rem;
   color: var(--muted);

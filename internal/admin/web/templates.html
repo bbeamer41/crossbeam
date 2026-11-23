@@ -51,7 +51,18 @@
 {{end}}
 {{if eq .Kind "settings"}}
 <h1>Settings</h1>
-<p class="lede">Every setting is on this page. An empty box leaves that part off, and the faint text is an example. The i beside a box explains it.</p>
+{{if .Starting}}<p class="lede">Save your callsign first. An empty box leaves that part off, and the faint text is an example. The i beside a box explains it.</p>{{else}}<p class="lede">Every setting is on this page. An empty box leaves that part off, and the faint text is an example. The i beside a box explains it.</p>{{end}}
+{{if .RadioNext}}
+<section class="start">
+<h2>Turn on the radio</h2>
+<ol>
+<li>In Graywolf, choose modem mode, 1200 baud AFSK, and turn on connected mode. Leave the digipeater and the iGate off. Listen on port 6700.</li>
+<li>On this page, set Modem address to 127.0.0.1:6700 and save.</li>
+<li>Restart Crossbeam. A transmission waits until the FCC lists both stations.</li>
+</ol>
+<p class="help">Crossbeam does not start Graywolf. The other radio boxes can stay empty.</p>
+</section>
+{{end}}
 <form method="post" action="/settings">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
 {{range .Fields}}
@@ -190,6 +201,28 @@
 {{end}}
 {{if eq .Kind "articles"}}
 <h1>Bulletins</h1>
+{{if .Starting}}
+<section class="start">
+<h2>Start here</h2>
+<ol>
+<li>Open <a href="/settings">Settings</a> and save your callsign. That is the address of this station.</li>
+<li>Choose <a href="/compose">Compose</a> and save one bulletin.</li>
+<li>A caller who connects later types LIST, then READ and a number, then BYE.</li>
+</ol>
+<p class="help">The radio, the links, and the AI assistant stay off until you turn them on. The other settings can stay empty.</p>
+</section>
+{{end}}
+{{if .RadioNext}}
+<section class="start">
+<h2>Turn on the radio</h2>
+<ol>
+<li>In Graywolf, choose modem mode, 1200 baud AFSK, and turn on connected mode. Leave the digipeater and the iGate off. Listen on port 6700.</li>
+<li>Open <a href="/settings">Settings</a>, set Modem address to 127.0.0.1:6700, and save.</li>
+<li>Restart Crossbeam. A transmission waits until the FCC lists both stations.</li>
+</ol>
+<p class="help">Crossbeam does not start Graywolf. The other radio boxes can stay empty.</p>
+</section>
+{{end}}
 <p class="toolbar"><a class="button-link" href="/compose">New bulletin</a></p>
 <ul class="board">
 {{range .Articles}}

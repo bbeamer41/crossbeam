@@ -123,6 +123,23 @@ func TestPanelFlow(t *testing.T) {
 			t.Fatalf("settings page missing example for %s", field.Key)
 		}
 	}
+	if !strings.Contains(page, "Save your callsign first.") {
+		t.Fatal("settings hid the first-hour line")
+	}
+	if strings.Contains(page, "Turn on the radio") {
+		t.Fatal("radio steps showed before the callsign was saved")
+	}
+	res, err = client.Get(base + "/bulletins")
+	if err != nil {
+		t.Fatal(err)
+	}
+	board := readAll(t, res)
+	if res.StatusCode != http.StatusOK || !strings.Contains(board, "Start here") || !strings.Contains(board, "save your callsign") || !strings.Contains(board, "LIST") {
+		t.Fatalf("start %d %s", res.StatusCode, board)
+	}
+	if strings.Contains(board, "Turn on the radio") {
+		t.Fatal("radio steps showed before the callsign was saved")
+	}
 	token := csrfFrom(t, page)
 
 	res, err = client.PostForm(base+"/settings", url.Values{"station.name": {"ignored"}})
@@ -351,6 +368,52 @@ func TestPanelFlow(t *testing.T) {
 	got, err = st.Settings(context.Background())
 	if err != nil || got[settings.KeyCallsign] != "K5LEB" {
 		t.Fatalf("callsign %v %v", got, err)
+	}
+	res, err = client.Get(base + "/bulletins")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page = readAll(t, res)
+	if strings.Contains(page, "Start here") || !strings.Contains(page, "Turn on the radio") || !strings.Contains(page, "127.0.0.1:6700") || !strings.Contains(page, "connected mode") {
+		t.Fatalf("radio steps after the callsign: %s", page)
+	}
+	res, err = client.Get(base + "/settings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page = readAll(t, res)
+	if strings.Contains(page, "Save your callsign first.") || !strings.Contains(page, "Every setting is on this page.") || !strings.Contains(page, "Turn on the radio") {
+		t.Fatal("settings missed the radio steps")
+	}
+	req, err = http.NewRequest(http.MethodPut, "http://crossbeam/api/settings", strings.NewReader(`{"kiss.tnc":"127.0.0.1:6700"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Crossbeam-Request", "1")
+	res, err = unixClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readAll(t, res)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("kiss put %d", res.StatusCode)
+	}
+	res, err = client.Get(base + "/bulletins")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page = readAll(t, res)
+	if strings.Contains(page, "Turn on the radio") || strings.Contains(page, "Start here") {
+		t.Fatalf("radio steps remained after kiss.tnc was saved: %s", page)
+	}
+	res, err = client.Get(base + "/settings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page = readAll(t, res)
+	if strings.Contains(page, "Turn on the radio") || strings.Contains(page, "Save your callsign first.") || !strings.Contains(page, "Every setting is on this page.") {
+		t.Fatal("settings still showed the radio steps")
 	}
 
 	req, err = http.NewRequest(http.MethodGet, base+"/login", nil)
