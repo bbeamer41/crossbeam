@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.3
+
+- Examples use `N0CALL` as a placeholder. The callsign box says to type the callsign on your license.
+
 ## 0.10.2
 
 - A new operator starts with `docs/start.md`. Until the station callsign is saved, the panel shows those steps and still lists every setting.

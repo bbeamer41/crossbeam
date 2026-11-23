@@ -17,16 +17,16 @@ A chat advert that the companion radio did not store is saved, so this station c
 Someone sends a direct message to this station. The reply comes back in that same conversation. A plain sentence gets one short reply that says how to list and read bulletins. The bulletin commands are the same as the packet prompt:
 
 ```text
-K5LEB>
+N0CALL>
 LIST
-1  09-Nov  K5LEB  Net night notes
-K5LEB>
+1  09-Nov  N0CALL  Net night notes
+N0CALL>
 READ 1
 Title: Net night notes
-Author: K5LEB
+Author: N0CALL
 
 The Denton net meets on Thursday.
-K5LEB>
+N0CALL>
 BYE
 Bye
 ```

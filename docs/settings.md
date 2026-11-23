@@ -12,9 +12,9 @@ A change to `radio.model`, `radio.device`, `radio.frequency`, or `radio.mode` is
 
 ## station.callsign
 
-Your amateur callsign. Compose uses it when the author box is empty. The packet link, the radio modem, telnet, and bulletin forwarding use it as the address of this station. When one of those is turned on, it has to be an AX.25 callsign, with an optional SSID such as K5LEB-1.
+Your amateur callsign. Compose uses it when the author box is empty. The packet link, the radio modem, telnet, and bulletin forwarding use it as the address of this station. When one of those is turned on, it has to be an AX.25 callsign, with an optional SSID such as N0CALL-1. N0CALL in the example is a placeholder. Type the callsign on your license.
 
-One line, at most 64 runes. It may be empty until you set it. When the link, the radio, telnet, and FBB TCP are off, the value is not checked against a callsign pattern. When `link.listen`, `kiss.tnc`, `telnet.listen`, or `fbb.listen` is set, it must be an AX.25 callsign, with an optional SSID such as `K5LEB-1`.
+One line, at most 64 runes. It may be empty until you set it. When the link, the radio, telnet, and FBB TCP are off, the value is not checked against a callsign pattern. When `link.listen`, `kiss.tnc`, `telnet.listen`, or `fbb.listen` is set, it must be an AX.25 callsign, with an optional SSID such as `N0CALL-1`.
 
 ## station.name
 
@@ -136,9 +136,9 @@ This is the `TO` field of an FBB bulletin. `ALL` is the usual category. The valu
 
 ## bulletin.at
 
-The distribution other stations see on a bulletin this station forwards. WW is the widest distribution. A hierarchical address such as K5LEB.#DFW.TX is also valid. Use letters, digits, dots, hashes, and hyphens, at most 40. An empty value is stored as WW. The next forward uses a saved change.
+The distribution other stations see on a bulletin this station forwards. WW is the widest distribution. A hierarchical address such as N0CALL.#DFW.TX is also valid. Use letters, digits, dots, hashes, and hyphens, at most 40. An empty value is stored as WW. The next forward uses a saved change.
 
-This is the `@` field. `WW` reaches the widest set of bulletin areas. A hierarchical address such as `K5LEB.#DFW.TX` is also valid. The value is stored in uppercase. The next forward uses a saved change.
+This is the `@` field. `WW` reaches the widest set of bulletin areas. A hierarchical address such as `N0CALL.#DFW.TX` is also valid. The value is stored in uppercase. The next forward uses a saved change.
 
 ## nomad.pages
 
@@ -237,7 +237,7 @@ Flags may come before or after the key.
 ```bash
 crossbeam settings --state /var/lib/crossbeam
 crossbeam settings get station.callsign --state /var/lib/crossbeam
-crossbeam settings set station.callsign K5LEB --state /var/lib/crossbeam
+crossbeam settings set station.callsign N0CALL --state /var/lib/crossbeam
 ```
 
 When `crossbeam serve` is running and `--state` is omitted, the command uses the Unix socket. `--socket PATH` selects the socket explicitly. `--state` selects the database file. Both paths accept and reject the same values.

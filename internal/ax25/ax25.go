@@ -37,7 +37,7 @@ type Address struct {
 	Repeated bool
 }
 
-// Parse reads a callsign such as K5LEB or W1AW-1.
+// Parse reads a callsign such as N0CALL or W1AW-1.
 func Parse(text string) (Address, error) {
 	text = strings.ToUpper(strings.TrimSpace(text))
 	if text == "" {

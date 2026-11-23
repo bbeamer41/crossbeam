@@ -9,9 +9,9 @@ The assistant is off until you turn on `ai.enabled`. With the defaults, it asks 
 A caller connects to the station prompt over packet and types `AI`. That starts a chat. The caller types a question, gets a short answer, and can ask a follow-up. The assistant remembers the last six questions and answers in this chat, and it forgets them when the caller leaves or the link drops.
 
 ```text
-K5LEB-1>
+N0CALL-1>
 AI
-AI chat on K5LEB-1 using llama3.2:3b.
+AI chat on N0CALL-1 using llama3.2:3b.
 Replies are machine-made and may be wrong. Questions and replies
 are logged for the control operator. Keep it legal for amateur radio.
 /EXIT goes back to the BBS, BYE disconnects, /? for help.
@@ -24,12 +24,12 @@ have to.
 AI>
 /EXIT
 Back to the BBS.
-K5LEB-1>
+N0CALL-1>
 AI
 ...
 AI>
 BYE
-73 de K5LEB-1, disconnecting.
+73 de N0CALL-1, disconnecting.
 ```
 
 `AI` and a question, such as `AI what is APRS`, starts the chat and asks that question at once.
@@ -94,7 +94,7 @@ MeshCore contacts are identified by their key, not a callsign, so `ai.users` doe
 
 When `ai.reticulum` is on, an LXMF message sent to the station that starts with `AI` gets an answer. LXMF is the message format of Reticulum. Sideband, NomadNet, and MeshChat send it. A message that does not start with `AI` is ignored. While `ai.reticulum` is off, every message is ignored and nothing is sent back.
 
-Crossbeam itself does not speak Reticulum. It keeps Reticulum in a separate program, as `docs/PLAN.md` says. A small bridge in `contrib/reticulum/crossbeam-lxmf-ai` runs Reticulum and LXMF. It announces an LXMF address with a display name such as `K5LEB AI`, passes each message whose first word is `AI` to the running Crossbeam over the local socket `ai.sock`, and sends the reply back over LXMF. Crossbeam makes every decision: the switch, the hourly limit, the filter, the log, and the station instructions are the same as on packet. The bridge keeps only a few of those messages in flight, so a burst is told the server is busy or is dropped, instead of being answered later.
+Crossbeam itself does not speak Reticulum. It keeps Reticulum in a separate program, as `docs/PLAN.md` says. A small bridge in `contrib/reticulum/crossbeam-lxmf-ai` runs Reticulum and LXMF. It announces an LXMF address with a display name such as `N0CALL AI`, passes each message whose first word is `AI` to the running Crossbeam over the local socket `ai.sock`, and sends the reply back over LXMF. Crossbeam makes every decision: the switch, the hourly limit, the filter, the log, and the station instructions are the same as on packet. The bridge keeps only a few of those messages in flight, so a burst is told the server is busy or is dropped, instead of being answered later.
 
 With `ai.require_approval` on, that sender must be approved first, the same way as a MeshCore contact. Until then the bridge sends back the one waiting sentence, or nothing if the sender is blocked, the pending list is full, or they already heard the waiting sentence today.
 
@@ -102,7 +102,7 @@ The bridge drops an LXMF message whose signature does not validate. That include
 
 A Reticulum user:
 
-1. Finds `K5LEB AI` in the announce list in Sideband or NomadNet, or adds its LXMF address.
+1. Finds `N0CALL AI` in the announce list in Sideband or NomadNet, or adds its LXMF address.
 2. Sends `AI what is a TNC?`
 3. Gets one LXMF message back with the answer.
 4. Can ask a follow-up, such as `AI how fast is it?`. The assistant remembers the last few questions from that sender for 30 minutes. `AI /NEW` starts over.
@@ -125,7 +125,7 @@ A Reticulum user:
 4. Start the bridge as the `crossbeam` user, so it can open `/run/crossbeam/ai.sock`:
 
    ```bash
-   sudo -u crossbeam /opt/crossbeam-lxmf/bin/python /usr/local/bin/crossbeam-lxmf-ai --socket /run/crossbeam/ai.sock --storage /var/lib/crossbeam-lxmf-ai --name "K5LEB AI"
+   sudo -u crossbeam /opt/crossbeam-lxmf/bin/python /usr/local/bin/crossbeam-lxmf-ai --socket /run/crossbeam/ai.sock --storage /var/lib/crossbeam-lxmf-ai --name "N0CALL AI"
    ```
 
    `contrib/reticulum/crossbeam-lxmf-ai.service` is an example systemd unit for the same command. The bridge prints its LXMF address when it starts, and it announces every 30 minutes. `--announce SECONDS` changes that.

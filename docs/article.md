@@ -5,7 +5,7 @@ An article is the one copy Crossbeam stores. Rendering does not change that copy
 | Field | Required | Rules |
 | --- | --- | --- |
 | Title | yes | One line, at most 200 runes. Leading and trailing spaces are removed. |
-| Author | yes | One line, at most 64 runes. This is the station callsign, such as `K5LEB`. |
+| Author | yes | One line, at most 64 runes. This is the station callsign, such as `N0CALL`. |
 | Created | yes | A date and time. Stored in UTC and truncated to one second. Written as RFC3339, for example `2026-10-11T18:04:05Z`. |
 | ID | no | One line, at most 80 runes. Omitted from both renderings when empty. |
 | Body | no | Plain text, at most 256 KiB. Paragraphs are separated by a blank line. Words inside a paragraph are separated by single spaces. Line breaks inside a paragraph are for display and are joined back on import. |
@@ -24,9 +24,9 @@ Plain text. Each header is `Name: value`. A blank line ends the header. The body
 
 ```
 Title: Net night notes
-Author: K5LEB
+Author: N0CALL
 Created: 2026-10-11T18:04:05Z
-ID: k5leb-001
+ID: n0call-001
 
 The Denton net meets on Thursday.
 ```
@@ -41,9 +41,9 @@ The title is a level-1 heading. The other fields are plain lines. A line that is
 
 ```
 > Net night notes
-Author: K5LEB
+Author: N0CALL
 Created: 2026-10-11T18:04:05Z
-ID: k5leb-001
+ID: n0call-001
 
 ----
   The Denton net meets on Thursday.

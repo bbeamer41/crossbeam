@@ -32,7 +32,7 @@ Up to three routes are kept for one destination, highest quality first, and up t
 
 One AX.25 session is open to a neighbor at a time. While a circuit is using that neighbor, a direct connect to the same callsign reports that it is already connected. The direct connect works after the circuit disconnects.
 
-Connect by callsign. The six-character mnemonic in a broadcast is the callsign without an SSID. `K5LEB` and `K5LEB-1` remain different routes.
+Connect by callsign. The six-character mnemonic in a broadcast is the callsign without an SSID. `N0CALL` and `N0CALL-1` remain different routes.
 
 ## Limits
 

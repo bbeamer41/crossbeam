@@ -217,7 +217,7 @@ def main():
     p.add_argument("--socket", default="/run/crossbeam/ai.sock", help="Crossbeam AI bridge socket (default %(default)s)")
     p.add_argument("--storage", default=os.path.expanduser("~/.crossbeam-lxmf-ai"), help="identity and LXMF storage directory")
     p.add_argument("--rnsconfig", default=None, help="Reticulum config directory (default: the usual ~/.reticulum)")
-    p.add_argument("--name", default="Crossbeam AI", help="display name in announces, such as 'K5LEB AI'")
+    p.add_argument("--name", default="Crossbeam AI", help="display name in announces, such as 'N0CALL AI'")
     p.add_argument("--announce", type=int, default=1800, help="seconds between announces (default %(default)s)")
     p.add_argument("--method", choices=["direct", "opportunistic"], default="direct", help="how replies are sent")
     p.add_argument("--timeout", type=int, default=660, help="seconds to wait for Crossbeam (default %(default)s)")

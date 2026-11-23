@@ -7,12 +7,12 @@ The link is off until `link.listen` is set. Each node lists the stations it will
 ## Settings
 
 ```bash
-crossbeam settings set station.callsign K5LEB --state /var/lib/crossbeam
+crossbeam settings set station.callsign N0CALL --state /var/lib/crossbeam
 crossbeam settings set link.listen 192.168.1.20:10093 --state /var/lib/crossbeam
 crossbeam settings set link.peers W1AW-1@192.168.1.21:10093 --state /var/lib/crossbeam
 ```
 
-`station.callsign` is this station's AX.25 address. An SSID is optional: `K5LEB-1` is a different address from `K5LEB`. Restart `crossbeam serve` after changing the link settings. `--link` and `--peers` override them for one start and are not saved.
+`station.callsign` is this station's AX.25 address. An SSID is optional: `N0CALL-1` is a different address from `N0CALL`. Restart `crossbeam serve` after changing the link settings. `--link` and `--peers` override them for one start and are not saved.
 
 On a LinBPQ node, the matching piece is an AX/UDP port on UDP 10093 and a `MAP` line for this station's callsign and address. This station lists the LinBPQ callsign in `link.peers`. The two programs do not share code.
 
@@ -29,9 +29,9 @@ With the systemd layout the terminal socket is `/run/crossbeam/terminal.sock`. T
 The prompt from a Crossbeam node looks like this:
 
 ```text
-[CROSSBEAM-0.10.2-FHM$]
-Crossbeam K5LEB
-K5LEB>
+[CROSSBEAM-0.10.3-FHM$]
+Crossbeam N0CALL
+N0CALL>
 ```
 
 The first line is the FBB station id. Its version is the program version. `?` still lists the commands. `LIST` lists the bulletins and `READ` followed by a number reads one. `BYE` still disconnects. Bulletin forwarding is described in `docs/bulletin.md`.

@@ -38,7 +38,7 @@ One session is open to a given callsign at a time.
 
 ## License
 
-A connected frame is sent only when the FCC lists both stations as active amateur licenses. The SSID is not a separate license: `K5LEB-1` is checked as `K5LEB`. The record has to be amateur service (HA or HV), status Active, and not past its expiration date. A canceled, expired, or terminated license stays off the air. A callsign the FCC does not list stays off the air, including a tactical call and a call from outside the FCC database.
+A connected frame is sent only when the FCC lists both stations as active amateur licenses. The SSID is not a separate license: `N0CALL-1` is checked as `N0CALL`. The record has to be amateur service (HA or HV), status Active, and not past its expiration date. A canceled, expired, or terminated license stays off the air. A callsign the FCC does not list stays off the air, including a tactical call and a call from outside the FCC database.
 
 The check runs when the TNC connection comes up, for this station. It runs again when a radio session is approved, for the other station. An open session is not checked again until it ends. The next session is checked again. A callsign that was not approved is not asked again for one minute, so a retry does not hammer the FCC.
 
@@ -63,7 +63,7 @@ When the TNC is down, or a write to it fails, Crossbeam closes that TCP connecti
 ## Settings
 
 ```bash
-crossbeam settings set station.callsign K5LEB --state /var/lib/crossbeam
+crossbeam settings set station.callsign N0CALL --state /var/lib/crossbeam
 crossbeam settings set kiss.tnc 127.0.0.1:6700 --state /var/lib/crossbeam
 ```
 

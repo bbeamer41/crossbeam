@@ -81,7 +81,7 @@ var aiFields = []Field{
 	{
 		Key:      KeyAIUsers,
 		Label:    "Who may use it",
-		Example:  "K5LEB W5ABC",
+		Example:  "N0CALL W1AW",
 		Help:     "Optional. Leave it empty, the usual choice, and anyone who connects over the radio may use the assistant, because Crossbeam has already checked their license with the FCC. Callsigns listed here, separated by spaces or commas, may also use it over the packet link or NET/ROM. Telnet callers have no callsign, so they cannot use it.",
 		Kind:     KindLine,
 		MaxRunes: 1024,
