@@ -2,19 +2,19 @@ Origin: Crossbeam
 Label: Crossbeam
 Suite: stable
 Codename: stable
-Date: Thu, 19 Nov 2026 03:36:42 +0000
+Date: Mon, 23 Nov 2026 13:37:50 +0000
 Architectures: amd64
 Components: main
 Description: Crossbeam packet-radio node
 MD5Sum:
- fa0eb6fe922d9a35b08d7fb2fb012c5c 668 main/binary-amd64/Packages
- 3b5fa4419cb2949873b9be0b7ccfcff4 466 main/binary-amd64/Packages.gz
+ b9030c7586f30ca58f76f4319d0724cc 668 main/binary-amd64/Packages
+ dbfac222af10da32357311cab81cab6a 463 main/binary-amd64/Packages.gz
 SHA1:
- 5422a72bcc274381c9d90062f26c017f1aa2382f 668 main/binary-amd64/Packages
- cdb6dd440fb3ddd5dfb7c88960875797132c9fca 466 main/binary-amd64/Packages.gz
+ ccfa16f386aa70da51f580a34f771e0ac656c85d 668 main/binary-amd64/Packages
+ 51d4a3079f1de01c544546ee2b6bf6fab4e21753 463 main/binary-amd64/Packages.gz
 SHA256:
- 0c4aef2418928dc41960edb73d3bc49cf13d946d816a01d95300440f03388562 668 main/binary-amd64/Packages
- a5e18db937207c858101c67e62ea736855efce99d3dfeab70b6c8024a9aa1d8b 466 main/binary-amd64/Packages.gz
+ e5f2025c454de1255bfebdc4df7177c0e0da99e11ae96024c99d97c08e44db8e 668 main/binary-amd64/Packages
+ 36018f46893966395a9b9484dd74c4cea3a612205df1ce058ae1d2abbf076238 463 main/binary-amd64/Packages.gz
 SHA512:
- 11627dfd27a31cf8c716e4e51a6fab3d5df74e8f90458668bd982574cedc73a9245ee1264fc5a9e9d93f81adafd6029dcb48e5df0dfb97d139a0565185189cf1 668 main/binary-amd64/Packages
- 12c618ae73aa10877a41726f12996888bf15b1318d4e9f9537d3795e57e2dd893e5040e0b6854b65e653fa224be243993c248cc88b813cc34cccb8e0cb20392f 466 main/binary-amd64/Packages.gz
+ 552c256986a8d6b1d2e9fa8c361a429f9aa20d783293ddfc2068dfab52075fb0b683bfc2c1c88f392c0ac5420847c5dfd51758eb409b088e7ebec2f37bff9fca 668 main/binary-amd64/Packages
+ 8e7f745adb593c8e7529d279eae6e2ad262b079a93ad41a48be52fbdd073cdbe74920b6042628c496f8938590bcd8494dcb411dd38520540d2c20f7999e97b97 463 main/binary-amd64/Packages.gz

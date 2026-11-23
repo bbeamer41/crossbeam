@@ -12,6 +12,8 @@ Wants=network-online.target
 [Service]
 User=crossbeam
 Group=crossbeam
+# The identity file is a private key. Same umask as crossbeam.service.
+UMask=0077
 ExecStart=/opt/crossbeam-lxmf/bin/python /usr/local/bin/crossbeam-lxmf-ai --socket /run/crossbeam/ai.sock --storage /var/lib/crossbeam-lxmf-ai --name "K5LEB AI"
 Restart=on-failure
 RestartSec=10

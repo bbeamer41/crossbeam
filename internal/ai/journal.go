@@ -94,8 +94,27 @@ func (j *Journal) Add(e Entry) error {
 }
 
 // ReadLog returns the last n entries of the log in dir, oldest first.
+// n <= 0 returns every entry. The previous file, LogName + ".1", is
+// read first, so a rotation does not hide the entries just moved.
 func ReadLog(dir string, n int) ([]Entry, error) {
-	f, err := os.Open(filepath.Join(dir, LogName))
+	var out []Entry
+	for _, name := range []string{LogName + ".1", LogName} {
+		entries, err := readLogFile(filepath.Join(dir, name))
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range entries {
+			out = append(out, e)
+			if n > 0 && len(out) > n {
+				out = out[1:]
+			}
+		}
+	}
+	return out, nil
+}
+
+func readLogFile(path string) ([]Entry, error) {
+	f, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -112,9 +131,6 @@ func ReadLog(dir string, n int) ([]Entry, error) {
 			continue
 		}
 		out = append(out, e)
-		if n > 0 && len(out) > n {
-			out = out[1:]
-		}
 	}
 	return out, scan.Err()
 }

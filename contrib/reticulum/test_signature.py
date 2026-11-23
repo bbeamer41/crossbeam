@@ -4,6 +4,8 @@
 
 import importlib.machinery
 import importlib.util
+import os
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -17,6 +19,39 @@ def load_bridge():
     mod = importlib.util.module_from_spec(spec)
     loader.exec_module(mod)
     return mod
+
+
+class CommandTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.bridge = load_bridge()
+
+    def test_first_word_is_the_command(self):
+        ok = self.bridge.is_ai_command
+        self.assertTrue(ok("AI"))
+        self.assertTrue(ok("ai what is a repeater"))
+        self.assertTrue(ok("  AI   how fast is it?"))
+        self.assertFalse(ok("AIRPLANE"))
+        self.assertFalse(ok("AIDE"))
+        self.assertFalse(ok("AI,"))
+        self.assertFalse(ok("please AI"))
+        self.assertFalse(ok(""))
+        self.assertFalse(ok(None))
+
+    def test_private_write_uses_mode_0600(self):
+        def write(path):
+            with open(path, "wb") as handle:
+                handle.write(b"secret")
+
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "identity"
+            old = os.umask(0o022)
+            try:
+                self.bridge.store_private(path, write)
+                mode = path.stat().st_mode & 0o777
+            finally:
+                os.umask(old)
+        self.assertEqual(mode, 0o600)
 
 
 class SignatureTest(unittest.TestCase):

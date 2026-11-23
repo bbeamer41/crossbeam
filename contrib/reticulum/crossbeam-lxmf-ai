@@ -38,6 +38,39 @@ APP_NAME = "crossbeam-lxmf-ai"
 # the Reticulum packages installed.
 SIGNATURE_INVALID = 0x02
 
+# Crossbeam answers two questions at once and tells the next caller the
+# server is busy. Keep more workers than that so the extra caller reaches
+# Crossbeam and hears it, instead of waiting here and being answered
+# late. The cap still stops a burst from growing the queue without bound.
+BRIDGE_WORKERS = 8
+
+
+def is_ai_command(text):
+    """True when the first word is AI, the same rule as Crossbeam.
+
+    A word that only begins with those letters, such as AIRPLANE, is not
+    a command and is not sent to the socket.
+    """
+    if not isinstance(text, str):
+        return False
+    parts = text.split()
+    return bool(parts) and parts[0].upper() == "AI"
+
+
+def store_private(path, write):
+    """Run write(path) so the file is created mode 0600.
+
+    The writer may open the file with the process umask. A private key
+    must not be world-readable in that moment, so the umask is 077 for
+    the write and the mode is set again afterwards.
+    """
+    old = os.umask(0o077)
+    try:
+        write(path)
+    finally:
+        os.umask(old)
+    os.chmod(path, 0o600)
+
 
 def signature_accepted(signature_validated, unverified_reason, invalid_reason=SIGNATURE_INVALID):
     """True only when the sender's signature validates.
@@ -86,18 +119,24 @@ class Bridge:
         self.args = args
         self.reticulum = RNS.Reticulum(configdir=args.rnsconfig)
         os.makedirs(args.storage, mode=0o700, exist_ok=True)
+        try:
+            os.chmod(args.storage, 0o700)
+        except OSError as e:
+            log(f"could not set the storage directory mode: {e}")
         id_path = os.path.join(args.storage, "identity")
         if os.path.isfile(id_path):
             self.identity = RNS.Identity.from_file(id_path)
+            os.chmod(id_path, 0o600)
         else:
             self.identity = RNS.Identity()
-            self.identity.to_file(id_path)
-            os.chmod(id_path, 0o600)
+            store_private(id_path, self.identity.to_file)
         self.router = LXMF.LXMRouter(identity=self.identity, storagepath=args.storage)
         self.dest = self.router.register_delivery_identity(self.identity, display_name=args.name)
+        # The pool exists before the callback. A delivery can arrive as
+        # soon as the callback is registered.
+        self.room = threading.BoundedSemaphore(BRIDGE_WORKERS)
+        self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=BRIDGE_WORKERS)
         self.router.register_delivery_callback(self.received)
-        # Two at a time, the same as the Crossbeam server queue.
-        self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
         log(f"LXMF address {RNS.prettyhexrep(self.dest.hash)} as {args.name!r}")
 
     def announce_loop(self):
@@ -119,10 +158,24 @@ class Bridge:
             text = message.content_as_string() or ""
         except Exception:
             return
-        # Cheap check here; Crossbeam makes the real decision.
-        if not text.strip().upper().startswith("AI"):
+        # Same first-word rule as Crossbeam. Anything else is ignored
+        # here so it does not take a worker.
+        if not is_ai_command(text):
             return
-        self.pool.submit(self.answer, message.source_hash, text)
+        if not self.room.acquire(blocking=False):
+            log("dropped a message because the bridge is already busy")
+            return
+        try:
+            self.pool.submit(self.answer_limited, message.source_hash, text)
+        except RuntimeError:
+            self.room.release()
+            raise
+
+    def answer_limited(self, source_hash, text):
+        try:
+            self.answer(source_hash, text)
+        finally:
+            self.room.release()
 
     def recall(self, source_hash):
         ident = RNS.Identity.recall(source_hash)
