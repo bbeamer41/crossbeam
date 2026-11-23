@@ -2,9 +2,9 @@
 
 Crossbeam is a bulletin board for an amateur radio station, by K5LEB. You write a note once. A station that connects can read it. The same note can later become a NomadNet page.
 
-A Technician license is enough to begin. You can have a working board on this computer before you own a modem.
+A Technician license is enough to begin. You can have a working board on this computer before a radio is plugged in.
 
-This is not the Rust library of the same name. The license is GPL-3.0-or-later. See `LICENSE`. Changes are listed in `CHANGELOG.md`. This page describes version 0.10.3.
+This is not the Rust library of the same name. The license is GPL-3.0-or-later. See `LICENSE`. Changes are listed in `CHANGELOG.md`. This page describes version 0.10.4.
 
 ## Start here
 
@@ -20,14 +20,14 @@ The full list of guides is [docs/README.md](docs/README.md).
 
 ## Install
 
-The Debian package installs Crossbeam and leaves the rest of the system as it is. It does not start the service. The signing key and the password step are in [docs/install.md](docs/install.md).
+The Debian package installs Crossbeam and Graywolf on a 64-bit PC or on 64-bit Raspberry Pi OS. It does not start Crossbeam. Graywolf's service is enabled and stays stopped until you start it. The signing key and the password step are in [docs/install.md](docs/install.md).
 
 ```bash
 sudo apt update
 sudo apt install crossbeam
 ```
 
-A newer Crossbeam, by itself:
+A newer Crossbeam:
 
 ```bash
 sudo apt update
@@ -35,7 +35,7 @@ sudo apt install --only-upgrade crossbeam
 sudo systemctl restart crossbeam
 ```
 
-`sudo apt upgrade` also upgrades every other pending package. The package does not restart the service, so restart it yourself after that command.
+That upgrade also installs Graywolf when it is not already installed. `sudo apt upgrade` also upgrades every other pending package. The package does not restart Crossbeam, so restart it yourself after that command.
 
 ## What you can add later
 
@@ -86,7 +86,7 @@ Compose shows the packet bulletin and the NomadNet page for one article before y
 | MCP | `crossbeam mcp` serves the store over standard input and output. It can preview an article and report the panel address. It does not open a network port. |
 | Radio dial | The settings page can choose a plugged-in radio and set its frequency and mode. Hamlib does that. Graywolf still sends the audio and keys the transmitter. |
 
-Crossbeam does not modulate audio, and it does not start NomadNet or Graywolf. The radio stays quiet until the FCC lists both stations as active amateur licenses. 9600 baud is not a supported mode. The package installs `/usr/bin/crossbeam` and does not enable the service.
+Crossbeam does not modulate audio, and it does not start NomadNet or Graywolf. The package installs Graywolf beside it. The radio stays quiet until the FCC lists both stations as active amateur licenses. 9600 baud is not a supported mode. The package installs `/usr/bin/crossbeam` and does not enable the Crossbeam service.
 
 ## AI assistant
 

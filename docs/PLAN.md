@@ -45,4 +45,4 @@ Each goal starts after the one before it is demonstrated. Goal 9 waits. Goal 10 
 7. **Radio.** A KISS port aimed at Graywolf on 1200 baud AFSK. Graywolf's digipeater and iGate stay off on that channel.
 8. **Telnet and FBB TCP.** A cleartext telnet session to the station prompt, and a raw TCP session that carries the ASCII FBB bulletin exchange.
 9. **Later peers.** BPQ chat linking and a Winlink RMS gateway. Deferred while the program stays a BBS and a Reticulum bridge.
-10. **MCP and the Debian archive.** A local MCP server for the article store and NomadNet pages. A signed apt archive. `apt update` fetches it, `apt install crossbeam` installs it, and `apt upgrade` moves an installed package forward. The package does not enable the service.
+10. **MCP and the Debian archive.** A local MCP server for the article store and NomadNet pages. A signed apt archive for `amd64` and `arm64`. `apt update` fetches it, `apt install crossbeam` installs it and Graywolf, and `apt upgrade` moves an installed package forward. The package does not enable the Crossbeam service.

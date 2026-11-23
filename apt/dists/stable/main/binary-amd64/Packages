@@ -1,18 +1,32 @@
 Package: crossbeam
-Version: 0.10.3
+Version: 0.10.4
 Architecture: amd64
 Maintainer: K5LEB <75401887+bbeamer41@users.noreply.github.com>
 Installed-Size: 13996
-Depends: systemd, libhamlib-utils
-Filename: pool/main/crossbeam_0.10.3_amd64.deb
-Size: 6007914
-MD5sum: 2577f533de4900484e079c7e03620734
-SHA1: cefa51739c3b49d44228f87f38e842fb5be12a03
-SHA256: 6ea5b2deed7c6e4ffa7b394c08d53aa80292038febb0bfb3fba2225513bc7df8
+Depends: systemd, libhamlib-utils, graywolf (>= 0.14.14)
+Filename: pool/main/crossbeam_0.10.4_amd64.deb
+Size: 6008122
+MD5sum: b6acf48611b94d4b1451e96bbfc9c082
+SHA1: b91b653f87695e6f0ea17aaa8499f280685bde9b
+SHA256: c85a3384551ccb28de43ad25decee754caf9df46ba2014af9aa25f691145396e
 Section: hamradio
 Priority: optional
 Homepage: https://github.com/bbeamer41/crossbeam
 Description: packet-radio node and bulletin bridge
  Crossbeam stores one article and can post it as a packet bulletin
  and as a NomadNet page. The package does not enable the service.
+
+Package: graywolf
+Version: 0.14.14
+Architecture: amd64
+Maintainer: Chris Snell
+Installed-Size: 26279
+Filename: pool/main/graywolf_0.14.14_amd64.deb
+Size: 10497944
+MD5sum: 43aaf2f73c6800c2e9516de7e1a95a0a
+SHA1: fafe72e7677a5dd85a88d8b8ffff51aa7cb700a2
+SHA256: f074bec1c394f88d5b3132e851a91189bf811c826975f74476c3a6ab193874e9
+Priority: optional
+Homepage: https://github.com/chrissnell/graywolf
+Description: APRS radio transceiver, digipeater, and Internet gateway
 

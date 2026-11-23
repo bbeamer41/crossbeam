@@ -64,7 +64,7 @@ You cannot type those from the panel. The panel is where you write and edit. The
 
 ## Turn the radio on later
 
-The radio stays quiet until you set a modem. The supported modem is Graywolf, on 1200 baud, on the same computer. The setting is `kiss.tnc`, and the usual value is `127.0.0.1:6700`. Crossbeam does not start Graywolf. The hour that turns the radio on is `docs/graywolf.md`. The KISS port itself is `docs/radio.md`.
+The Crossbeam package already installed Graywolf. The radio stays quiet until you start Graywolf, give it a channel, and set `kiss.tnc`, usually to `127.0.0.1:6700`. The hour that turns the radio on is `docs/graywolf.md`. The KISS port itself is `docs/radio.md`.
 
 A transmission goes out only when the FCC lists both stations as active amateur licenses. A brand-new callsign has to be in that list first. Until then the board still works on this computer.
 

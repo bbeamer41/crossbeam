@@ -16,48 +16,66 @@ if [ -z "$version" ]; then
 	echo "version is missing" >&2
 	exit 1
 fi
-for cmd in dpkg-scanpackages dpkg-deb dpkg gpg gzip; do
+for cmd in dpkg-scanpackages dpkg-deb dpkg gpg gzip sha256sum; do
 	if ! command -v "$cmd" >/dev/null 2>&1; then
 		echo "$cmd is not installed" >&2
 		exit 1
 	fi
 done
-arch=$(dpkg --print-architecture)
-case "$arch" in
-amd64 | arm64) ;;
-*)
-	echo "unsupported architecture $arch" >&2
-	exit 1
-	;;
-esac
+
+gw=$root/packaging/graywolf
+(cd "$gw" && sha256sum -c SHA256SUMS >&2)
 
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
-deb=$(./packaging/build-deb.sh "$stage")
+
+# Build before the archive changes, so the binary records a clean commit.
+for arch in amd64 arm64; do
+	./packaging/build-deb.sh "$stage" "$arch" >/dev/null
+done
 
 pool=$aptroot/pool/main
 dist=$aptroot/dists/stable
-bindir=$dist/main/binary-$arch
 rm -rf "$dist/main"/binary-*
-mkdir -p "$pool" "$bindir"
+mkdir -p "$pool"
 find "$aptroot/pool" -name 'crossbeam_*.deb' -delete
-install -m 0644 "$deb" "$pool/crossbeam_${version}_${arch}.deb"
+find "$aptroot/pool" -name 'graywolf_*.deb' -delete
 
-(
-	cd "$aptroot"
-	dpkg-scanpackages --arch "$arch" pool >"$bindir/Packages"
-)
-gzip -n -c "$bindir/Packages" >"$bindir/Packages.gz"
+for arch in amd64 arm64; do
+	install -m 0644 "$stage/crossbeam_${version}_${arch}.deb" "$pool/crossbeam_${version}_${arch}.deb"
+	set -- "$gw"/graywolf_*_"$arch".deb
+	if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
+		echo "graywolf $arch package is missing" >&2
+		exit 1
+	fi
+	pkg=$(dpkg-deb -f "$1" Package)
+	gwver=$(dpkg-deb -f "$1" Version)
+	garch=$(dpkg-deb -f "$1" Architecture)
+	if [ "$pkg" != "graywolf" ] || [ "$gwver" != "0.14.14" ] || [ "$garch" != "$arch" ]; then
+		echo "graywolf $arch package is $pkg $gwver $garch" >&2
+		exit 1
+	fi
+	install -m 0644 "$1" "$pool/$(basename "$1")"
+	bindir=$dist/main/binary-$arch
+	mkdir -p "$bindir"
+	(
+		cd "$aptroot"
+		dpkg-scanpackages --arch "$arch" pool >"$bindir/Packages"
+	)
+	gzip -n -c "$bindir/Packages" >"$bindir/Packages.gz"
+done
 
 sums() {
 	name=$1
 	hashcmd=$2
 	echo "$name:"
-	for rel in "main/binary-$arch/Packages" "main/binary-$arch/Packages.gz"; do
-		file=$dist/$rel
-		hash=$("$hashcmd" "$file" | awk '{print $1}')
-		size=$(wc -c <"$file" | tr -d '[:space:]')
-		printf ' %s %s %s\n' "$hash" "$size" "$rel"
+	for arch in amd64 arm64; do
+		for rel in "main/binary-$arch/Packages" "main/binary-$arch/Packages.gz"; do
+			file=$dist/$rel
+			hash=$("$hashcmd" "$file" | awk '{print $1}')
+			size=$(wc -c <"$file" | tr -d '[:space:]')
+			printf ' %s %s %s\n' "$hash" "$size" "$rel"
+		done
 	done
 }
 
@@ -67,7 +85,7 @@ sums() {
 	echo "Suite: stable"
 	echo "Codename: stable"
 	echo "Date: $(LC_ALL=C date -u -R)"
-	echo "Architectures: $arch"
+	echo "Architectures: amd64 arm64"
 	echo "Components: main"
 	echo "Description: Crossbeam packet-radio node"
 	sums MD5Sum md5sum

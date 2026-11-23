@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.4
+
+- The apt archive is `amd64` and `arm64`. A 64-bit PC and 64-bit Raspberry Pi OS use the same install commands. There is no 32-bit package.
+- `apt install crossbeam` also installs Graywolf 0.14.14. Graywolf's service is enabled and stays stopped until you start it, and it has no channel yet, so the radio stays quiet. The steps are `docs/graywolf.md`. `kiss.tnc` stays empty until you save it.
+
 ## 0.10.3
 
 - Examples use `N0CALL` as a placeholder. The callsign box says to type the callsign on your license.

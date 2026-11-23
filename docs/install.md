@@ -1,16 +1,16 @@
 # Install
 
-This page puts Crossbeam on a Debian or Ubuntu computer and opens the panel. After you sign in, [start.md](start.md) is the next hour: save your callsign and write one bulletin. The radio can wait. That hour is [graywolf.md](graywolf.md).
+This page puts Crossbeam on a Debian, Ubuntu, or 64-bit Raspberry Pi OS computer and opens the panel. After you sign in, [start.md](start.md) is the next hour: save your callsign and write one bulletin. The radio can wait. That hour is [graywolf.md](graywolf.md).
 
-Crossbeam is one program. The package installs the panel. It does not install a modem, and it does not change any other packet service on the machine.
+The package installs Crossbeam and Graywolf. Graywolf is the modem. Its service is enabled and stays stopped until you start it, and it has no radio channel yet, so it does not key a transmitter. Crossbeam's own service stays off until you set a password and start it. The package does not change any other packet service on the machine.
 
-The archive is amd64.
+The archive is `amd64` and `arm64`. A 64-bit PC uses `amd64`. A Raspberry Pi running 64-bit Raspberry Pi OS uses `arm64`. This archive has no 32-bit package. Use the 64-bit image.
 
 | Command | What it does |
 | --- | --- |
 | `apt update` | Reads the archive |
-| `apt install crossbeam` | Installs Crossbeam and leaves the rest of the system as it is |
-| `apt install --only-upgrade crossbeam` | Installs a newer Crossbeam the same way |
+| `apt install crossbeam` | Installs Crossbeam and Graywolf |
+| `apt install --only-upgrade crossbeam` | Installs a newer Crossbeam, and installs Graywolf when it is missing |
 | `apt upgrade` | Installs a newer Crossbeam and also upgrades every other pending package |
 
 ## Package
@@ -43,7 +43,11 @@ The package does four things, and then it stops:
 - It installs `/usr/lib/systemd/system/crossbeam.service`.
 - It does not enable the service, and it does not start it.
 
-Set the sysop password before you start it.
+Installing it also installs Graywolf 0.14.14, the modem. Graywolf's package enables `graywolf.service` and does not start it. Start that service when you are ready for the radio hour. Its page is port 8080 on this computer. Set a password on the first visit. The page is reachable from other computers on your network until you do.
+
+Graywolf's source for this version is <https://github.com/chrissnell/graywolf/archive/refs/tags/v0.14.14.tar.gz>. Its license is GPL-2.0. Crossbeam stays GPL-3.0-or-later. The two programs stay separate.
+
+Set the sysop password before you start Crossbeam.
 
 Removing the package leaves the state directory in place. Purging the package removes the `crossbeam` user and group and still leaves that directory. Installing the package again gives that directory, and the files inside it, to the new `crossbeam` user. Copy `/var/lib/crossbeam` first if you want to keep the database, the TLS key, and the settings, and put that copy back before the service starts. After a purge, add each operator to the new `crossbeam` group again. The package does not remember who was in the old group.
 
@@ -121,7 +125,7 @@ crossbeam connect W1AW-1 --socket /run/crossbeam/terminal.sock
 
 ## Radio
 
-The radio stays off until `kiss.tnc` is set. Crossbeam dials a KISS TNC. It does not modulate audio and it does not start the modem. Graywolf in modem mode is the supported TNC, on 1200 baud AFSK, with its digipeater and iGate off. The usual address on the same machine is `127.0.0.1:6700`. The radio stays quiet until the FCC lists this station and the other station as active amateur licenses. The rest of the node still runs when that check cannot be made. The hour that turns Graywolf on is `docs/graywolf.md`. The KISS port itself is `docs/radio.md`.
+The radio stays off until `kiss.tnc` is set. Crossbeam dials a KISS TNC. It does not modulate audio. Graywolf is already installed. Start it, give it a 1200 baud AFSK channel in modem mode, turn connected mode on, and leave its digipeater and iGate off. The usual address on the same machine is `127.0.0.1:6700`. The radio stays quiet until the FCC lists this station and the other station as active amateur licenses. The rest of the node still runs when that check cannot be made. The hour that turns Graywolf on is `docs/graywolf.md`. The KISS port itself is `docs/radio.md`.
 
 The package depends on `libhamlib-utils`. Plug the radio in, then choose its model, the USB port under `/dev/serial/by-id`, the frequency in MHz, and the mode. Saving those settings tunes the radio. An empty `radio.model` leaves the radio alone. Graywolf still sends the audio and keys the transmitter. The package adds the `crossbeam` user to the `dialout` group when that group exists. The group applies the next time the service starts.
 

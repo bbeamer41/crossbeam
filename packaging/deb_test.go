@@ -35,7 +35,7 @@ func TestPackageBuilds(t *testing.T) {
 	if !strings.Contains(info, "Version: "+version.String) || !strings.Contains(info, "Architecture: "+arch(t)) {
 		t.Fatalf("control %s", info)
 	}
-	if !strings.Contains(info, "Depends: systemd, libhamlib-utils") {
+	if !strings.Contains(info, "Depends: systemd, libhamlib-utils, graywolf (>= 0.14.14)") {
 		t.Fatalf("depends %s", info)
 	}
 	if !installedSize(info) {

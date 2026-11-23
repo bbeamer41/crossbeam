@@ -2,19 +2,27 @@ Origin: Crossbeam
 Label: Crossbeam
 Suite: stable
 Codename: stable
-Date: Mon, 23 Nov 2026 14:44:51 +0000
-Architectures: amd64
+Date: Mon, 23 Nov 2026 15:55:54 +0000
+Architectures: amd64 arm64
 Components: main
 Description: Crossbeam packet-radio node
 MD5Sum:
- 457caf23c73bc087c4050f2de26ab942 668 main/binary-amd64/Packages
- 1dbb488d585669f97266a8b58831a976 465 main/binary-amd64/Packages.gz
+ fb930ef818ea3ca7286a5b35c8b27063 1154 main/binary-amd64/Packages
+ 4784f54fe4c41b00621be69b15a95e0b 679 main/binary-amd64/Packages.gz
+ 37e12dcd64b3b2d614e115980a2afb8e 1153 main/binary-arm64/Packages
+ 9a11bd98bda03876afd2ad341ffdbab0 674 main/binary-arm64/Packages.gz
 SHA1:
- fecf0c3c7cf0b655487aee7c8d3a6a02b806c3f8 668 main/binary-amd64/Packages
- 286a24ab0e518a79717bc6498b9a169ddc13c695 465 main/binary-amd64/Packages.gz
+ 442cc1b413d64fbe39f22db1c4cbf782087df779 1154 main/binary-amd64/Packages
+ f459b297d312cb2f5f9d0a1a159ca9f282b3dc9b 679 main/binary-amd64/Packages.gz
+ 6aea10b92063b0afc9a4aee9d8bbf1a19f15e145 1153 main/binary-arm64/Packages
+ 8754188d5ae5768860527e31b4f7c09f3dc4bc41 674 main/binary-arm64/Packages.gz
 SHA256:
- 78e05df11c456fa99bb3629d788519c2468db68d70730be59af552dd074d6c50 668 main/binary-amd64/Packages
- d6c7386b8f5f352e1be2e021c69713703e83a48a9b295da03b8d7df25f2f8c3f 465 main/binary-amd64/Packages.gz
+ de37d8e6db3441ece061313ca1e1202756f966f14ea801397956790677a0341f 1154 main/binary-amd64/Packages
+ 9a295fc172b424706cd77659485237c770af3a2a02f2e3cf880f68a346d284b4 679 main/binary-amd64/Packages.gz
+ 90aaa000dce67a27891feda3a6d5b6f94ba888b320e3f72aa5e99e05294b8eea 1153 main/binary-arm64/Packages
+ c9cce03114bf2e37def0f530d5b158e76e1472adaba8243ea1d2da3ca0432b1d 674 main/binary-arm64/Packages.gz
 SHA512:
- 3f1852b3fd77651e4d86766642db5b5b4fcd0aa0e8023d8c10ec6a16f191ca70b29ce68da25c5641a46955f43eafa505b3f454b85b37618f452055ad9ff3d471 668 main/binary-amd64/Packages
- 1eca666fd46b6be1115fcd6d378c26c206f06b55a37a406356a00ee4103757aba5b7bcc3ac0f5b41cf5c0aef93f1f7813140c4cd1314f12a92a83172020b6e93 465 main/binary-amd64/Packages.gz
+ 0751c8148f8a686839dcc02eef87e5e6ba8093a7868d3835456e95f24aeb55a99e3182d4ad77823b8247107296de24358d05a986db4153f2b6359d0ccbc7ebcb 1154 main/binary-amd64/Packages
+ 353198d8a06364aea94f527c8f11e4fa1b642d27acbddcce70f6fb9d5475d0303860cf656f8a6a51d274cf744f155a0feaa7e2c8848051de5ccd9f1c46b478e1 679 main/binary-amd64/Packages.gz
+ ccb36ce4709e391985a330cab2ad939c483ea08d6a25c6f8361890d35fca1abe2025170ef989b4bbefecfe38214767adfada4e4928f2f9ee0551c01420a98593 1153 main/binary-arm64/Packages
+ e7530364fa6acc0293aff69380e77ac312e78bbee9782456ec661843490e4f090a85857f7783547d689f94d076f4ef15c75012f55460ad10bfe3a81028b71a5e 674 main/binary-arm64/Packages.gz

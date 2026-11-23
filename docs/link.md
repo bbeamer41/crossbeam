@@ -37,7 +37,7 @@ With the systemd layout the terminal socket is `/run/crossbeam/terminal.sock`. T
 The prompt from a Crossbeam node looks like this:
 
 ```text
-[CROSSBEAM-0.10.3-FHM$]
+[CROSSBEAM-0.10.4-FHM$]
 Crossbeam N0CALL
 N0CALL>
 ```
